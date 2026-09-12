@@ -980,7 +980,11 @@ export class BrowserHost {
   ): Promise<unknown> {
     assertDevtoolsIdle(tab.devtoolsOpen);
     assertAllowedCdpMethod(method);
-    return this.cdp(tab, method, params);
+    const result = await this.cdp(tab, method, params);
+    if (result === undefined) {
+      throw new Error(`CDP method ${method} returned no result`);
+    }
+    return result;
   }
 
   /**

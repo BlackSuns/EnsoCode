@@ -83,6 +83,27 @@ describe('createBrowserTools', () => {
     expect(out.content[0]).toEqual({ type: 'image', data: 'AAAA', mimeType: 'image/png' });
   });
 
+  it('undefined 工具结果仍写出 text 字符串，避免 jsonl 落成无 text 的 {type:text}', async () => {
+    const emit = vi.fn();
+    const invoker = new BrowserInvoker(identity, emit);
+    const tools = createBrowserTools(invoker);
+    const cdp = tools.find((tool) => tool.name === 'browser_cdp')!;
+    const pending = cdp.execute(
+      'c1',
+      { method: 'Network.enable' },
+      undefined,
+      undefined,
+      undefined as never
+    );
+    invoker.resolve({
+      requestId: emit.mock.calls[0]?.[0]?.requestId as string,
+      ok: true,
+      result: undefined,
+    });
+    const out = await pending;
+    expect(out.content[0]).toEqual({ type: 'text', text: '' });
+  });
+
   it('browser_tabs 把 action/index 传给 invoke', async () => {
     const emit = vi.fn();
     const invoker = new BrowserInvoker(identity, emit);

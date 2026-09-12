@@ -97,10 +97,19 @@ const requireStr = (params: Params, key: string): string => {
   return value;
 };
 
+function encodeToolText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === undefined) return '';
+  try {
+    const encoded = JSON.stringify(value);
+    return typeof encoded === 'string' ? encoded : '';
+  } catch {
+    return String(value);
+  }
+}
+
 const textResult = (value: unknown) => ({
-  content: [
-    { type: 'text' as const, text: typeof value === 'string' ? value : JSON.stringify(value) },
-  ],
+  content: [{ type: 'text' as const, text: encodeToolText(value) }],
   details: undefined,
 });
 
