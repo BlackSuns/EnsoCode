@@ -18,7 +18,7 @@
 electron-builder 会自动把 `.node` 放到 `app.asar.unpacked`，各 OS 的 CI 各自安装自己平台的二进制（与 `@mariozechner/clipboard` 同模式）。
 验证打包产物时用 `ELECTRON_RUN_AS_NODE=1 <App>/Contents/MacOS/<App> script.cjs` 从 `app.asar` require，而不是系统 node（ABI 不同）。
 
-`node-llama-cpp` 的平台预编译（CPU / Metal / CUDA / Vulkan / cuda-ext）都不要打进安装包。首次 `loadLlama` 时 `ensureGpuBackend` 按当前平台和 GPU 从 npm 拉一份到 `userData/llama-gpu-backends`；cuda-ext 仍不下载。排除 glob 以 `electron-builder.yml` 与 `ELECTRON_BUILDER_GPU_EXCLUDES` 为准。
+`node-llama-cpp` 的平台预编译（CPU / Metal / CUDA / Vulkan / cuda-ext）都不要打进安装包。首次 `loadLlama` 时 `ensureGpuBackend` 按当前平台和 GPU 从 npm 拉一份到 `userData/llama-gpu-backends`；cuda-ext 仍不下载。排除 glob 以 `electron-builder.yml` 与 `ELECTRON_BUILDER_GPU_EXCLUDES` 为准。读它的版本必须走已解析入口旁的 `package.json` 文件，不要 `require('node-llama-cpp/package.json')`：该包 `exports` 不含这个子路径，打包后首次下载会整段中断，随后 `getLlama({ build: 'never' })` 抛 `NoBinaryFoundError`。
 
 ## 只读打开
 

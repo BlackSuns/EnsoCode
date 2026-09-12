@@ -71,9 +71,11 @@ let llamaPromise: Promise<LlamaLike> | null = null;
 /** 进程内单例：Llama 实例持有 GPU 上下文，重复创建会浪费显存 */
 export async function loadLlama(): Promise<LlamaLike> {
   llamaPromise ??= (async () => {
+    let backendError: unknown;
     try {
       const { ensureGpuBackend } = await import('./gpuBackendInstall');
       await ensureGpuBackend().catch((err: unknown) => {
+        backendError = err;
         console.warn('[llama] GPU backend unavailable, using CPU:', err);
       });
       const mod = await import('node-llama-cpp');
@@ -81,7 +83,7 @@ export async function loadLlama(): Promise<LlamaLike> {
       return (await mod.getLlama({ build: 'never', progressLogs: false })) as unknown as LlamaLike;
     } catch (cause) {
       llamaPromise = null;
-      throw new LlamaUnavailableError(cause);
+      throw new LlamaUnavailableError(backendError ?? cause);
     }
   })();
   return llamaPromise;

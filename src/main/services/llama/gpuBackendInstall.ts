@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { createRequire, register } from 'node:module';
+import { createRequire, registerHooks } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -13,19 +13,6 @@ import {
 } from './gpuBackend';
 
 const require = createRequire(import.meta.url);
-
-const HOOK_SOURCE = `let packages = {};
-export function initialize(data) {
-  packages = data?.packages ?? {};
-}
-export async function resolve(specifier, context, nextResolve) {
-  const target = packages[specifier];
-  if (typeof target === 'string') {
-    return { url: target, shortCircuit: true };
-  }
-  return nextResolve(specifier, context);
-}
-`;
 
 let hookRegistered = false;
 
@@ -84,7 +71,15 @@ export async function ensureGpuBackend(
 }
 
 export function llamaCppVersion(): string {
-  return require('node-llama-cpp/package.json').version as string;
+  // exports 不含 ./package.json，require('node-llama-cpp/package.json') 会
+  // ERR_PACKAGE_PATH_NOT_EXPORTED，打包后首次下载整段中断。
+  const entry = require.resolve('node-llama-cpp');
+  const pkgPath = path.join(path.dirname(entry), '..', 'package.json');
+  const version = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { version?: unknown }).version;
+  if (typeof version !== 'string' || !/^\d+\.\d+\.\d+/.test(version)) {
+    throw new Error(`node-llama-cpp package.json missing version: ${pkgPath}`);
+  }
+  return version;
 }
 
 export function hasPackagedAddon(name: string): boolean {
@@ -132,10 +127,13 @@ function registerGpuPackage(name: string, dest: string): void {
   if (hookRegistered) return;
   const index = path.join(dest, 'dist', 'index.js');
   if (!fs.existsSync(index)) return;
-  const hookPath = path.join(path.dirname(dest), 'resolve-hook.mjs');
-  fs.writeFileSync(hookPath, HOOK_SOURCE);
-  register(pathToFileURL(hookPath).href, {
-    data: { packages: { [name]: pathToFileURL(index).href } },
+  // register() 进 worker，同一次 loadLlama 里 getLlama 可能还看不到包。
+  const url = pathToFileURL(index).href;
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === name) return { url, shortCircuit: true };
+      return nextResolve(specifier, context);
+    },
   });
   hookRegistered = true;
 }

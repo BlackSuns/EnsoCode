@@ -5,7 +5,7 @@ import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isGpuBackendReady } from './gpuBackend';
-import { ensureGpuBackend, hasPackagedAddon } from './gpuBackendInstall';
+import { ensureGpuBackend, hasPackagedAddon, llamaCppVersion } from './gpuBackendInstall';
 
 let dir: string;
 beforeEach(() => {
@@ -154,9 +154,32 @@ describe('ensureGpuBackend', () => {
   });
 });
 
+describe('llamaCppVersion', () => {
+  it('reads the installed version without importing node-llama-cpp/package.json', () => {
+    expect(llamaCppVersion()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+});
+
 describe('hasPackagedAddon', () => {
   it('returns false for a package that is not installed', () => {
     expect(hasPackagedAddon('@node-llama-cpp/does-not-exist-gpu')).toBe(false);
+  });
+});
+
+describe('ensureGpuBackend version lookup', () => {
+  it('still downloads when opts.version is omitted', async () => {
+    const fetchImpl = vi.fn(async () => new Response('nope', { status: 404 }));
+    await expect(
+      ensureGpuBackend({
+        platform: 'linux',
+        arch: 'x64',
+        root: dir,
+        detectGpus: async () => [false],
+        hasPackagedAddon: () => false,
+        fetch: fetchImpl as unknown as typeof fetch,
+      })
+    ).rejects.toThrow(/gpu backend packument HTTP 404/);
+    expect(fetchImpl).toHaveBeenCalled();
   });
 });
 
