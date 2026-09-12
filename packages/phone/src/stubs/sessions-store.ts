@@ -30,6 +30,10 @@ export interface Conversation {
   messages: ProjectedMessage[];
   activeTabId?: string;
   queuedMessages?: QueuedMessage[];
+  /** TimelineRow / sidePanelDock 读取；手机无侧栏工程，空串即可 */
+  projectId: string;
+  parentId?: string;
+  historyOnly?: boolean;
 }
 
 /** 队列 / 目标操作：真正状态在桌面 renderer store，手机只发命令，由 App 注入 */
@@ -48,6 +52,8 @@ export interface QueueActions {
 type SessionsSlice = {
   activeId: string | null;
   conversations: Record<string, Conversation>;
+  /** TimelineRow ForkButton 读取；手机 ChatHost.canFork=false，保持 no-op */
+  forkFromMessage(conversationId: string, userIndexFromEnd: number): Promise<string | null>;
 } & QueueActions;
 
 const state: SessionsSlice = {
@@ -55,6 +61,7 @@ const state: SessionsSlice = {
   conversations: {},
   rewind: () => {},
   retry: () => {},
+  forkFromMessage: async () => null,
   removeQueuedMessage: () => {},
   updateQueuedMessage: () => {},
   sendQueuedNow: () => {},

@@ -25,6 +25,8 @@ interface SettingsSlice {
   compactReadOnlyTools: boolean;
   /** 桌面下发（appearance 帧）；缺省按开 */
   expandLiveEdits: boolean;
+  /** Composer 切模型快捷键；手机不覆盖，走桌面默认 */
+  keybindings: Record<string, string>;
 }
 
 let state: SettingsSlice = {
@@ -42,6 +44,7 @@ let state: SettingsSlice = {
   loadLocalSkills: true,
   compactReadOnlyTools: true,
   expandLiveEdits: true,
+  keybindings: {},
 };
 
 type Listener = (state: SettingsSlice, prev: SettingsSlice) => void;

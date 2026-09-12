@@ -11,6 +11,8 @@ import { translate } from '@shared/i18n';
 const locale: 'zh' | 'en' =
   typeof navigator !== 'undefined' && navigator.language.startsWith('zh') ? 'zh' : 'en';
 
+export type TFunction = (key: string, params?: Record<string, string | number>) => string;
+
 function t(key: string, params?: Record<string, string | number>) {
   return translate(locale, key, params);
 }

@@ -99,6 +99,7 @@ export function ChatScreen(props: Props) {
     sessionId
       ? {
           id: sessionId,
+          projectId: '',
           status: view?.status ?? 'idle',
           started,
           spawning: false,
