@@ -38,10 +38,30 @@ export function networkFingerprint(nics: NetworkInterfaceSnapshot): string {
   return rows.join(';');
 }
 
-/** 链路已死但 close 不来时：网络切换 / 重新上线拆旧 socket，睡眠与回前台只 ping。 */
-export function shouldReplaceOnNudge(reason: NudgeReason, hasSocket: boolean): boolean {
+/**
+ * 链路已死但 close 不来时：网络切换 / 重新上线拆旧 socket。
+ * readyState 不是 OPEN（卡住的 CONNECTING / CLOSING / CLOSED）也拆：
+ * 回前台只 ping 救不了从未 open 的半开链。
+ */
+export function shouldReplaceOnNudge(
+  reason: NudgeReason,
+  hasSocket: boolean,
+  readyState: number | null = null
+): boolean {
   if (!hasSocket) return true;
+  if (readyState !== null && readyState !== 1) return true;
   return reason === 'network-change' || reason === 'online';
+}
+
+export const RELAY_CONNECT_TIMEOUT_MS = 8_000;
+
+/** CONNECTING 超过超时仍未 OPEN：拆掉走重连，避免手机网卡住一直转圈 */
+export function isConnectStuck(
+  readyState: number,
+  elapsedMs: number,
+  timeoutMs = RELAY_CONNECT_TIMEOUT_MS
+): boolean {
+  return readyState === 0 && elapsedMs >= timeoutMs;
 }
 
 export function isMagicDnsOnly(nameservers: readonly string[]): boolean {

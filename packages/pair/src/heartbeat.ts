@@ -6,12 +6,12 @@
  * 调用方不能只 ws.close() 干等）。
  */
 
-const HEARTBEAT_INTERVAL_MS = 25_000;
-const HEARTBEAT_TIMEOUT_MS = 10_000;
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const HEARTBEAT_TIMEOUT_MS = 8_000;
 
 export interface Heartbeat {
   /** 立即探测一次（回前台/睡眠唤醒/网络恢复时用），不等下个周期 */
-  probe(): void;
+  probe(timeoutMs?: number): void;
   stop(): void;
 }
 
@@ -21,15 +21,19 @@ export function attachHeartbeat(ws: WebSocket, onDead: () => void): Heartbeat {
     if (deadline) clearTimeout(deadline);
     deadline = null;
   };
-  const probe = (): void => {
+  const probe = (timeoutMs = HEARTBEAT_TIMEOUT_MS): void => {
     if (ws.readyState !== 1) return;
     try {
       ws.send('ping');
     } catch {}
-    deadline ??= setTimeout(onDead, HEARTBEAT_TIMEOUT_MS);
+    if (deadline) clearTimeout(deadline);
+    deadline = setTimeout(onDead, timeoutMs);
   };
   // 收到任何消息（含 pong、业务帧）都算存活
   ws.addEventListener('message', alive);
+  const onOpen = (): void => probe();
+  ws.addEventListener('open', onOpen);
+  if (ws.readyState === 1) probe();
   const timer = setInterval(probe, HEARTBEAT_INTERVAL_MS);
   return {
     probe,
@@ -37,6 +41,7 @@ export function attachHeartbeat(ws: WebSocket, onDead: () => void): Heartbeat {
       clearInterval(timer);
       alive();
       ws.removeEventListener('message', alive);
+      ws.removeEventListener('open', onOpen);
     },
   };
 }

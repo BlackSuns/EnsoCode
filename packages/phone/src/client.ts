@@ -9,6 +9,7 @@ import {
   fromBase64Url,
   type Heartbeat,
   type HostToPhone,
+  isConnectStuck,
   type NudgeReason,
   openFrame,
   type PairedDevice,
@@ -16,6 +17,7 @@ import {
   type ProjectEntry,
   type ProjectGroupEntry,
   type ProviderEntry,
+  RELAY_CONNECT_TIMEOUT_MS,
   sealFrame,
   shouldReplaceOnNudge,
   toWebSocketUrl,
@@ -136,9 +138,11 @@ export class PairClient {
 
     // 半开死链的 close 事件可能永不到达：心跳判死后直接走关闭路径，幂等防双跑
     let settled = false;
+    let connectTimer: ReturnType<typeof setTimeout> | undefined;
     const closed = (code: number | null): void => {
       if (settled) return;
       settled = true;
+      if (connectTimer) clearTimeout(connectTimer);
       this.heartbeat?.stop();
       this.heartbeat = null;
       this.ws = null;
@@ -159,8 +163,17 @@ export class PairClient {
       } catch {}
       closed(null);
     });
+    connectTimer = setTimeout(() => {
+      if (isConnectStuck(ws.readyState, RELAY_CONNECT_TIMEOUT_MS)) {
+        try {
+          ws.close();
+        } catch {}
+        closed(null);
+      }
+    }, RELAY_CONNECT_TIMEOUT_MS);
 
     ws.onopen = () => {
+      clearTimeout(connectTimer);
       this.attempt = 0;
       // 进房后立即要目录；有订阅则带游标续传
       this.send({ type: 'snapshot' });
@@ -205,7 +218,7 @@ export class PairClient {
     if (this.closed || this.revoked) return;
     // 网络换了：直连的候选地址已失效，拆掉立即重协商（先落回中继）
     if (reason === 'online' || reason === 'network-change') this.direct.networkChange();
-    if (shouldReplaceOnNudge(reason, this.ws !== null)) {
+    if (shouldReplaceOnNudge(reason, this.ws !== null, this.ws?.readyState ?? null)) {
       if (this.timer) clearTimeout(this.timer);
       this.timer = null;
       this.attempt = 0;
@@ -218,7 +231,7 @@ export class PairClient {
       }
       return;
     }
-    this.heartbeat?.probe();
+    this.heartbeat?.probe(reason === 'visibility' || reason === 'resume' ? 3_000 : undefined);
   }
 
   close(): void {

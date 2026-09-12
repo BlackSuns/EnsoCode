@@ -91,6 +91,7 @@ export {
 } from './relay';
 export {
   createCachedHostLookup,
+  isConnectStuck,
   isMagicDnsOnly,
   type NetworkInterfaceSnapshot,
   type NudgeReason,
@@ -100,6 +101,7 @@ export {
   parseResolvConfNameservers,
   parseScutilGlobalNameservers,
   pickRelayConnectAddress,
+  RELAY_CONNECT_TIMEOUT_MS,
   type RelayHostAddress,
   serializeRelayHostCache,
   shouldReplaceOnNudge,

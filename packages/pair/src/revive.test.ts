@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createCachedHostLookup,
+  isConnectStuck,
   isMagicDnsOnly,
   networkFingerprint,
   parseLiteralHost,
@@ -55,6 +56,22 @@ describe('shouldReplaceOnNudge', () => {
     expect(shouldReplaceOnNudge('online', true)).toBe(true);
     expect(shouldReplaceOnNudge('resume', true)).toBe(false);
     expect(shouldReplaceOnNudge('visibility', true)).toBe(false);
+  });
+
+  it('socket 不是 OPEN（卡住的 CONNECTING / CLOSING / CLOSED）一律拆掉重连', () => {
+    expect(shouldReplaceOnNudge('visibility', true, 0)).toBe(true);
+    expect(shouldReplaceOnNudge('visibility', true, 2)).toBe(true);
+    expect(shouldReplaceOnNudge('visibility', true, 3)).toBe(true);
+    expect(shouldReplaceOnNudge('visibility', true, 1)).toBe(false);
+    expect(shouldReplaceOnNudge('resume', true, 1)).toBe(false);
+  });
+});
+
+describe('isConnectStuck', () => {
+  it('CONNECTING 超过超时才算卡住', () => {
+    expect(isConnectStuck(0, 7_999, 8_000)).toBe(false);
+    expect(isConnectStuck(0, 8_000, 8_000)).toBe(true);
+    expect(isConnectStuck(1, 30_000, 8_000)).toBe(false);
   });
 });
 

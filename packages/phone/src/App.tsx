@@ -207,11 +207,24 @@ export function App() {
         client.send({ type: 'presence', visible: true });
       }
     };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (document.visibilityState !== 'visible') return;
+      // bfcache 回来的 socket 几乎一定是半开，当网络恢复拆掉
+      client.nudge(event.persisted ? 'online' : 'visibility');
+      client.send({ type: 'presence', visible: true });
+    };
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') client.nudge('visibility');
+    };
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('online', onOnline);
+    window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('focus', onFocus);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('online', onOnline);
+      window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('focus', onFocus);
       client.close();
       clientRef.current = null;
     };

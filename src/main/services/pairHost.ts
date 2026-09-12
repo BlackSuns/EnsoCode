@@ -281,7 +281,7 @@ function reviveAll(reason: 'resume' | 'network-change'): void {
   for (const conn of connections.values()) {
     if (conn.closed) continue;
     if (reason === 'network-change') conn.direct.networkChange();
-    if (shouldReplaceOnNudge(reason, conn.ws !== null)) {
+    if (shouldReplaceOnNudge(reason, conn.ws !== null, conn.ws?.readyState ?? null)) {
       if (conn.timer) clearTimeout(conn.timer);
       conn.attempt = 0;
       if (conn.ws) {
