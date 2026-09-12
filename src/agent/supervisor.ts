@@ -113,7 +113,7 @@ import { applyHashlineSessionTools } from './hashline/sessionTools';
 import { InMemorySnapshotStore } from './hashline/snapshots';
 import { wrapHashlineEditDefinition } from './hashline/tools';
 import { withHashlineWrite } from './hashline/withWrite';
-import { type ContextMessage, pruneHistoricalImages } from './imageContext';
+import { type ContextMessage, sanitizeContextMessages } from './imageContext';
 import { createIsolatedSandboxTool } from './isolatedSandbox';
 import { McpManager } from './mcp';
 import { createMessageCoworkerTool } from './messageCoworker';
@@ -331,7 +331,7 @@ function createSessionResourceLoader(options: {
         hidden: true,
         factory: (pi) => {
           pi.on('context', (event) => ({
-            messages: pruneHistoricalImages(
+            messages: sanitizeContextMessages(
               event.messages as unknown as ContextMessage[]
             ) as unknown as typeof event.messages,
           }));

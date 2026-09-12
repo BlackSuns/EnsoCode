@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { type ContextMessage, pruneHistoricalImages } from './imageContext';
+import {
+  type ContextMessage,
+  pruneHistoricalImages,
+  sanitizeContextMessages,
+} from './imageContext';
 
 const img = (data = 'AAAA', mimeType = 'image/png') => ({ type: 'image', data, mimeType });
 const text = (t: string) => ({ type: 'text', text: t });
@@ -103,5 +107,41 @@ describe('pruneHistoricalImages', () => {
       user(text('now')),
     ];
     expect(pruneHistoricalImages(messages)).toBe(messages);
+  });
+});
+
+describe('sanitizeContextMessages', () => {
+  it('signed thinking 后直接 toolCall、没有 text 时补空 text，避免后续轮次 TypeError', () => {
+    const thinking = {
+      type: 'thinking',
+      thinking: 'wait',
+      thinkingSignature: '{"id":"rs_1","type":"reasoning"}',
+    };
+    const call = { type: 'toolCall', id: 'c1', name: 'browser_cdp', arguments: {} };
+    const messages: ContextMessage[] = [
+      user(text('go')),
+      { role: 'assistant', content: [thinking, call] },
+      toolResult('c1', 'browser_cdp', { type: 'text' }),
+    ];
+    const out = sanitizeContextMessages(messages);
+    expect(out[1]?.content).toEqual([thinking, { type: 'text', text: '' }, call]);
+    const resultParts = Array.isArray(out[2]?.content) ? out[2].content : [];
+    expect((resultParts[0] as { text?: string } | undefined)?.text).toBe('');
+  });
+
+  it('已有 text 的 assistant 和完整 toolResult 不改写', () => {
+    const messages: ContextMessage[] = [
+      user(text('go')),
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'ok', thinkingSignature: '{}' },
+          text('hi'),
+          { type: 'toolCall', id: 'c1', name: 'ls', arguments: {} },
+        ],
+      },
+      toolResult('c1', 'ls', text('(empty)')),
+    ];
+    expect(sanitizeContextMessages(messages)).toBe(messages);
   });
 });
