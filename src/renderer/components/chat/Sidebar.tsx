@@ -1026,7 +1026,9 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                         {visibleConversations.slice(0, shownCount).map((id) => (
                                           <motion.div
                                             key={id}
-                                            layout="position"
+                                            layout={
+                                              dragPayload?.type === 'project' ? false : 'position'
+                                            }
                                             transition={springStandard}
                                           >
                                             <DraggableChat id={id} conversation={conversations[id]}>
@@ -1529,25 +1531,29 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
       {createPortal(
         <DragOverlay dropAnimation={null}>
           {/* 只认侧栏自己的 payload:同一 DndContext 里其它区域(如右侧面板 tab)的拖拽不在这里预览 */}
-          {(dragPayload?.type === 'project' ||
-            dragPayload?.type === 'chat' ||
-            dragPayload?.type === 'workspace-file') && (
-            <div className="flex w-56 items-center gap-2 rounded-lg border bg-background/95 px-3 py-1.5 text-sm shadow-md">
-              {dragPayload.type === 'project' ? (
-                <FolderGit2 className="size-4 shrink-0 text-muted-foreground" />
-              ) : dragPayload.type === 'workspace-file' ? (
-                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-              ) : (
-                <Pin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              )}
-              <span className="min-w-0 flex-1 truncate">
-                {dragPayload.type === 'project'
-                  ? dragPayload.name
-                  : dragPayload.type === 'workspace-file'
+          {dragPayload?.type === 'project' ? (
+            <ProjectDragPreview
+              projectId={dragPayload.projectId}
+              name={projectDragPreviewName(projects, dragPayload.projectId, dragPayload.name)}
+              folded={collapsedProjects[dragPayload.projectId] === true}
+              revealedExtra={revealedExtras[dragPayload.projectId] ?? 0}
+              width={width}
+            />
+          ) : (
+            (dragPayload?.type === 'chat' || dragPayload?.type === 'workspace-file') && (
+              <div className="flex w-56 items-center gap-2 rounded-lg border bg-background/95 px-3 py-1.5 text-sm shadow-md">
+                {dragPayload.type === 'workspace-file' ? (
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <Pin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                )}
+                <span className="min-w-0 flex-1 truncate">
+                  {dragPayload.type === 'workspace-file'
                     ? dragPayload.name
                     : dragPayload.title.split('\n')[0].trim() || t('New conversation')}
-              </span>
-            </div>
+                </span>
+              </div>
+            )
           )}
         </DragOverlay>,
         document.body
@@ -1647,6 +1653,83 @@ function ProjectGroupHeader({
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
+      )}
+    </div>
+  );
+}
+
+function projectDragPreviewName(projects: Project[], projectId: string, fallback: string): string {
+  const project = projects.find((entry) => entry.id === projectId);
+  return project ? projectDisplayName(project) : fallback;
+}
+
+function ProjectDragPreview({
+  projectId,
+  name,
+  folded,
+  revealedExtra,
+  width,
+}: {
+  projectId: string;
+  name: string;
+  folded: boolean;
+  revealedExtra: number;
+  width?: number;
+}) {
+  const { t } = useI18n();
+  const conversations = useSessionsStore((state) =>
+    selectSidebarConversations(state.conversations)
+  );
+  const order = useSessionsStore((state) => state.order);
+  const sessionIds = projectConversationIds(order, conversations, projectId);
+  const shownIds = folded
+    ? []
+    : sessionIds.slice(0, shownConversationCount(sessionIds.length, revealedExtra));
+  const hiddenCount = Math.max(0, sessionIds.length - shownIds.length);
+  return (
+    <div
+      className="pointer-events-none rounded-lg border bg-background/95 py-0.5 shadow-md"
+      style={{ width: width ?? 224 }}
+    >
+      <div className="flex items-center gap-2 px-2 py-2 text-sm font-medium">
+        <IconSlot>{folded ? <FolderGit2 /> : <FolderOpen />}</IconSlot>
+        <span className="min-w-0 flex-1 truncate">{name}</span>
+      </div>
+      {!folded && (
+        <div className="flex flex-col gap-y-0.5">
+          {shownIds.map((id) => {
+            const conversation = conversations[id];
+            if (!conversation) return null;
+            return (
+              <div
+                key={id}
+                className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 py-1.5 pr-2 pl-2 text-sm text-muted-foreground"
+              >
+                <ConversationDot conversation={conversation} />
+                <span className="min-w-0 truncate">
+                  {conversation.title || t('New conversation')}
+                </span>
+              </div>
+            );
+          })}
+          {sessionIds.length > COLLAPSED_SESSION_LIMIT && (
+            <div className="flex items-center gap-1">
+              {hiddenCount > 0 && (
+                <div className="flex-1 rounded-lg py-1 text-center text-xs text-muted-foreground">
+                  {t('Show {{n}} more', { n: hiddenCount })}
+                </div>
+              )}
+              {revealedExtra > 0 && (
+                <div className="flex-1 rounded-lg py-1 text-center text-xs text-muted-foreground">
+                  {t('Collapse')}
+                </div>
+              )}
+            </div>
+          )}
+          {sessionIds.length === 0 && (
+            <p className="py-1.5 pl-8 text-xs text-muted-foreground">{t('No conversations yet')}</p>
+          )}
+        </div>
       )}
     </div>
   );
