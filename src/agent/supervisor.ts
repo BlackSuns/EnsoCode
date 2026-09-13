@@ -126,6 +126,7 @@ import { McpManager } from './mcp';
 import { createMessageCoworkerTool } from './messageCoworker';
 import { createMessageMainTool } from './messageMain';
 import { ParentNotifier } from './notify';
+import { withOpenAIResponsesRouting } from './openaiResponsesRouting';
 import { projectMessage } from './projection';
 import { applyWorkerProxyEnv } from './proxyEnv';
 import { withReadTruncationMeta } from './readTruncation';
@@ -3643,6 +3644,12 @@ export function resolveBaseModel(runtime: ModelRuntime, model: SpawnModelConfig)
       },
     ],
   });
+  if (model.api === 'openai-responses') {
+    const provider = runtime.getProvider(providerId);
+    if (!provider) throw new Error(`provider not found after register: ${providerId}`);
+    // 保留鉴权与 raw/simple 两条流；注册为 native provider 后 runtime.refresh 仍保留适配。
+    runtime.registerNativeProvider(withOpenAIResponsesRouting(provider));
+  }
   const registered = runtime.getModel(providerId, model.modelId);
   if (!registered) throw new Error(`model not found after register: ${model.modelId}`);
   return registered;
