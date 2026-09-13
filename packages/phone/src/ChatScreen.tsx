@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { buildTimeline } from '@/stores/sessions/timeline';
 import type { ConnState, SessionView } from './client';
 import { compressImage } from './image';
+import { appendEchoMessages, type QueueSendEcho } from './queueSendEcho';
 import { setDisplayedConversation } from './stubs/sessions-store';
 
 interface Props {
@@ -49,6 +50,8 @@ interface Props {
   onSelectTab?(sessionId: string): void;
   /** 排队中的消息（桌面下发）：本轮未结束时发的消息先入队 */
   queued?: { id: string; text: string; hasImages?: boolean }[];
+  /** 马上发送的本地乐观回显：steer 送达前浮在权威消息之后 */
+  echoes?: QueueSendEcho[];
   /** 会话目标（桌面下发）：GoalBar 展示与暂停/继续/清除 */
   goal?: CatalogEntry['goal'];
   slashCommands?: SlashCommand[];
@@ -89,8 +92,13 @@ export function ChatScreen(props: Props) {
     [view]
   );
   const messages = useMemo<ProjectedMessage[]>(
-    () => entries.map(([, message]) => message),
-    [entries]
+    () =>
+      appendEchoMessages(
+        entries.map(([, message]) => message),
+        props.echoes ?? [],
+        sessionId ?? ''
+      ),
+    [entries, props.echoes, sessionId]
   );
   const started = messages.length > 0 || view?.status === 'running' || view?.status === 'failed';
 

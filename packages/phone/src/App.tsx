@@ -23,6 +23,13 @@ import {
   subscribePush,
   unsubscribePush,
 } from './push';
+import {
+  captureQueueSendEcho,
+  type QueueSendEcho,
+  retainQueueSendEchoes,
+  userTextsOf,
+  withoutQueuedIds,
+} from './queueSendEcho';
 import { SessionConfigSheet } from './SessionConfigSheet';
 import { SessionDrawer } from './SessionDrawer';
 import {
@@ -103,6 +110,8 @@ export function App() {
   const [syncing, setSyncing] = useState(false);
   /** 上滑翻页在途的会话 */
   const [historyPending, setHistoryPending] = useState<ReadonlySet<string>>(new Set());
+  /** 马上发送：本地乐观上墙，等权威 user 消息到达再收掉 */
+  const [queueEchoes, setQueueEchoes] = useState<QueueSendEcho[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [composing, setComposing] = useState(false);
   /** 从抽屉项目旁进入时预填；顶栏新建为 null */
@@ -118,6 +127,10 @@ export function App() {
   const [pushError, setPushError] = useState<PushFailureReason | null>(null);
   const clientRef = useRef<PairClient | null>(null);
   const activeIdRef = useRef<string | null>(null);
+  const catalogRef = useRef(catalog);
+  const viewRef = useRef(view);
+  catalogRef.current = catalog;
+  viewRef.current = view;
   /** VAPID 公钥（桌面下发）；用 ref 避免重建连接 effect */
   const vapidKeyRef = useRef<string | null>(null);
 
@@ -248,14 +261,27 @@ export function App() {
 
   // 排队区复用桌面组件，它经 store 桩调用这些方法；这里转成 pair 命令发回桌面
   useEffect(() => {
+    // 马上发送：先本地出队+上墙，再发命令。steer 要等当前轮边界，权威 user 晚到。
+    const echoQueuedNow = (sessionId: string, messageId: string) => {
+      const queued = catalogRef.current.find((entry) => entry.id === sessionId)?.queued;
+      const messages =
+        sessionId === activeIdRef.current && viewRef.current
+          ? [...viewRef.current.messages.values()]
+          : [];
+      const echo = captureQueueSendEcho(queued, sessionId, messageId, userTextsOf(messages));
+      if (echo) setQueueEchoes((prev) => [...prev, echo]);
+    };
     setQueueActions({
       removeQueuedMessage: (sessionId, messageId) =>
         clientRef.current?.send({ type: 'queue-remove', sessionId, messageId }),
       updateQueuedMessage: (sessionId, messageId, text) =>
         clientRef.current?.send({ type: 'queue-update', sessionId, messageId, text }),
-      sendQueuedNow: (sessionId, messageId) =>
-        clientRef.current?.send({ type: 'queue-send-now', sessionId, messageId }),
+      sendQueuedNow: (sessionId, messageId) => {
+        echoQueuedNow(sessionId, messageId);
+        clientRef.current?.send({ type: 'queue-send-now', sessionId, messageId });
+      },
       interruptAndSendQueued: async (sessionId, messageId) => {
+        echoQueuedNow(sessionId, messageId);
         clientRef.current?.send({ type: 'queue-interrupt-send', sessionId, messageId });
       },
       pauseGoal: (sessionId) => clientRef.current?.send({ type: 'goal-pause', sessionId }),
@@ -277,6 +303,17 @@ export function App() {
         clientRef.current?.send({ type: 'subagent-stop', sessionId, agentId }),
     });
   }, []);
+
+  useEffect(() => {
+    if (!activeId) return;
+    const texts = userTextsOf(view ? [...view.messages.values()] : []);
+    setQueueEchoes((prev) => {
+      const next = retainQueueSendEchoes(prev, activeId, texts);
+      return next.length === prev.length && next.every((echo, index) => echo === prev[index])
+        ? prev
+        : next;
+    });
+  }, [view, activeId]);
 
   // 首次连上且没有选中会话时，落到最近一条
   const firstId = catalog.find((c) => !c.parentId)?.id;
@@ -316,6 +353,7 @@ export function App() {
     setProviders([]);
     setView(null);
     setSyncing(false);
+    setQueueEchoes([]);
     setActiveId(nextActiveId);
   };
 
@@ -443,7 +481,8 @@ export function App() {
         )}
         historyLoading={Boolean(activeId && historyPending.has(activeId))}
         onLoadOlder={() => activeId && clientRef.current?.requestHistory(activeId)}
-        queued={entry?.queued}
+        queued={withoutQueuedIds(entry?.queued, queueEchoes, activeId ?? '')}
+        echoes={queueEchoes}
         goal={entry?.goal}
         slashCommands={entry?.slashCommands}
         onSend={(text, images) => {
