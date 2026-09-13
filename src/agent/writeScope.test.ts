@@ -1,5 +1,12 @@
-import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createWriteToolDefinition, type ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it, vi } from 'vitest';
+import { ApprovalGate, withApproval } from './approval';
+import { createNormalizedEditTool } from './editTool';
+import { InMemorySnapshotStore } from './hashline/snapshots';
+import { wrapHashlineEditDefinition } from './hashline/tools';
 import {
   extractEditTargetPath,
   globToRegExp,
@@ -8,8 +15,17 @@ import {
 } from './writeScope';
 
 describe('extractEditTargetPath', () => {
-  it('优先提取现有 replace 参数的非空 path', () => {
-    expect(extractEditTargetPath({ path: 'src/x.ts' })).toBe('src/x.ts');
+  it('提取现有 replace 参数的非空 path', () => {
+    expect(extractEditTargetPath({ path: 'src/x.ts', edits: [] })).toBe('src/x.ts');
+  });
+
+  it('Hashline 即使误带 path 也以实际执行的 input 文件头为目标', () => {
+    expect(
+      extractEditTargetPath({
+        path: 'src/decoy.test.ts',
+        input: '[src/actual.ts#ABCD]\nPUT 1.=1:\n+x',
+      })
+    ).toBe('src/actual.ts');
   });
 
   it('从 Hashline input 的首个非空文件头提取路径', () => {
@@ -93,7 +109,7 @@ describe('withWriteScope', () => {
     const def = makeToolDef();
     const wrapped = withWriteScope(def, '/repo', ['**/*.test.ts']);
     await expect(
-      wrapped.execute('id', { path: 'src/x.ts' }, undefined, undefined, {} as never)
+      wrapped.execute('id', { path: 'src/x.ts', edits: [] }, undefined, undefined, {} as never)
     ).rejects.toThrow(/write scope/);
     expect(def.execute).not.toHaveBeenCalled();
   });
@@ -103,7 +119,7 @@ describe('withWriteScope', () => {
     const wrapped = withWriteScope(def, '/repo', ['**/*.test.ts']);
     const result = await wrapped.execute(
       'id',
-      { path: 'src/x.test.ts' },
+      { path: 'src/x.test.ts', edits: [] },
       undefined,
       undefined,
       {} as never
@@ -138,6 +154,169 @@ describe('withWriteScope', () => {
       {} as never
     );
     expect(def.execute).toHaveBeenCalledOnce();
+  });
+
+  it('实质 mixed 或 Hashline 目标不明时在内部执行前拒绝', async () => {
+    const def = makeToolDef();
+    const wrapped = withWriteScope(def, '/repo', ['**/*.test.ts']);
+    await expect(
+      wrapped.execute(
+        'mixed',
+        {
+          input: '[src/x.test.ts#ABCD]\nPUT 1.=1:\n+x',
+          edits: [{ oldText: 'x', newText: 'y' }],
+        },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/write scope/);
+    await expect(
+      wrapped.execute('invalid', { input: 'PUT 1.=1:\n+x' }, undefined, undefined, {} as never)
+    ).rejects.toThrow(/write scope/);
+    expect(def.execute).not.toHaveBeenCalled();
+  });
+
+  it('真实 Hashline wrapper 以 input 目标做 scope 和审批，越界不写且范围内审批目标一致', async () => {
+    const cwd = '/repo';
+    const allowed = 'src/allowed.test.ts';
+    const outside = 'src/outside.ts';
+    const files = new Map([
+      [path.resolve(cwd, allowed), 'allowed before\n'],
+      [path.resolve(cwd, outside), 'outside before\n'],
+    ]);
+    const store = new InMemorySnapshotStore();
+    const requests: Array<{ summary: string }> = [];
+    const gate = new ApprovalGate(
+      'assistant',
+      (info) => requests.push(info),
+      () => undefined,
+      { review: async () => ({ decision: 'auto_allow' }) }
+    );
+    const stock = makeToolDef();
+    const hashline = wrapHashlineEditDefinition(stock, {
+      store,
+      readText: async (filePath) => files.get(path.resolve(cwd, filePath)) ?? '',
+      writeText: async (filePath, text) => {
+        files.set(path.resolve(cwd, filePath), text);
+      },
+    });
+    const wrapped = withWriteScope(
+      withApproval(gate, 'file-edit', hashline as ToolDefinition),
+      cwd,
+      ['**/*.test.ts']
+    );
+
+    const outsideTag = store.record(outside, files.get(path.resolve(cwd, outside))!);
+    await expect(
+      wrapped.execute(
+        'outside',
+        {
+          path: allowed,
+          input: `[${outside}#${outsideTag}]\nPUT 1.=1:\n+outside after`,
+        },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/write scope/);
+    expect(files.get(path.resolve(cwd, outside))).toBe('outside before\n');
+    expect(requests).toEqual([]);
+
+    const allowedTag = store.record(allowed, files.get(path.resolve(cwd, allowed))!);
+    await wrapped.execute(
+      'allowed',
+      {
+        path: outside,
+        input: `[${allowed}#${allowedTag}]\nPUT 1.=1:\n+allowed after`,
+      },
+      undefined,
+      undefined,
+      {} as never
+    );
+    expect(files.get(path.resolve(cwd, allowed))).toBe('allowed after\n');
+    expect(files.get(path.resolve(cwd, outside))).toBe('outside before\n');
+    expect(requests.at(-1)?.summary).toBe(allowed);
+  });
+
+  it('真实 write 工具按 path+content 检查范围内透传、越界拒绝', async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), 'enso-write-scope-'));
+    try {
+      await mkdir(path.join(cwd, 'allowed'));
+      const tool = withWriteScope(
+        createWriteToolDefinition(cwd) as unknown as ToolDefinition,
+        cwd,
+        ['allowed/**']
+      );
+      await tool.execute(
+        'allowed-write',
+        { path: 'allowed/a.ts', content: 'ok\n' },
+        undefined,
+        undefined,
+        {} as never
+      );
+      expect(await readFile(path.join(cwd, 'allowed/a.ts'), 'utf8')).toBe('ok\n');
+
+      await expect(
+        tool.execute(
+          'outside-write',
+          { path: 'outside.ts', content: 'blocked\n' },
+          undefined,
+          undefined,
+          {} as never
+        )
+      ).rejects.toThrow(/write scope/);
+      await expect(readFile(path.join(cwd, 'outside.ts'), 'utf8')).rejects.toThrow();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('真实 normalized edit 保留字符串 edits 归一化并仍检查唯一 path', async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), 'enso-edit-scope-'));
+    try {
+      await mkdir(path.join(cwd, 'src'));
+      await writeFile(path.join(cwd, 'src/allowed.test.ts'), 'before\n');
+      await writeFile(path.join(cwd, 'src/outside.ts'), 'outside\n');
+      const tool = withWriteScope(createNormalizedEditTool(cwd), cwd, ['**/*.test.ts']);
+      const edits = JSON.stringify([{ oldText: 'before', newText: 'after' }]);
+
+      await tool.execute(
+        'normalized',
+        { path: 'src/allowed.test.ts', edits },
+        undefined,
+        undefined,
+        {} as never
+      );
+      expect(await readFile(path.join(cwd, 'src/allowed.test.ts'), 'utf8')).toBe('after\n');
+
+      await expect(
+        tool.execute(
+          'outside',
+          {
+            path: 'src/outside.ts',
+            edits: JSON.stringify([{ oldText: 'outside', newText: 'bad' }]),
+          },
+          undefined,
+          undefined,
+          {} as never
+        )
+      ).rejects.toThrow(/write scope/);
+      expect(await readFile(path.join(cwd, 'src/outside.ts'), 'utf8')).toBe('outside\n');
+
+      await expect(
+        tool.execute(
+          'path-only',
+          { path: 'src/allowed.test.ts' },
+          undefined,
+          undefined,
+          {} as never
+        )
+      ).rejects.toThrow();
+      expect(await readFile(path.join(cwd, 'src/allowed.test.ts'), 'utf8')).toBe('after\n');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it('scope 为 undefined 时原样返回同一对象', () => {

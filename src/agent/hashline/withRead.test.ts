@@ -43,6 +43,21 @@ describe('withHashlineRead', () => {
     expect(visible).toBe(`${formatHashlineHeader(path, tag)}\n3:l3\n4:l4\n\n${notice}`);
   });
 
+  it('limit 片段以真实空行结束时保留该行号', async () => {
+    const path = '/tmp/blanks.ts';
+    const full = 'l1\n\nl3\n';
+    const notice = '[2 more lines in file. Use offset=3 to continue.]';
+    const store = new InMemorySnapshotStore();
+    const read = withHashlineRead(fakeRead([{ type: 'text', text: `l1\n\n\n${notice}` }]), store, {
+      readFileText: async () => full,
+    });
+    const result = await read.execute('call-blank', { path, limit: 2 });
+    const tag = computeFileHash(full);
+    expect(result.content[0]?.text).toBe(
+      `${formatHashlineHeader(path, tag)}\n1:l1\n2:\n\n${notice}`
+    );
+  });
+
   it('局部读取但无法读整文件时不加头、不编号、不记录', async () => {
     const store = new InMemorySnapshotStore();
     const record = vi.spyOn(store, 'record');

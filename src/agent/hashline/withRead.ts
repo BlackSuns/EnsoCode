@@ -59,12 +59,14 @@ export function withHashlineRead<T extends { execute: (...args: never[]) => unkn
         const snapshot = partial ? await options.readFileText?.(filePath) : text;
         if (snapshot === undefined) return result;
         const tag = store.record(filePath, snapshot);
+        // pi 的局部 read 由选中行 join('\n')；有续读提示时，尾部 \n 代表最后一行为空。
+        const numberedText = notice && text.endsWith('\n') ? `${text}\n` : text;
         return {
           ...(result as object),
           content: [
             {
               type: 'text',
-              text: `${formatHashlineHeader(filePath, tag)}\n${formatNumberedLines(text, startLine)}${notice}`,
+              text: `${formatHashlineHeader(filePath, tag)}\n${formatNumberedLines(numberedText, startLine)}${notice}`,
             },
           ],
         };

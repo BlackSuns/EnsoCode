@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
-
+import { classifyEditArgs } from './hashline/classify';
+import { parseHashlineHeader } from './hashline/patch';
 /** 极简 glob → RegExp：`**` 任意层级（含空）、`*` 段内任意、`?` 单字符；匹配整段 posix 相对路径 */
 export function globToRegExp(glob: string): RegExp {
   let out = '';
@@ -27,21 +28,15 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${out}$`);
 }
 
-const HASHLINE_HEADER = /^\[(.+)#([0-9A-Fa-f]{4})\]$/;
-
-/** replace 走 path；hashline 从 input 首个非空文件头抽 path */
+/** replace/write 走 path；有实质 input 时按真实 Hashline 分流与文件头确定目标 */
 export function extractEditTargetPath(params: unknown): string | undefined {
   if (!params || typeof params !== 'object' || Array.isArray(params)) return undefined;
   const record = params as Record<string, unknown>;
-  if (typeof record.path === 'string' && record.path.length > 0) return record.path;
-  if (typeof record.input !== 'string') return undefined;
-  for (const line of record.input.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const match = HASHLINE_HEADER.exec(trimmed);
-    return match?.[1];
+  if (typeof record.input === 'string' && record.input.length > 0) {
+    if (classifyEditArgs(record).kind !== 'hashline') return undefined;
+    return parseHashlineHeader(record.input).path;
   }
-  return undefined;
+  return typeof record.path === 'string' && record.path.length > 0 ? record.path : undefined;
 }
 
 /** filePath 绝对或相对 cwd；越出 cwd 恒 false */
@@ -70,7 +65,10 @@ export function withWriteScope<T extends ToolDefinition>(
     ...def,
     execute: async (id, params, ...rest) => {
       const target = extractEditTargetPath(params);
-      if (typeof target === 'string' && !isPathInWriteScope(target, cwd, scope)) {
+      if (typeof target !== 'string') {
+        throw new Error('write scope: cannot determine a valid target path');
+      }
+      if (!isPathInWriteScope(target, cwd, scope)) {
         throw new Error(
           `write scope: "${target}" is outside [${scope.join(', ')}] — this agent type may only write files matching those globs`
         );

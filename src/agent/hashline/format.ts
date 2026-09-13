@@ -65,7 +65,7 @@ function xxHash32(input: string, seed = 0): number {
   return u32(h ^ (h >>> 16));
 }
 
-function normalizeFileHashText(text: string): string {
+export function normalizeFileHashText(text: string): string {
   return text.replace(/[ \t\r]+(?=\n|$)/g, '');
 }
 
@@ -82,9 +82,14 @@ export function formatNumberedLine(lineNumber: number, line: string): string {
   return `${lineNumber}:${line}`;
 }
 
+export function splitAddressableLines(text: string): string[] {
+  const lines = text.split(/\r?\n/);
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
 export function formatNumberedLines(text: string, startLine = 1): string {
-  return text
-    .split('\n')
+  return splitAddressableLines(text)
     .map((line, i) => formatNumberedLine(startLine + i, line))
     .join('\n');
 }

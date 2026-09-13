@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { normalizeEditArguments } from '../editTool';
-import { computeFileHash } from './format';
+import { computeFileHash, formatHashlineHeader } from './format';
 import { InMemorySnapshotStore } from './snapshots';
 import { HASHLINE_EDIT_PARAMETERS, selectHashlineTools, wrapHashlineEditDefinition } from './tools';
 import { withHashlineGrep } from './withGrep';
@@ -152,6 +152,54 @@ describe('wrapHashlineEditDefinition', () => {
       diff: 'hello\n',
       patch: input,
     });
+    expect(stock.execute).not.toHaveBeenCalled();
+  });
+
+  it('恢复旧标签后在正文末尾提示重定位并把 ranges 写入详情', async () => {
+    const path = '/tmp/a.ts';
+    const original =
+      'far\nup three\nup two\nup one\nold target\ndown one\ndown two\ndown three\ntail\n';
+    let live =
+      'external\nfar\nup three\nup two\nup one\nold target\ndown one\ndown two\ndown three\ntail\n';
+    const expected =
+      'external\nfar\nup three\nup two\nup one\nnew target\ndown one\ndown two\ndown three\ntail\n';
+    const stock = {
+      name: 'edit',
+      parameters: { type: 'object', properties: {}, required: ['path', 'edits'] },
+      execute: vi.fn(async (_id?: string, _params?: unknown) => 'stock-result'),
+    };
+    const store = new InMemorySnapshotStore();
+    const tag = store.record(path, original);
+    const wrapped = wrapHashlineEditDefinition(stock, {
+      store,
+      readText: async () => live,
+      writeText: async (_path, text) => {
+        live = text;
+      },
+    });
+    const input = `[${path}#${tag}]\nPUT 5.=5:\n+new target`;
+
+    const result = (await wrapped.execute('call-relocated-details', { input })) as unknown as {
+      content: Array<{ type: string; text: string }>;
+      details: unknown;
+    };
+
+    expect(live).toBe(expected);
+    expect(result.details).toEqual({
+      oldText:
+        'external\nfar\nup three\nup two\nup one\nold target\ndown one\ndown two\ndown three\ntail\n',
+      diff: expected,
+      patch: input,
+      relocated: true,
+      ranges: [{ from: { start: 5, end: 5 }, to: { start: 6, end: 6 } }],
+    });
+    const text = result.content.map((part) => part.text).join('\n');
+    const bodyEnd = text.lastIndexOf('tail');
+    const relocationNote = text.search(/relocat|recover|stale/i);
+    expect(text).toContain(formatHashlineHeader(path, computeFileHash(expected)));
+    expect(text).toContain('new target');
+    expect(relocationNote).toBeGreaterThan(bodyEnd);
+    expect(text.slice(relocationNote)).toMatch(/recover.*stale|stale.*recover/i);
     expect(stock.execute).not.toHaveBeenCalled();
   });
 });

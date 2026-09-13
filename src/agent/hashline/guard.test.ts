@@ -1,8 +1,39 @@
 import { describe, expect, it } from 'vitest';
 import { applyHashlineToText } from './apply';
 import { computeFileHash } from './format';
-import { assertFreshSnapshot } from './guard';
+import { assertFreshSnapshot, resolveSnapshot } from './guard';
 import { InMemorySnapshotStore } from './snapshots';
+
+describe('resolveSnapshot', () => {
+  it('返回已记录快照并标记当前磁盘内容为 fresh', () => {
+    const store = new InMemorySnapshotStore();
+    const snapshotText = 'current\n';
+    const tag = store.record('/tmp/a.ts', snapshotText);
+
+    expect(resolveSnapshot(store, '/tmp/a.ts', tag, snapshotText)).toEqual({
+      snapshotText,
+      fresh: true,
+    });
+  });
+
+  it('返回已记录快照并标记已偏离的磁盘内容为 stale', () => {
+    const store = new InMemorySnapshotStore();
+    const snapshotText = 'old\n';
+    const tag = store.record('/tmp/a.ts', snapshotText);
+
+    expect(resolveSnapshot(store, '/tmp/a.ts', tag, 'changed\n')).toEqual({
+      snapshotText,
+      fresh: false,
+    });
+  });
+
+  it('标签未在该路径记录时仍拒绝', () => {
+    const store = new InMemorySnapshotStore();
+    expect(() =>
+      resolveSnapshot(store, '/tmp/a.ts', computeFileHash('live\n'), 'live\n')
+    ).toThrow();
+  });
+});
 
 describe('assertFreshSnapshot', () => {
   it('标签未在该路径记录时拒绝写入', () => {

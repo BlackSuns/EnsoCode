@@ -113,18 +113,26 @@ export function wrapHashlineEditDefinition<T extends { execute: (...args: never[
             writeText: options.writeText,
             input,
           });
+          const recoveryNote = applied.relocation
+            ? `\n\n[Recovered stale Hashline ranges ${applied.relocation.ranges
+                .map(({ from, to }) => `${from.start}.=${from.end} -> ${to.start}.=${to.end}`)
+                .join(', ')}. Use the refreshed tag above for subsequent edits.]`
+            : '';
+          const details = {
+            oldText: applied.previous,
+            diff: applied.text,
+            patch: input,
+          };
           return {
             content: [
               {
                 type: 'text',
-                text: `${formatHashlineHeader(applied.path, applied.tag)}\n${formatNumberedLines(applied.text)}`,
+                text: `${formatHashlineHeader(applied.path, applied.tag)}\n${formatNumberedLines(applied.text)}${recoveryNote}`,
               },
             ],
-            details: {
-              oldText: applied.previous,
-              diff: applied.text,
-              patch: input,
-            },
+            details: applied.relocation
+              ? { ...details, relocated: true, ranges: applied.relocation.ranges }
+              : details,
           };
         }
         throw new Error(EDIT_INVALID_MESSAGE);
