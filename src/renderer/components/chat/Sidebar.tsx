@@ -56,6 +56,7 @@ import { ConversationTitleEdit } from '@/components/chat/ConversationTitleEdit';
 import { matchesQuery } from '@/components/chat/chatSearch';
 import { insertComposerMention } from '@/components/chat/composerMentionBridge';
 import {
+  activeChatDragId,
   chatDragId,
   type DragPayload,
   PINNED_DROP_ID,
@@ -110,10 +111,17 @@ import {
 import { selectSidebarConversations } from '@/stores/sessions/sidebarDirectory';
 import { DIRTY_MAIN_TREE, worktreeHasPendingWork } from '@/stores/sessions/worktree';
 import { useSettingsStore } from '@/stores/settings';
-import { applyProjectOrder, moveProject } from '@/stores/settings/projectOrder';
+import {
+  applyProjectOrder,
+  moveProject,
+  partitionPinnedProjects,
+  projectReorderScope,
+  togglePinnedProjectId,
+} from '@/stores/settings/projectOrder';
 import {
   ARCHIVED_PROJECTS_KEY,
   PINNED_ORDER_KEY,
+  PINNED_PROJECTS_KEY,
   PROJECT_ORDER_KEY,
   readSidebarOrder,
   writeSidebarOrder,
@@ -189,12 +197,30 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
   const [archivedProjectIds, setArchivedProjectIds] = useState<string[]>(() =>
     readSidebarOrder(ARCHIVED_PROJECTS_KEY)
   );
+  const [pinnedProjectIds, setPinnedProjectIds] = useState<string[]>(() =>
+    readSidebarOrder(PINNED_PROJECTS_KEY)
+  );
+  const persistPinnedProjects = (next: string[]) => {
+    setPinnedProjectIds(next);
+    writeSidebarOrder(PINNED_PROJECTS_KEY, next);
+  };
+  const togglePinProject = (id: string) => {
+    persistPinnedProjects(togglePinnedProjectId(pinnedProjectIds, id));
+    if (!pinnedProjectIds.includes(id) && archivedProjectIds.includes(id)) {
+      const next = archivedProjectIds.filter((entry) => entry !== id);
+      setArchivedProjectIds(next);
+      writeSidebarOrder(ARCHIVED_PROJECTS_KEY, next);
+    }
+  };
   const toggleArchiveProject = (id: string) => {
     const next = archivedProjectIds.includes(id)
       ? archivedProjectIds.filter((entry) => entry !== id)
       : [...archivedProjectIds, id];
     setArchivedProjectIds(next);
     writeSidebarOrder(ARCHIVED_PROJECTS_KEY, next);
+    if (!archivedProjectIds.includes(id) && pinnedProjectIds.includes(id)) {
+      persistPinnedProjects(pinnedProjectIds.filter((entry) => entry !== id));
+    }
   };
   const [selectedGroupId, setSelectedGroupId] = useState(() => {
     try {
@@ -234,8 +260,12 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
     archivedProjectIds,
     resolvedGroupId
   );
-  const groupSections = sectionsForAllView(orderedProjects, projectGroups, archivedProjectIds);
-  const activeProjects = slicedProjects;
+  const { pinned: pinnedProjects, rest: unpinnedProjects } = partitionPinnedProjects(
+    slicedProjects,
+    pinnedProjectIds
+  );
+  const groupSections = sectionsForAllView(unpinnedProjects, projectGroups, []);
+  const activeProjects = [...pinnedProjects, ...unpinnedProjects];
   const activeProjectIds = activeProjects.map((project) => project.id);
   const slicedIdSet = new Set(activeProjectIds);
 
@@ -277,6 +307,18 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
           reorderProjectGroups(action.activeId, action.overId);
           break;
         case 'reorder-projects': {
+          const scope = projectReorderScope(action.activeId, action.overId, pinnedProjectIds);
+          if (scope === 'pinned') {
+            const next = moveProject(
+              pinnedProjectIds.map((id) => ({ id })),
+              pinnedProjectIds,
+              action.activeId,
+              action.overId
+            );
+            persistPinnedProjects(next);
+            break;
+          }
+          if (scope !== 'order') break;
           const next = moveProject(projects, projectOrderIds, action.activeId, action.overId);
           setProjectOrderIds(next);
           writeSidebarOrder(PROJECT_ORDER_KEY, next);
@@ -768,26 +810,34 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
               <SidebarSectionLabel>{t('Active')}</SidebarSectionLabel>
               <div className="flex flex-col gap-y-0.5">
                 {visibleActiveIds.map((id) => (
-                  <ConversationRow
+                  <DraggableChat
                     key={id}
                     id={id}
+                    dragId={activeChatDragId(id)}
                     conversation={conversations[id]}
-                    active={activeId === id}
-                    switchHint={switchHintFor(id, 'active')}
-                    locale={locale}
-                    nowTick={nowTick}
-                    hoverTitle={hoverProjectName(projects, conversations[id].projectId)}
-                    worktreeStatus={conversations[id].worktree ? worktreeStatuses[id] : undefined}
-                    isolated={Boolean(conversations[id].worktree)}
-                    onSelect={selectConversation}
-                    onTogglePin={togglePinConversation}
-                    onToggleArchive={(conversationId) => void handleToggleArchive(conversationId)}
-                    onCleanupWorktree={(conversationId) =>
-                      void handleCleanupWorktree(conversationId)
-                    }
-                    onMoveToWorktree={(conversationId) => void handleMoveToWorktree(conversationId)}
-                    onRemove={(conversationId) => void openRemoveConversation(conversationId)}
-                  />
+                  >
+                    <ConversationRow
+                      id={id}
+                      conversation={conversations[id]}
+                      active={activeId === id}
+                      switchHint={switchHintFor(id, 'active')}
+                      locale={locale}
+                      nowTick={nowTick}
+                      hoverTitle={hoverProjectName(projects, conversations[id].projectId)}
+                      worktreeStatus={conversations[id].worktree ? worktreeStatuses[id] : undefined}
+                      isolated={Boolean(conversations[id].worktree)}
+                      onSelect={selectConversation}
+                      onTogglePin={togglePinConversation}
+                      onToggleArchive={(conversationId) => void handleToggleArchive(conversationId)}
+                      onCleanupWorktree={(conversationId) =>
+                        void handleCleanupWorktree(conversationId)
+                      }
+                      onMoveToWorktree={(conversationId) =>
+                        void handleMoveToWorktree(conversationId)
+                      }
+                      onRemove={(conversationId) => void openRemoveConversation(conversationId)}
+                    />
+                  </DraggableChat>
                 ))}
               </div>
             </div>
@@ -898,7 +948,15 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                   : shownConversationCount(visibleConversations.length, revealedExtra);
                 const hiddenIds = visibleConversations.slice(shownCount);
                 // 项目右键菜单项;抽成数据是为了把动态分组列表与固定项平铺在一起
+                const projectPinned = pinnedProjectIds.includes(project.id);
                 const projectActions: ProjectAction[] = [
+                  {
+                    kind: 'item',
+                    key: 'pin',
+                    label: projectPinned ? t('Unpin project') : t('Pin project'),
+                    icon: projectPinned ? <PinOff /> : <Pin />,
+                    onSelect: () => togglePinProject(project.id),
+                  },
                   {
                     kind: 'item',
                     key: 'settings',
@@ -1001,6 +1059,24 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                         </span>
                                       )}
                                     </span>
+                                  </button>
+                                  {projectPinned && (
+                                    <Pin
+                                      className="h-3 w-3 shrink-0 text-muted-foreground/70 group-hover:hidden"
+                                      aria-hidden
+                                    />
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => togglePinProject(project.id)}
+                                    className="hidden shrink-0 rounded p-1 text-muted-foreground group-hover:block hover:bg-muted hover:text-foreground"
+                                    title={projectPinned ? t('Unpin project') : t('Pin project')}
+                                  >
+                                    {projectPinned ? (
+                                      <PinOff className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <Pin className="h-3.5 w-3.5" />
+                                    )}
                                   </button>
                                   {/* 只留高频的新建会话;其余操作全部走右键菜单 */}
                                   <button
@@ -1149,6 +1225,12 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
               if (resolvedGroupId === ALL_GROUP_ID && projectGroups.length > 0) {
                 return (
                   <div className="space-y-2">
+                    {pinnedProjects.length > 0 && (
+                      <div>
+                        <SidebarSectionLabel>{t('Pinned projects')}</SidebarSectionLabel>
+                        <div className="space-y-1">{pinnedProjects.map(projectNode)}</div>
+                      </div>
+                    )}
                     {groupSections.map((section) => {
                       const foldedSection = searching
                         ? false
@@ -1190,6 +1272,17 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                         </div>
                       );
                     })}
+                  </div>
+                );
+              }
+              if (pinnedProjects.length > 0 && unpinnedProjects.length > 0) {
+                return (
+                  <div className="space-y-2">
+                    <div>
+                      <SidebarSectionLabel>{t('Pinned projects')}</SidebarSectionLabel>
+                      <div className="space-y-1">{pinnedProjects.map(projectNode)}</div>
+                    </div>
+                    <div className="space-y-1">{unpinnedProjects.map(projectNode)}</div>
                   </div>
                 );
               }
@@ -1861,13 +1954,15 @@ function DraggableChat({
   id,
   conversation,
   children,
+  dragId,
 }: {
   id: string;
   conversation: { title: string; sessionFile?: string; pinned?: boolean };
   children: React.ReactNode;
+  dragId?: string;
 }) {
   const { setNodeRef, listeners, isDragging } = useDraggable({
-    id: chatDragId(id),
+    id: dragId ?? chatDragId(id),
     data: {
       type: 'chat',
       conversationId: id,

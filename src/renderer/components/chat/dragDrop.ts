@@ -20,6 +20,8 @@ export const chatDragId = (conversationId: string): string => `chat:${conversati
 /** 置顶栏行用独立 id:同一会话同时出现在置顶栏与项目组,dnd-kit 不允许重复 id */
 export const pinnedChatDragId = (conversationId: string): string =>
   `${PINNED_CHAT_PREFIX}${conversationId}`;
+/** 活跃中栏目用独立 id:同一会话同时出现在活跃中与项目组 */
+export const activeChatDragId = (conversationId: string): string => `active-chat:${conversationId}`;
 
 export type DragPayload =
   | { type: 'project'; projectId: string; path: string; name: string }

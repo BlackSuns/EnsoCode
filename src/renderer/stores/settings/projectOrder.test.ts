@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { applyProjectOrder, moveProject } from './projectOrder';
+import {
+  applyProjectOrder,
+  moveProject,
+  partitionPinnedProjects,
+  projectReorderScope,
+  togglePinnedProjectId,
+} from './projectOrder';
 
 interface P {
   id: string;
@@ -49,5 +55,57 @@ describe('moveProject', () => {
 
   it('未知 id 不移动', () => {
     expect(moveProject(projects, [], 'ghost', 'b')).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('partitionPinnedProjects', () => {
+  it('置顶项目按 pinnedIds 顺序排在前面，其余保持原相对顺序', () => {
+    expect(partitionPinnedProjects(projects, ['c', 'a'])).toEqual({
+      pinned: [{ id: 'c' }, { id: 'a' }],
+      rest: [{ id: 'b' }],
+    });
+  });
+
+  it('未知置顶 id 忽略', () => {
+    expect(partitionPinnedProjects(projects, ['ghost', 'b']).pinned.map((p) => p.id)).toEqual([
+      'b',
+    ]);
+  });
+
+  it('空 pinnedIds 时全部落在 rest', () => {
+    expect(partitionPinnedProjects(projects, [])).toEqual({
+      pinned: [],
+      rest: projects,
+    });
+  });
+
+  it('不修改入参数组', () => {
+    const input = [...projects];
+    partitionPinnedProjects(input, ['c']);
+    expect(input.map((p) => p.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('togglePinnedProjectId', () => {
+  it('未置顶则插到最前', () => {
+    expect(togglePinnedProjectId(['b'], 'a')).toEqual(['a', 'b']);
+  });
+
+  it('已置顶则移除', () => {
+    expect(togglePinnedProjectId(['a', 'b'], 'a')).toEqual(['b']);
+  });
+});
+
+describe('projectReorderScope', () => {
+  it('两边都置顶则重排置顶序', () => {
+    expect(projectReorderScope('a', 'b', ['a', 'b'])).toBe('pinned');
+  });
+
+  it('两边都未置顶则重排项目序', () => {
+    expect(projectReorderScope('a', 'b', [])).toBe('order');
+  });
+
+  it('跨越置顶边界不排', () => {
+    expect(projectReorderScope('a', 'b', ['a'])).toBeNull();
   });
 });
