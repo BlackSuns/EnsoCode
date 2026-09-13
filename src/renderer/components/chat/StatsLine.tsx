@@ -33,6 +33,7 @@ import { type TFunction, useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { Z_INDEX } from '@/lib/z-index';
 import type { Conversation } from '@/stores/sessions';
+import { useSessionsStore } from '@/stores/sessions';
 import { computeStats, formatDuration, formatTokens } from '@/stores/sessions/stats';
 import { useSettingsStore } from '@/stores/settings';
 import { ContextInspector } from './ContextInspector';
@@ -40,8 +41,7 @@ import { contextSegmentUsed } from './contextSegment';
 import { StatusLineSettings } from './StatusLineSettings';
 
 interface StatsLineProps {
-  messages: ProjectedMessage[];
-  conversation: Conversation;
+  conversationId: string;
 }
 
 /** 段位当前值：`compact` 是状态栏内联展示（紧凑，可为空串走纯 icon），
@@ -481,8 +481,10 @@ function buildSegmentValues(
  *  段位顺序 = `statusLineSegments` 数组自身顺序（用户可在设置弹层拖拽），预设不进存储，
  *  见 `statusLinePresetOf`。外层恒占一行高度（h-7）：避免统计从无到有时输入框跳动；
  *  全部段位关掉时仍渲染空容器 + hover 齿轮，否则用户关完就再也打不开设置。 */
-export function StatsLine({ messages, conversation }: StatsLineProps) {
+export function StatsLine({ conversationId }: StatsLineProps) {
   const { t } = useI18n();
+  const conversation = useSessionsStore((state) => state.conversations[conversationId]);
+  const messages = conversation?.messages ?? [];
   const providers = useSettingsStore((state) => state.providers);
   const projects = useSettingsStore((state) => state.projects);
   const rawSegments = useSettingsStore((state) => state.statusLineSegments);
@@ -493,8 +495,8 @@ export function StatsLine({ messages, conversation }: StatsLineProps) {
 
   const accountKey = useMemo(() => {
     if (!enabledSegments.includes('usage')) return undefined;
-    return providers.find((p) => p.id === conversation.lastProviderId)?.oauthAccountKey;
-  }, [enabledSegments, providers, conversation.lastProviderId]);
+    return providers.find((p) => p.id === conversation?.lastProviderId)?.oauthAccountKey;
+  }, [enabledSegments, providers, conversation?.lastProviderId]);
 
   // 只在真的需要走时钟的时候起 interval：duration 要 running 中才跳，sessionTime 只要启用就跳
   // （含空闲），usage 只要启用且能解析出账号就跳（驱动 TTL 到期重新拉取，不依赖"已经有数据"，
@@ -502,7 +504,7 @@ export function StatsLine({ messages, conversation }: StatsLineProps) {
   // 定时器，避免每个会话常驻空转的计时器。
   const [now, setNow] = useState(() => Date.now());
   const needsDurationTick =
-    conversation.status === 'running' && enabledSegments.includes('duration');
+    conversation?.status === 'running' && enabledSegments.includes('duration');
   const needsSessionTimeTick = enabledSegments.includes('sessionTime');
   const needsUsageTick = enabledSegments.includes('usage') && accountKey !== undefined;
   useEffect(() => {
@@ -513,11 +515,19 @@ export function StatsLine({ messages, conversation }: StatsLineProps) {
 
   const usageData = useOauthAccountUsage(accountKey, now);
 
-  const icons = useMemo(() => resolveSegmentIcons(conversation), [conversation]);
+  const icons = useMemo(
+    () => (conversation ? resolveSegmentIcons(conversation) : null),
+    [conversation]
+  );
   const values = useMemo(
-    () => buildSegmentValues(t, conversation, messages, providers, projects, now, usageData),
+    () =>
+      conversation
+        ? buildSegmentValues(t, conversation, messages, providers, projects, now, usageData)
+        : null,
     [t, conversation, messages, providers, projects, now, usageData]
   );
+
+  if (!conversation || !icons || !values) return null;
 
   // 渲染顺序恒按 statusLineSegments 数组自身顺序（用户拖拽排序的落点），⛔ 不要改回按
   // STATUS_LINE_SEGMENT_IDS 声明序 filter —— 那是旧契约，已被拖拽排序需求反转。

@@ -733,6 +733,77 @@ function appendCompactionChrome(
 }
 
 /** Messages 与 custom entries 仅在展示层按时间合并；custom entries 从不进入 messages。 */
+/**
+ * 末条 assistant 仍在流式思考/正文变长：复用前缀行对象，只替换那一行。
+ * 结构对不上（新 part、工具结果、非 running）返回 null，调用方全量重建。
+ */
+export function patchStreamingTimeline(
+  previous: readonly TimelineItem[],
+  messages: readonly ProjectedMessage[],
+  running: boolean,
+  historyBaseIndex = 0
+): TimelineItem[] | null {
+  if (!running || previous.length === 0) return null;
+  const last = messages.at(-1);
+  if (last?.role !== 'assistant') return null;
+  const settled = Boolean(last.stopReason) && last.stopReason !== 'pending';
+  if (settled) return null;
+  const lastActive = findLastActivePartIndex(last.content);
+  if (lastActive < 0) return null;
+  const part = last.content[lastActive];
+  if (!part || (part.type !== 'thinking' && part.type !== 'text')) return null;
+  if (part.type === 'text') {
+    const pieces = splitThinkingTaggedText(part.text);
+    if (pieces.length !== 1 || pieces[0].kind !== 'text') return null;
+  }
+  const key = `${historyBaseIndex + messages.length - 1}-${lastActive}`;
+  let hit = -1;
+  for (let i = previous.length - 1; i >= 0; i--) {
+    const item = previous[i];
+    if (item.key !== key) continue;
+    if (item.kind === 'thinking' || item.kind === 'text') {
+      hit = i;
+      break;
+    }
+  }
+  if (hit < 0) return null;
+  const item = previous[hit];
+  if (item.kind === 'thinking') {
+    if (part.type !== 'thinking' || item.streaming !== true) return null;
+    if (item.text === part.text) return previous as TimelineItem[];
+    const next = previous.slice();
+    next[hit] = { ...item, text: part.text };
+    return next;
+  }
+  if (item.kind !== 'text' || part.type !== 'text' || item.streaming !== true) return null;
+  if (item.text === part.text) return previous as TimelineItem[];
+  const next = previous.slice();
+  next[hit] = { ...item, text: part.text };
+  return next;
+}
+
+/** 已完成的 edit/write 身份；思考/正文流式变长时保持不变，供 Files/Changes 跳过重渲染。 */
+export function completedEditWriteFingerprint(messages: readonly ProjectedMessage[]): string {
+  const failed = new Map<string, boolean>();
+  for (const message of messages) {
+    if (message.role === 'toolResult' && message.toolCallId) {
+      failed.set(message.toolCallId, message.isError === true);
+    }
+  }
+  const parts: string[] = [];
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue;
+    for (const part of message.content) {
+      if (part.type !== 'toolCall') continue;
+      if (part.name !== 'edit' && part.name !== 'write') continue;
+      const isError = failed.get(part.id);
+      if (isError === undefined || isError) continue;
+      parts.push(part.id, part.name, JSON.stringify(part.arguments));
+    }
+  }
+  return parts.join('\0');
+}
+
 export function buildTimeline(
   messages: ProjectedMessage[],
   running: boolean,

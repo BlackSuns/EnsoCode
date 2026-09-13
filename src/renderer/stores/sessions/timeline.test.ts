@@ -2,10 +2,12 @@ import type { ProjectedMessage } from '@shared/types/agent';
 import { describe, expect, it } from 'vitest';
 import {
   buildTimeline,
+  completedEditWriteFingerprint,
   foldTimeline,
   historyPageChrome,
   isReadOnlyCommand,
   parseSandboxOutput,
+  patchStreamingTimeline,
   type TimelineItem,
   terminalErrorText,
 } from './timeline';
@@ -1441,5 +1443,112 @@ describe('buildTimeline 运行中工具的增量输出', () => {
       { toolOutputs: { t1: 'PASS a' } }
     );
     expect(timeline[1]).toMatchObject({ kind: 'tool', state: 'ok', output: 'final output' });
+  });
+});
+
+describe('patchStreamingTimeline', () => {
+  const pending = (text: string): ProjectedMessage => ({
+    role: 'assistant',
+    stopReason: 'pending',
+    content: [{ type: 'thinking', text }],
+  });
+
+  it('思考变长时复用前缀行对象，只换末条 thinking', () => {
+    const prefix = user('问');
+    const first = [prefix, pending('abc')];
+    const previous = buildTimeline(first, true);
+    const next = patchStreamingTimeline(previous, [prefix, pending('abcdef')], true);
+    expect(next).not.toBeNull();
+    expect(next).toHaveLength(previous.length);
+    expect(next![0]).toBe(previous[0]);
+    expect(next![1]).not.toBe(previous[1]);
+    expect(next![1]).toMatchObject({ kind: 'thinking', text: 'abcdef', streaming: true });
+  });
+
+  it('思考文本没变时返回原数组', () => {
+    const messages = [user('问'), pending('abc')];
+    const previous = buildTimeline(messages, true);
+    expect(patchStreamingTimeline(previous, messages, true)).toBe(previous);
+  });
+
+  it('非 running、工具结果、新 part 出现时不走补丁', () => {
+    const prefix = user('问');
+    const thinking = pending('abc');
+    const previous = buildTimeline([prefix, thinking], true);
+    expect(patchStreamingTimeline(previous, [prefix, thinking], false)).toBeNull();
+    expect(
+      patchStreamingTimeline(
+        previous,
+        [
+          prefix,
+          thinking,
+          {
+            role: 'toolResult',
+            toolCallId: 't1',
+            content: [{ type: 'text', text: 'ok' }],
+          },
+        ],
+        true
+      )
+    ).toBeNull();
+    expect(
+      patchStreamingTimeline(
+        previous,
+        [
+          prefix,
+          {
+            role: 'assistant',
+            stopReason: 'pending',
+            content: [
+              { type: 'thinking', text: 'abc' },
+              { type: 'text', text: '答案' },
+            ],
+          },
+        ],
+        true
+      )
+    ).toBeNull();
+  });
+});
+
+describe('completedEditWriteFingerprint', () => {
+  it('思考变长不改变指纹，完成的 edit 才会变', () => {
+    const readCall: ProjectedMessage = {
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: 'r1', name: 'read', arguments: { path: 'a.ts' } }],
+    };
+    const thinking: ProjectedMessage = {
+      role: 'assistant',
+      stopReason: 'pending',
+      content: [{ type: 'thinking', text: 'a' }],
+    };
+    const before = [user('改'), readCall, thinking];
+    const afterThink: ProjectedMessage[] = [
+      user('改'),
+      readCall,
+      { ...thinking, content: [{ type: 'thinking', text: 'ab' }] },
+    ];
+    expect(completedEditWriteFingerprint(afterThink)).toBe(completedEditWriteFingerprint(before));
+
+    const editCall: ProjectedMessage = {
+      role: 'assistant',
+      content: [
+        {
+          type: 'toolCall',
+          id: 'e1',
+          name: 'edit',
+          arguments: { path: 'a.ts', oldText: 'x', newText: 'y' },
+        },
+      ],
+    };
+    const editResult: ProjectedMessage = {
+      role: 'toolResult',
+      toolCallId: 'e1',
+      isError: false,
+      content: [{ type: 'text', text: 'ok' }],
+    };
+    expect(completedEditWriteFingerprint([...before, editCall, editResult])).not.toBe(
+      completedEditWriteFingerprint(before)
+    );
   });
 });

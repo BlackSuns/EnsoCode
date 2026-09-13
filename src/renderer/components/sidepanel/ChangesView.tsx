@@ -1,5 +1,6 @@
 import type { CodeViewItem } from '@pierre/diffs';
 import { CodeView } from '@pierre/diffs/react';
+import type { ProjectedMessage } from '@shared/types/agent';
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CODE_THEME, ensureHighlighter } from '@/components/chat/codeHighlighter';
@@ -13,7 +14,7 @@ import {
 } from '@/lib/sessionChanges';
 import { cn } from '@/lib/utils';
 import { useSessionsStore } from '@/stores/sessions';
-import { buildTimeline } from '@/stores/sessions/timeline';
+import { buildTimeline, completedEditWriteFingerprint } from '@/stores/sessions/timeline';
 import { useSettingsStore } from '@/stores/settings';
 import { useSidePanelStore } from '@/stores/sidePanel';
 
@@ -33,6 +34,7 @@ const NO_FILES: { files: never[]; snapshots: Record<string, string> } = {
   files: [],
   snapshots: {},
 };
+const EMPTY_MESSAGES: ProjectedMessage[] = [];
 
 function resolvePath(root: string | undefined, rel: string): string | null {
   if (!rel) return null;
@@ -56,24 +58,33 @@ export function ChangesView({
   const saveSnapshots = useSidePanelStore((s) => s.saveSnapshots);
   const loadSnapshots = useSidePanelStore((s) => s.loadSnapshots);
 
-  const conversation = useSessionsStore((s) => s.conversations[conversationId]);
+  const editWriteKey = useSessionsStore((s) =>
+    completedEditWriteFingerprint(s.conversations[conversationId]?.messages ?? EMPTY_MESSAGES)
+  );
   const workspaceRevision = useSessionsStore(
     (s) => s.workspaceRevisionByConversation[conversationId] ?? 0
   );
-  const workspaceMigrating = Boolean(conversation?.workspaceMigrating);
+  const workspaceMigrating = useSessionsStore((s) =>
+    Boolean(s.conversations[conversationId]?.workspaceMigrating)
+  );
   const project = useSettingsStore((s) => s.projects.find((item) => item.id === projectId));
   const ssh = project?.kind === 'ssh';
-  const root = conversation?.worktree?.path ?? project?.path;
-  const running = conversation?.status === 'running';
-  const timeline = useMemo(
-    () =>
-      buildTimeline(conversation?.messages ?? [], running, conversation?.customEntries ?? [], root),
-    [conversation?.customEntries, conversation?.messages, running, root]
+  const root = useSessionsStore(
+    (s) => s.conversations[conversationId]?.worktree?.path ?? project?.path
   );
+  const running = useSessionsStore((s) => s.conversations[conversationId]?.status === 'running');
 
-  // 流式每个 chunk 都重建 timeline；tools 内容不变就复用旧引用，否则下游读盘 + 全量 diff 解析每个 token 都跑一遍
+  // 思考流式不改指纹；只有完成的 edit/write 才重建 timeline / 下游 diff
   const toolsRef = useRef<SessionChangeTool[]>([]);
   const tools = useMemo(() => {
+    void editWriteKey;
+    const conversation = useSessionsStore.getState().conversations[conversationId];
+    const timeline = buildTimeline(
+      conversation?.messages ?? EMPTY_MESSAGES,
+      running,
+      conversation?.customEntries ?? [],
+      root
+    );
     const next = timeline.flatMap((item): SessionChangeTool[] => {
       if (item.kind !== 'tool' || item.state !== 'ok') return [];
       if (item.name !== 'edit' && item.name !== 'write') return [];
@@ -85,7 +96,7 @@ export function ChangesView({
     if (sameTools(toolsRef.current, next)) return toolsRef.current;
     toolsRef.current = next;
     return next;
-  }, [timeline]);
+  }, [conversationId, editWriteKey, root, running]);
 
   const [ready, setReady] = useState(false);
   const [currentByPath, setCurrentByPath] = useState<Record<string, string | null>>({});

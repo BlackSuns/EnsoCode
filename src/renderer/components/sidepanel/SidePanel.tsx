@@ -400,6 +400,22 @@ function useIsDark(): boolean {
   return isDark;
 }
 
+function MountedConversationDock({
+  conversationId,
+  hidden,
+}: {
+  conversationId: string;
+  hidden: boolean;
+}) {
+  const projectId = useSessionsStore((s) => s.conversations[conversationId]?.projectId);
+  if (!projectId) return null;
+  return (
+    <div className={cn('absolute inset-0', hidden && 'hidden')}>
+      <ConversationDock conversationId={conversationId} projectId={projectId} />
+    </div>
+  );
+}
+
 function ConversationDock({
   conversationId,
   projectId,
@@ -476,18 +492,20 @@ export function SidePanel({ width, resizing = false }: { width: number; resizing
       stopClosed();
     };
   }, []);
-  const conversation = useSessionsStore((s) => (s.activeId ? s.conversations[s.activeId] : null));
-  const conversations = useSessionsStore((s) => s.conversations);
+  const conversationId = useSessionsStore((s) => s.activeId);
   const [mountedIds, setMountedIds] = useState<string[]>([]);
+  const visibleKey = useSessionsStore((s) =>
+    mountedIds.filter((id) => Boolean(s.conversations[id])).join('\n')
+  );
   const [cover, setCover] = useState(fullscreen);
   const [workspaceW, setWorkspaceW] = useState(0);
   const asideRef = useRef<HTMLElement>(null);
   const [widthAnim, setWidthAnim] = useState({
-    id: conversation?.id,
-    from: conversation?.id,
+    id: conversationId,
+    from: conversationId,
   });
-  if (conversation?.id !== widthAnim.id) {
-    setWidthAnim({ id: conversation?.id, from: widthAnim.id });
+  if (conversationId !== widthAnim.id) {
+    setWidthAnim({ id: conversationId, from: widthAnim.id });
   }
   if (fullscreen && !cover) setCover(true);
   useEffect(() => {
@@ -511,17 +529,17 @@ export function SidePanel({ width, resizing = false }: { width: number; resizing
    * 全屏 cover 态 aside 本身是实底，内容照常铺满。border-l 占 1px，内容按 content-box 扣掉。
    */
   const contentW = cover ? undefined : Math.max(0, width - (open ? 1 : 0));
-  const activeId = conversation?.id;
+  const activeId = conversationId;
   const skipWidthAnim = shouldSkipSidePanelWidthAnim({
     resizing,
-    conversationId: widthAnim.id,
-    previousConversationId: widthAnim.from,
+    conversationId: widthAnim.id ?? undefined,
+    previousConversationId: widthAnim.from ?? undefined,
   });
   const targetW = fullscreen ? workspaceW || width : open ? width : 0;
   if (activeId && !mountedIds.includes(activeId)) {
     setMountedIds((ids) => (ids.includes(activeId) ? ids : [...ids, activeId]));
   }
-  const visibleIds = mountedIds.filter((id) => conversations[id]);
+  const visibleIds = visibleKey === '' ? [] : visibleKey.split('\n');
 
   return (
     <>
@@ -562,14 +580,9 @@ export function SidePanel({ width, resizing = false }: { width: number; resizing
         >
           {visibleIds.length > 0 ? (
             <div className="relative min-h-0 flex-1">
-              {visibleIds.map((id) => {
-                const conv = conversations[id];
-                return (
-                  <div key={id} className={cn('absolute inset-0', id !== activeId && 'hidden')}>
-                    <ConversationDock conversationId={id} projectId={conv.projectId} />
-                  </div>
-                );
-              })}
+              {visibleIds.map((id) => (
+                <MountedConversationDock key={id} conversationId={id} hidden={id !== activeId} />
+              ))}
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">

@@ -2,6 +2,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { Editor, type EditorOptions } from '@pierre/diffs/edit';
 import { EditProvider, File, Virtualizer } from '@pierre/diffs/react';
 import type { FilesDirEntry } from '@shared/types';
+import type { ProjectedMessage } from '@shared/types/agent';
 import { ChevronRight, Code2, Eye, RefreshCw } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/chat/ConfirmDialog';
@@ -24,7 +25,7 @@ import { addSidePanelBrowser, registerFilesTabCloser } from '@/lib/sidePanelDock
 import { cn } from '@/lib/utils';
 import { useSessionsStore } from '@/stores/sessions';
 import { hasAuthoritativeMessages } from '@/stores/sessions/messageCache';
-import { buildTimeline } from '@/stores/sessions/timeline';
+import { buildTimeline, completedEditWriteFingerprint } from '@/stores/sessions/timeline';
 import { useSettingsStore } from '@/stores/settings';
 import { fileTypeIcon, fileTypeIconClass } from './fileIcons';
 import { FileMarkdownPreview } from './filePreviewMarkdown';
@@ -80,6 +81,8 @@ interface OpenDoc {
   /** 同 tab 内的 source/preview 切换（仅 Markdown）；undefined 视为 source */
   viewMode?: 'source' | 'preview';
 }
+
+const EMPTY_MESSAGES: ProjectedMessage[] = [];
 
 interface FilesViewProps {
   conversationId: string;
@@ -297,27 +300,33 @@ export function FilesView({ conversationId, projectId }: FilesViewProps) {
     };
   }, [applyDisk, conversationId, readFile]);
 
-  const conversation = useSessionsStore((s) => s.conversations[conversationId]);
-  const running = conversation?.status === 'running';
-  const root = conversation?.worktree?.path ?? project?.path;
-  const timeline = useMemo(
-    () =>
-      buildTimeline(conversation?.messages ?? [], running, conversation?.customEntries ?? [], root),
-    [conversation?.customEntries, conversation?.messages, root, running]
+  const running = useSessionsStore((s) => s.conversations[conversationId]?.status === 'running');
+  const root = useSessionsStore(
+    (s) => s.conversations[conversationId]?.worktree?.path ?? project?.path
   );
-  // 已完成的 edit/write 路径按次序折成字符串 key（不去重，同文件再改一次 key 也变）：
-  // 流式重建 timeline 时 key 不变就不重新读盘
-  const editedRelsKey = useMemo(
-    () =>
-      timeline
-        .flatMap((item) => {
-          if (item.kind !== 'tool' || item.state !== 'ok') return [];
-          if (item.name !== 'edit' && item.name !== 'write') return [];
-          return item.summary ? [item.summary] : [];
-        })
-        .join('\n'),
-    [timeline]
+  const historyBaseIndex = useSessionsStore(
+    (s) => s.conversations[conversationId]?.historyBaseIndex
   );
+  const editWriteKey = useSessionsStore((s) =>
+    completedEditWriteFingerprint(s.conversations[conversationId]?.messages ?? EMPTY_MESSAGES)
+  );
+  // 已完成的 edit/write 路径按次序折成字符串 key（不去重，同文件再改一次 key 也变）
+  const editedRelsKey = useMemo(() => {
+    void editWriteKey;
+    const conversation = useSessionsStore.getState().conversations[conversationId];
+    return buildTimeline(
+      conversation?.messages ?? EMPTY_MESSAGES,
+      running,
+      conversation?.customEntries ?? [],
+      root
+    )
+      .flatMap((item) => {
+        if (item.kind !== 'tool' || item.state !== 'ok') return [];
+        if (item.name !== 'edit' && item.name !== 'write') return [];
+        return item.summary ? [item.summary] : [];
+      })
+      .join('\n');
+  }, [conversationId, editWriteKey, root, running]);
   useEffect(() => {
     let alive = true;
     const rels = new Set(editedRelsKey ? editedRelsKey.split('\n') : []);
@@ -334,7 +343,7 @@ export function FilesView({ conversationId, projectId }: FilesViewProps) {
 
   const seenWritesRef = useRef<Set<string> | null>(null);
   const seenWritesSessionRef = useRef(conversationId);
-  const seenWritesEpochRef = useRef(conversation?.historyBaseIndex);
+  const seenWritesEpochRef = useRef(historyBaseIndex);
 
   const bumpTree = useCallback(() => setTreeGen((n) => n + 1), []);
   useEffect(() => {
@@ -385,12 +394,20 @@ export function FilesView({ conversationId, projectId }: FilesViewProps) {
   }, []);
 
   useEffect(() => {
-    const epoch = conversation?.historyBaseIndex;
+    void editWriteKey;
+    const conversation = useSessionsStore.getState().conversations[conversationId];
+    const epoch = historyBaseIndex;
     if (seenWritesSessionRef.current !== conversationId || seenWritesEpochRef.current !== epoch) {
       seenWritesSessionRef.current = conversationId;
       seenWritesEpochRef.current = epoch;
       seenWritesRef.current = null;
     }
+    const timeline = buildTimeline(
+      conversation?.messages ?? EMPTY_MESSAGES,
+      running,
+      conversation?.customEntries ?? [],
+      root
+    );
     const { refreshRels, nextSeen } = applyCompletedWrites(
       timeline,
       seenWritesRef.current,
@@ -400,14 +417,7 @@ export function FilesView({ conversationId, projectId }: FilesViewProps) {
     if (refreshRels.length === 0) return;
     expandDirs(refreshRels.flatMap(ancestorDirs));
     bumpTree();
-  }, [
-    bumpTree,
-    conversation?.historyBaseIndex,
-    conversation?.messages,
-    conversationId,
-    expandDirs,
-    timeline,
-  ]);
+  }, [bumpTree, conversationId, editWriteKey, expandDirs, historyBaseIndex, root, running]);
 
   const toggleDir = useCallback((rel: string) => {
     setExpandedDirs((set) => {
