@@ -22,6 +22,8 @@ describe('apply_patch tool 与 SSH IO', () => {
     expect(tool.description).toContain('*** Delete File: path');
     expect(tool.description).toContain('never use unified-diff line-number ranges');
     expect(tool.description).toContain('never add a BOM or NUL');
+    expect(tool.description).toMatch(/explicit absolute paths/i);
+    expect(tool.description).toMatch(/relative paths.*workspace/i);
     expect(tool.parameters).toMatchObject({
       type: 'object',
       properties: { input: { type: 'string' } },

@@ -11,6 +11,7 @@ export interface PatchEntry {
 }
 
 export interface PatchIo {
+  normalizePath?(path: string): string;
   inspect(
     path: string,
     maxBytes?: number,

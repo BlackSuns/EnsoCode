@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createLocalApplyPatchIo,
   executeApplyPatch,
+  normalizePatchPath,
   type PatchIo,
   PatchMutationUncertainError,
   validateApplyPatchTargets,
@@ -16,7 +17,7 @@ const patch = (...body: string[]) => ({
 
 let cwd: string;
 beforeEach(async () => {
-  cwd = await mkdtemp(path.join(os.tmpdir(), 'enso-apply-patch-'));
+  cwd = await realpath(await mkdtemp(path.join(os.tmpdir(), 'enso-apply-patch-')));
 });
 afterEach(async () => {
   await rm(cwd, { recursive: true, force: true });
@@ -144,10 +145,212 @@ describe('apply_patch 引擎', () => {
     expect(await text('exists.txt')).toBe('keep\n');
   });
 
-  it.each(['../outside.txt', '/tmp/outside.txt'])('拒绝越界路径 %s', async (target) => {
+  it.each(['../outside.txt', 'nested/../../outside.txt'])('拒绝相对逃逸路径 %s', async (target) => {
     await expect(
       validateApplyPatchTargets(cwd, patch(`*** Add File: ${target}`, '+x'))
     ).rejects.toThrow();
+  });
+
+  it('允许显式外部绝对路径执行 add/update/delete', async () => {
+    const outside = await realpath(await mkdtemp(path.join(os.tmpdir(), 'enso-patch-absolute-')));
+    try {
+      const added = path.join(outside, 'nested/add.txt');
+      const updated = path.join(outside, 'update.txt');
+      const deleted = path.join(outside, 'delete.txt');
+      await writeFile(updated, 'before\n');
+      await writeFile(deleted, 'gone\n');
+
+      const result = await executeApplyPatch(
+        cwd,
+        patch(
+          `*** Add File: ${added}`,
+          '+added',
+          `*** Update File: ${updated}`,
+          '@@',
+          '-before',
+          '+after',
+          `*** Delete File: ${deleted}`
+        )
+      );
+
+      expect(result.details.applied).toEqual([added, updated, deleted]);
+      expect(await readFile(added, 'utf8')).toBe('added\n');
+      expect(await readFile(updated, 'utf8')).toBe('after\n');
+      await expect(readFile(deleted, 'utf8')).rejects.toThrow();
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('显式绝对路径可作为 move 目标且仍按两个物理路径报告', async () => {
+    const outside = await realpath(await mkdtemp(path.join(os.tmpdir(), 'enso-patch-move-')));
+    try {
+      await writeFile(path.join(cwd, 'source.txt'), 'source\n');
+      const target = path.join(outside, 'target.txt');
+      const result = await executeApplyPatch(
+        cwd,
+        patch('*** Update File: source.txt', `*** Move to: ${target}`)
+      );
+      expect(result.details.applied).toEqual([target, 'source.txt']);
+      expect(await readFile(target, 'utf8')).toBe('source\n');
+      await expect(text('source.txt')).rejects.toThrow();
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('显式绝对路径可作为 move 源并移动到工作区相对目标', async () => {
+    const outside = await realpath(
+      await mkdtemp(path.join(os.tmpdir(), 'enso-patch-move-source-'))
+    );
+    const source = path.join(outside, 'source.txt');
+    try {
+      await writeFile(source, 'source\n');
+      const result = await executeApplyPatch(
+        cwd,
+        patch(`*** Update File: ${source}`, '*** Move to: moved/target.txt')
+      );
+      expect(result.details.applied).toEqual(['moved/target.txt', source]);
+      expect(await text('moved/target.txt')).toBe('source\n');
+      await expect(readFile(source, 'utf8')).rejects.toThrow();
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('外部绝对目标后置冲突时工作区内前序目标保持零写', async () => {
+    const outside = await realpath(await mkdtemp(path.join(os.tmpdir(), 'enso-patch-preflight-')));
+    const existing = path.join(outside, 'existing.txt');
+    try {
+      await writeFile(existing, 'keep\n');
+      await expect(
+        executeApplyPatch(
+          cwd,
+          patch('*** Add File: first.txt', '+first', `*** Add File: ${existing}`, '+conflict')
+        )
+      ).rejects.toThrow(/already exists/i);
+      await expect(text('first.txt')).rejects.toThrow();
+      expect(await readFile(existing, 'utf8')).toBe('keep\n');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('相对与绝对路径指向同一文件时在写入前拒绝', async () => {
+    const absolute = path.join(cwd, 'alias.txt');
+    await expect(
+      executeApplyPatch(
+        cwd,
+        patch('*** Add File: alias.txt', '+relative', `*** Add File: ${absolute}`, '+absolute')
+      )
+    ).rejects.toThrow(/same target|more than once|alias/i);
+    await expect(text('alias.txt')).rejects.toThrow();
+  });
+
+  it('相对目录与其绝对子路径构成祖先冲突时保持零写', async () => {
+    const child = path.join(cwd, 'node/child.txt');
+    await expect(
+      executeApplyPatch(
+        cwd,
+        patch('*** Add File: node', '+parent', `*** Add File: ${child}`, '+child')
+      )
+    ).rejects.toThrow(/ancestor/i);
+    await expect(text('node')).rejects.toThrow();
+  });
+
+  it('绝对目录在前、相对子路径在后时同样识别跨表示祖先冲突', async () => {
+    const parent = path.join(cwd, 'reverse-node');
+    await expect(
+      executeApplyPatch(
+        cwd,
+        patch(
+          `*** Add File: ${parent}`,
+          '+parent',
+          '*** Add File: reverse-node/child.txt',
+          '+child'
+        )
+      )
+    ).rejects.toThrow(/ancestor/i);
+    await expect(text('reverse-node')).rejects.toThrow();
+  });
+
+  it('Move 两端以相对和绝对路径指向同一文件时保持源文件不变', async () => {
+    const absolute = path.join(cwd, 'move-alias.txt');
+    await writeFile(absolute, 'keep\n');
+    await expect(
+      executeApplyPatch(cwd, patch('*** Update File: move-alias.txt', `*** Move to: ${absolute}`))
+    ).rejects.toThrow(/same target|alias/i);
+    expect(await text('move-alias.txt')).toBe('keep\n');
+  });
+
+  it.each([
+    ['大小写', 'Case-Alias.txt', 'case-alias.txt'],
+    ['NFC', 'café-alias.txt', 'café-alias.txt'],
+  ])('canonical 统一后仍保守拒绝%s别名', async (_kind, relative, absoluteName) => {
+    const absolute = path.join(cwd, absoluteName);
+    await expect(
+      executeApplyPatch(
+        cwd,
+        patch(`*** Add File: ${relative}`, '+relative', `*** Add File: ${absolute}`, '+absolute')
+      )
+    ).rejects.toThrow(/alias|same target/i);
+    await expect(text(relative)).rejects.toThrow();
+    await expect(readFile(absolute, 'utf8')).rejects.toThrow();
+  });
+
+  it('外部绝对路径的 leaf 和父目录符号链接仍拒绝', async () => {
+    const outside = await realpath(await mkdtemp(path.join(os.tmpdir(), 'enso-patch-link-')));
+    const actual = path.join(outside, 'actual');
+    await mkdir(actual);
+    await writeFile(path.join(actual, 'victim.txt'), 'safe\n');
+    await symlink(actual, path.join(outside, 'linked'));
+    await symlink(path.join(actual, 'victim.txt'), path.join(outside, 'leaf.txt'));
+    try {
+      await expect(
+        executeApplyPatch(
+          cwd,
+          patch(
+            `*** Update File: ${path.join(outside, 'linked/victim.txt')}`,
+            '@@',
+            '-safe',
+            '+bad'
+          )
+        )
+      ).rejects.toThrow(/symbolic|symlink|unsafe/i);
+      await expect(
+        executeApplyPatch(cwd, patch(`*** Delete File: ${path.join(outside, 'leaf.txt')}`))
+      ).rejects.toThrow(/symbolic|symlink|unsafe/i);
+      expect(await readFile(path.join(actual, 'victim.txt'), 'utf8')).toBe('safe\n');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('POSIX 不把 Windows 盘符或 UNC 当作工作区相对路径', async () => {
+    if (process.platform === 'win32') return;
+    for (const target of [
+      'C:/outside.txt',
+      String.raw`\root-relative.txt`,
+      String.raw`\\server\share\outside.txt`,
+    ]) {
+      await expect(
+        validateApplyPatchTargets(cwd, patch(`*** Add File: ${target}`, '+x'))
+      ).rejects.toThrow();
+    }
+  });
+
+  it('Windows 域仅接受完整盘符绝对路径，拒绝 root-relative、drive-relative 与 UNC', () => {
+    expect(normalizePatchPath('C:/outside.txt', 'win32')).toBe('C:\\outside.txt');
+    expect(normalizePatchPath('nested/file.txt', 'win32')).toBe('nested\\file.txt');
+    for (const target of [
+      String.raw`\root-relative.txt`,
+      '/root-relative.txt',
+      'C:drive-relative.txt',
+      String.raw`\\server\share\outside.txt`,
+      '//server/share/outside.txt',
+    ]) {
+      expect(() => normalizePatchPath(target, 'win32')).toThrow();
+    }
   });
 
   it('拒绝 leaf/父目录符号链接，cwd 自身为系统临时链接不受影响', async () => {

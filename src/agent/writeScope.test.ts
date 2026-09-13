@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createWriteToolDefinition, type ToolDefinition } from '@earendil-works/pi-coding-agent';
@@ -329,6 +329,33 @@ describe('withWriteScope', () => {
     expect(executed).not.toHaveBeenCalled();
   });
 
+  it('apply_patch 显式外部绝对路径仍被非空 writeScope 在审批前拒绝', async () => {
+    const executed = vi.fn(async () => ({ content: [], details: {} }));
+    const definition = {
+      ...makeToolDef(),
+      name: 'apply_patch',
+      execute: executed,
+    } as unknown as ToolDefinition;
+    const requests: string[] = [];
+    const gate = new ApprovalGate(
+      'supervised',
+      (info) => requests.push(info.summary),
+      () => {}
+    );
+    const wrapped = withWriteScope(withApproval(gate, 'file-edit', definition), '/repo', [
+      'allowed/**',
+    ]);
+    const input = ['*** Begin Patch', '*** Add File: /external/a.ts', '+a', '*** End Patch'].join(
+      '\n'
+    );
+
+    await expect(
+      wrapped.execute('patch', { input }, undefined, undefined, {} as never)
+    ).rejects.toThrow(/write scope/);
+    expect(requests).toEqual([]);
+    expect(executed).not.toHaveBeenCalled();
+  });
+
   it('apply_patch 审批摘要保留全部目标与 move 两端，拒绝时零写入', async () => {
     const executed = vi.fn(async () => ({ content: [], details: {} }));
     const definition = {
@@ -397,6 +424,47 @@ describe('withWriteScope', () => {
       expect(requests).toEqual(['allowed/a.ts\nallowed/b.ts']);
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('真实 apply_patch 无 scope 时按既有审批规则写显式外部绝对路径', async () => {
+    const cwd = await realpath(await mkdtemp(path.join(tmpdir(), 'enso-patch-approval-cwd-')));
+    const outside = await realpath(
+      await mkdtemp(path.join(tmpdir(), 'enso-patch-approval-outside-'))
+    );
+    const target = path.join(outside, 'target.ts');
+    try {
+      await writeFile(target, 'before\n');
+      const requests: string[] = [];
+      const gate = new ApprovalGate(
+        'assistant',
+        (info) => requests.push(info.summary),
+        () => {},
+        { review: async () => ({ decision: 'auto_allow' }) }
+      );
+      const tool = withWriteScope(
+        withWritePreflight(
+          withApproval(gate, 'file-edit', createApplyPatchTool({ cwd })),
+          (params) => validateApplyPatchTargets(cwd, params)
+        ),
+        cwd,
+        undefined
+      );
+      const input = [
+        '*** Begin Patch',
+        `*** Update File: ${target}`,
+        '@@',
+        '-before',
+        '+after',
+        '*** End Patch',
+      ].join('\n');
+
+      await tool.execute('patch', { input }, undefined, undefined, {} as never);
+      expect(requests).toEqual([target]);
+      expect(await readFile(target, 'utf8')).toBe('after\n');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
   });
 

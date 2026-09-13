@@ -46,14 +46,17 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
   return next;
 }
 
-function normalizeOperations(operations: ApplyPatchOperation[]): ApplyPatchOperation[] {
+function normalizeOperations(
+  operations: ApplyPatchOperation[],
+  normalizePath: (value: string) => string
+): ApplyPatchOperation[] {
   return operations.map((operation) => {
-    const normalizedPath = normalizePatchPath(operation.path);
+    const normalizedPath = normalizePath(operation.path);
     if (operation.type !== 'update') return { ...operation, path: normalizedPath };
     return {
       ...operation,
       path: normalizedPath,
-      ...(operation.movePath ? { movePath: normalizePatchPath(operation.movePath) } : {}),
+      ...(operation.movePath ? { movePath: normalizePath(operation.movePath) } : {}),
     };
   });
 }
@@ -64,6 +67,38 @@ function operationPaths(operations: readonly ApplyPatchOperation[]): string[] {
       ? [operation.path, operation.movePath]
       : [operation.path]
   );
+}
+
+function pathIdentity(value: string): string {
+  const normalized = value.replaceAll('\\', '/').replace(/\/{2,}/g, '/');
+  return (normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized).normalize('NFC');
+}
+
+function assertPathConflicts(
+  identities: readonly string[],
+  displayPaths: readonly string[],
+  canonical = false
+): void {
+  const exact = identities.map(pathIdentity);
+  const duplicateIndex = exact.findIndex((value, index) => exact.indexOf(value) !== index);
+  if (duplicateIndex >= 0) {
+    const first = exact.indexOf(exact[duplicateIndex]);
+    throw new Error(
+      canonical
+        ? `Patch paths resolve to the same target: ${displayPaths[first]}, ${displayPaths[duplicateIndex]}`
+        : `Patch path is operated on more than once: ${displayPaths[duplicateIndex]}`
+    );
+  }
+  const folded = exact.map((value) => value.toLowerCase());
+  const aliasIndex = folded.findIndex((value, index) => folded.indexOf(value) !== index);
+  if (aliasIndex >= 0)
+    throw new Error(`Patch paths have a case alias: ${displayPaths[aliasIndex]}`);
+  for (let left = 0; left < folded.length; left += 1) {
+    const prefix = folded[left].endsWith('/') ? folded[left] : `${folded[left]}/`;
+    const child = folded.findIndex((value, index) => index !== left && value.startsWith(prefix));
+    if (child >= 0)
+      throw new Error(`Patch paths have an ancestor conflict: ${displayPaths[child]}`);
+  }
 }
 
 function sameEntry(left: PatchEntry, right: PatchEntry): boolean {
@@ -85,7 +120,11 @@ async function buildPlan(
   if (Buffer.byteLength(input, 'utf8') > APPLY_PATCH_LIMITS.patchBytes) {
     throw new Error('apply_patch input exceeds size limit');
   }
-  const operations = normalizeOperations(parseApplyPatch(input));
+  const io = suppliedIo ?? createLocalApplyPatchIo(cwd);
+  const operations = normalizeOperations(
+    parseApplyPatch(input),
+    io.normalizePath ?? normalizePatchPath
+  );
   const chunks = operations.reduce(
     (count, operation) => count + (operation.type === 'update' ? operation.chunks.length : 0),
     0
@@ -93,25 +132,10 @@ async function buildPlan(
   if (chunks > APPLY_PATCH_LIMITS.chunks) throw new Error('apply_patch has too many chunks');
   const paths = operationPaths(operations);
   if (paths.length > APPLY_PATCH_LIMITS.files) throw new Error('apply_patch has too many files');
-  const duplicate = paths.find((value, index) => paths.indexOf(value) !== index);
-  if (duplicate) throw new Error(`Patch path is operated on more than once: ${duplicate}`);
-  const foldedPaths = paths.map((value) => value.normalize('NFC').toLowerCase());
-  const aliasIndex = foldedPaths.findIndex((value, index) => foldedPaths.indexOf(value) !== index);
-  if (aliasIndex >= 0) throw new Error(`Patch paths have a case alias: ${paths[aliasIndex]}`);
-  const pathSet = new Set(foldedPaths);
-  const ancestorIndex = foldedPaths.findIndex((value) => {
-    const segments = value.split('/');
-    for (let length = 1; length < segments.length; length += 1) {
-      if (pathSet.has(segments.slice(0, length).join('/'))) return true;
-    }
-    return false;
-  });
-  const ancestor = paths[ancestorIndex];
-  if (ancestor) throw new Error(`Patch paths have an ancestor conflict: ${ancestor}`);
+  assertPathConflicts(paths, paths);
 
-  const io = suppliedIo ?? createLocalApplyPatchIo(cwd);
   const snapshots = new Map<string, PatchEntry>();
-  const canonical = new Map<string, string>();
+  const canonicalPaths: string[] = [];
   let totalReadBytes = 0;
   for (const target of paths) {
     const remainingReadBytes = APPLY_PATCH_LIMITS.totalReadBytes - totalReadBytes;
@@ -123,9 +147,7 @@ async function buildPlan(
     if (entry.kind === 'symlink') throw new Error(`Symbolic links cannot be patched: ${target}`);
     if (entry.kind === 'directory') throw new Error(`Directories cannot be patched: ${target}`);
     if (entry.kind === 'other') throw new Error(`Patch target is not a regular file: ${target}`);
-    const alias = canonical.get(entry.canonicalPath);
-    if (alias) throw new Error(`Patch paths resolve to the same target: ${alias}, ${target}`);
-    canonical.set(entry.canonicalPath, target);
+    canonicalPaths.push(entry.canonicalPath);
     if (entry.raw) {
       totalReadBytes += entry.raw.length;
       if (totalReadBytes > APPLY_PATCH_LIMITS.totalReadBytes) {
@@ -135,6 +157,7 @@ async function buildPlan(
     }
     snapshots.set(target, entry);
   }
+  assertPathConflicts(canonicalPaths, paths, true);
 
   const actions: PhysicalAction[] = [];
   const matchBudget: MatchBudget = { remaining: APPLY_PATCH_LIMITS.comparisons };

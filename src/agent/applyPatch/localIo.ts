@@ -4,11 +4,29 @@ import { access, chmod, lstat, mkdir, open, realpath, rename, unlink } from 'nod
 import path from 'node:path';
 import type { PatchEntry, PatchIo } from './types';
 
-export function normalizePatchPath(value: string): string {
-  if (!value || path.isAbsolute(value) || path.win32.isAbsolute(value)) {
-    throw new Error(`Patch path must be relative to the workspace: ${value}`);
+export function normalizePatchPath(
+  value: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  if (!value) throw new Error('Patch path cannot be empty');
+  if (platform === 'win32') {
+    const target = value.replaceAll('/', '\\');
+    const driveAbsolute = /^[A-Za-z]:\\/.test(target);
+    if (driveAbsolute) return path.win32.normalize(target);
+    if (path.win32.isAbsolute(target) || /^[A-Za-z]:/.test(target)) {
+      throw new Error(`Patch path is not an absolute Windows path: ${value}`);
+    }
+    const normalized = path.win32.normalize(target);
+    if (normalized === '.' || normalized === '..' || normalized.startsWith(`..${path.win32.sep}`)) {
+      throw new Error(`Patch path escapes the workspace: ${value}`);
+    }
+    return normalized;
+  }
+  if (/^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\')) {
+    throw new Error(`Patch path is not valid on this platform: ${value}`);
   }
   const normalized = path.posix.normalize(value.replaceAll('\\', '/'));
+  if (path.posix.isAbsolute(normalized)) return normalized;
   if (normalized === '.' || normalized === '..' || normalized.startsWith('../')) {
     throw new Error(`Patch path escapes the workspace: ${value}`);
   }
@@ -16,22 +34,55 @@ export function normalizePatchPath(value: string): string {
 }
 
 export function createLocalApplyPatchIo(cwd: string): PatchIo {
+  const requestedRoot = path.resolve(cwd);
   const root = realpathSync(cwd);
   const checkSignal = (signal?: AbortSignal) => {
     if (signal?.aborted) throw new Error('apply_patch cancelled');
   };
-  const absolute = (relative: string) =>
-    path.join(root, ...normalizePatchPath(relative).split('/'));
+
+  const isWithin = (parent: string, target: string): boolean => {
+    const relative = path.relative(parent, target);
+    return (
+      relative === '' ||
+      (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+    );
+  };
+
+  const resolveTarget = (value: string) => {
+    const normalized = normalizePatchPath(value);
+    let target: string;
+    if (!path.isAbsolute(normalized)) {
+      target = path.resolve(root, normalized);
+    } else if (isWithin(requestedRoot, normalized)) {
+      target = path.resolve(root, path.relative(requestedRoot, normalized));
+    } else {
+      target = normalized;
+    }
+    const anchor = isWithin(root, target) ? root : path.parse(target).root;
+    const relative = path.relative(anchor, target);
+    return {
+      target,
+      anchor,
+      segments: relative ? relative.split(path.sep) : [],
+    };
+  };
 
   async function inspect(
-    relative: string,
+    value: string,
     maxBytes = 4 * 1024 * 1024,
     signal?: AbortSignal
   ): Promise<PatchEntry> {
     checkSignal(signal);
-    const normalized = normalizePatchPath(relative);
-    const segments = normalized.split('/');
-    let current = root;
+    const resolved = resolveTarget(value);
+    const { segments } = resolved;
+    let current = resolved.anchor;
+    if (segments.length === 0) {
+      const stats = await lstat(current);
+      return {
+        kind: stats.isDirectory() ? 'directory' : stats.isSymbolicLink() ? 'symlink' : 'other',
+        canonicalPath: await realpath(current),
+      };
+    }
     for (let index = 0; index < segments.length; index += 1) {
       checkSignal(signal);
       current = path.join(current, segments[index]);
@@ -41,7 +92,7 @@ export function createLocalApplyPatchIo(cwd: string): PatchIo {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
           await access(path.dirname(current), constants.W_OK | constants.X_OK);
-          return { kind: 'missing', canonicalPath: absolute(normalized) };
+          return { kind: 'missing', canonicalPath: resolved.target };
         }
         throw error;
       }
@@ -54,8 +105,7 @@ export function createLocalApplyPatchIo(cwd: string): PatchIo {
         if (stats.isDirectory()) return { kind: 'directory', canonicalPath };
         await access(path.dirname(current), constants.W_OK | constants.X_OK);
         if (!stats.isFile()) return { kind: 'other', canonicalPath };
-        if (stats.size > maxBytes)
-          throw new Error(`File exceeds apply_patch read limit: ${relative}`);
+        if (stats.size > maxBytes) throw new Error(`File exceeds apply_patch read limit: ${value}`);
         const handle = await open(current, 'r');
         try {
           const buffer = Buffer.alloc(Math.min(stats.size + 1, maxBytes + 1));
@@ -67,9 +117,8 @@ export function createLocalApplyPatchIo(cwd: string): PatchIo {
             length += read.bytesRead;
           }
           const after = await handle.stat();
-          if (length > maxBytes)
-            throw new Error(`File exceeds apply_patch read limit: ${relative}`);
-          if (after.size !== length) throw new Error(`File changed while reading: ${relative}`);
+          if (length > maxBytes) throw new Error(`File exceeds apply_patch read limit: ${value}`);
+          if (after.size !== length) throw new Error(`File changed while reading: ${value}`);
           const raw = Buffer.alloc(length);
           buffer.copy(raw, 0, 0, length);
           return { kind: 'file', canonicalPath, raw };
@@ -78,12 +127,13 @@ export function createLocalApplyPatchIo(cwd: string): PatchIo {
         }
       }
     }
-    throw new Error(`Invalid patch path: ${relative}`);
+    throw new Error(`Invalid patch path: ${value}`);
   }
 
-  async function ensureParents(relative: string, signal?: AbortSignal): Promise<void> {
-    const segments = normalizePatchPath(relative).split('/').slice(0, -1);
-    let current = root;
+  async function ensureParents(value: string, signal?: AbortSignal): Promise<void> {
+    const resolved = resolveTarget(value);
+    const segments = resolved.segments.slice(0, -1);
+    let current = resolved.anchor;
     for (const segment of segments) {
       checkSignal(signal);
       current = path.join(current, segment);
@@ -101,11 +151,12 @@ export function createLocalApplyPatchIo(cwd: string): PatchIo {
   }
 
   return {
+    normalizePath: normalizePatchPath,
     inspect,
-    async write(relative, raw, options) {
-      await ensureParents(relative, options.signal);
+    async write(value, raw, options) {
+      await ensureParents(value, options.signal);
       checkSignal(options.signal);
-      const target = absolute(relative);
+      const target = resolveTarget(value).target;
       if (options.exclusive) {
         const handle = await open(target, 'wx');
         try {
@@ -118,7 +169,7 @@ export function createLocalApplyPatchIo(cwd: string): PatchIo {
       const before = await lstat(target);
       checkSignal(options.signal);
       if (before.isSymbolicLink() || !before.isFile())
-        throw new Error(`Unsafe update target: ${relative}`);
+        throw new Error(`Unsafe update target: ${value}`);
       const temporary = path.join(
         path.dirname(target),
         `.${path.basename(target)}.enso-patch-${process.pid}-${randomUUID()}`
@@ -136,12 +187,11 @@ export function createLocalApplyPatchIo(cwd: string): PatchIo {
         throw error;
       }
     },
-    async remove(relative, signal) {
-      const entry = await inspect(relative, undefined, signal);
+    async remove(value, signal) {
+      const entry = await inspect(value, undefined, signal);
       checkSignal(signal);
-      if (entry.kind !== 'file')
-        throw new Error(`Delete target is not a regular file: ${relative}`);
-      await unlink(absolute(relative));
+      if (entry.kind !== 'file') throw new Error(`Delete target is not a regular file: ${value}`);
+      await unlink(resolveTarget(value).target);
     },
   };
 }
