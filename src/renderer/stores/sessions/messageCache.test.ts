@@ -165,6 +165,27 @@ describe('needsWorkerSnapshot', () => {
         started: true,
         sessionFile: '/tmp/s.jsonl',
         status: 'failed',
+        messages: [{ role: 'assistant' }],
+      })
+    ).toBe(false);
+  });
+
+  it('failed 空窗且 worker 仍持有时要 snapshot，否则切回 coworker 只剩红字', async () => {
+    const { needsWorkerSnapshot } = await import('./messageCache');
+    expect(
+      needsWorkerSnapshot({
+        started: true,
+        sessionFile: '/tmp/s.jsonl',
+        status: 'failed',
+        messages: [],
+      })
+    ).toBe(true);
+    expect(
+      needsWorkerSnapshot({
+        started: false,
+        sessionFile: '/tmp/s.jsonl',
+        status: 'failed',
+        messages: [],
       })
     ).toBe(false);
   });

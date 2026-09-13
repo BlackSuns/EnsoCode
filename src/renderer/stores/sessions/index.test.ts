@@ -2461,6 +2461,34 @@ describe('parent history tail hydrate', () => {
     expect(readParentHistoryTail).toHaveBeenCalledWith('empty');
   });
 
+  it('切到失败且空窗的已启动 coworker 仍要 snapshot，不能只剩红字', () => {
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: { ...state.conversations.parent, started: true, activeTabId: undefined },
+        child: {
+          ...state.conversations.parent,
+          id: 'child',
+          parentId: 'parent',
+          started: true,
+          spawning: false,
+          status: 'failed' as const,
+          error: 'Codex error: The usage limit has been reached',
+          sessionFile: '/tmp/child.jsonl',
+          messages: [],
+        },
+      },
+      activeId: 'parent',
+    }));
+    requestSnapshot.mockClear();
+    readParentHistoryTail.mockClear();
+    readChildHistory.mockClear();
+    sessionsModule.useSessionsStore.getState().selectTab('parent', 'child');
+    expect(requestSnapshot).toHaveBeenCalledWith('child');
+    expect(readParentHistoryTail).not.toHaveBeenCalled();
+    expect(readChildHistory).not.toHaveBeenCalled();
+  });
+
   function seedReleasable(id: string) {
     sessionsModule.useSessionsStore.setState((state) => ({
       conversations: {

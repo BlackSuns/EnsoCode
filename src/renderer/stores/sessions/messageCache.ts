@@ -52,15 +52,21 @@ export function needsHistoryHydration(conversation: {
   );
 }
 
-/** 已启动或可 resume 且未 failed：切回应对齐 worker 全文，半截权威正文也要 */
+/**
+ * 切回应对齐 worker 全文。failed 且本地已有权威正文时不要再要 snapshot：
+ * 空回包会把历史抹掉、只剩红字。failed 空窗且 worker 仍持有（started）则要补回。
+ */
 export function needsWorkerSnapshot(conversation: {
   started: boolean;
   sessionFile?: string;
   status?: string;
+  messages?: readonly { optimistic?: boolean }[];
 }): boolean {
-  return (
-    conversation.status !== 'failed' && (conversation.started || Boolean(conversation.sessionFile))
-  );
+  if (conversation.status === 'failed') {
+    if (hasAuthoritativeMessages(conversation.messages ?? [])) return false;
+    return conversation.started;
+  }
+  return conversation.started || Boolean(conversation.sessionFile);
 }
 
 /** 离开会话时盖章；正在看的会话不写自己，由 isMessageCacheHot 的 viewedId 保热 */
