@@ -57,9 +57,16 @@ import type {
   ThinkingLevel,
 } from '@shared/types/agent';
 import { parseAgentSessionCustomEntry } from '@shared/types/agent';
+import { type EditMode, resolveEditMode } from '@shared/types/editMode';
 import { providerIdOfAccountKey } from '@shared/types/oauthProviders';
 import type { WindowsLocalShell } from '@shared/windowsLocalShell';
 import { version } from '../../package.json';
+import {
+  createApplyPatchTool,
+  createRemoteApplyPatchIo,
+  validateApplyPatchTargets,
+} from './applyPatch';
+import { applyPatchResultExtension } from './applyPatchResultExtension';
 import { ApprovalGate, withApproval } from './approval';
 import {
   APPROVAL_REVIEW_TIMEOUT_MS,
@@ -165,7 +172,7 @@ import { createEnsoCapabilitiesTool } from './tools/ensoCapabilities';
 import { createMemoryTools, MemoryInvoker } from './tools/memory';
 import { transcriptMessages } from './transcript';
 import { WorkspaceSwitchGate, workspaceBranchContextExtension } from './workspaceSwitch';
-import { withWriteScope } from './writeScope';
+import { withWritePreflight, withWriteScope } from './writeScope';
 
 /** 子会话产物：实际 session、模型与精确工具集合。 */
 interface ChildSessionResult {
@@ -326,6 +333,7 @@ function createSessionResourceLoader(options: {
     // noExtensions 只挡磁盘上的项目/全局扩展；inline factory 不受影响，图片修剪对所有会话生效
     extensionFactories: [
       options.branchContext,
+      applyPatchResultExtension,
       {
         name: 'image-context',
         hidden: true,
@@ -412,7 +420,7 @@ function createEnsoResourceLoader(
     noPromptTemplates: true,
     noThemes: true,
     noContextFiles: true,
-    extensionFactories: [branchContext],
+    extensionFactories: [branchContext, applyPatchResultExtension],
     systemPrompt: ENSO_SYSTEM_PROMPT,
     skillsOverride: () => ({ skills: [], diagnostics: [] }),
     promptsOverride: () => ({ prompts: [], diagnostics: [] }),
@@ -901,7 +909,8 @@ export class SessionSupervisor {
           resolveCompactStrategy(command.compactStrategy, command.smartCompactEnabled),
           command.smartCompactSummaryModel,
           command.smartCompactMode,
-          command.memoryLanguage
+          command.memoryLanguage,
+          command.editMode
         );
         return;
       case 'spawn-child':
@@ -1306,9 +1315,11 @@ export class SessionSupervisor {
     compactStrategy: CompactStrategy = 'standard',
     smartCompactSummaryModel?: SpawnModelConfig,
     smartCompactMode?: SmartCompactMode,
-    memoryLanguage?: string
+    memoryLanguage?: string,
+    requestedEditMode?: EditMode
   ): Promise<void> {
     const sessionId = identity.sessionId;
+    const sessionEditMode = resolveEditMode(requestedEditMode, hashlineEditEnabled);
     const toolEnabled = (id: string) => !disabledTools.includes(id);
     const existing = this.sessions.get(sessionId);
     if (existing) {
@@ -1442,7 +1453,7 @@ export class SessionSupervisor {
       withReadTruncationMeta(withAgentRead(definition, () => structuredById));
     const applyHashline = <T extends Def>(tools: { read: T; grep: T; edit?: T }) =>
       applyHashlineSessionTools({
-        enabled: hashlineEditEnabled,
+        enabled: sessionEditMode === 'hashline',
         store: hashlineStore,
         io: hashlineIo,
         wrapOuterRead: wrapRead,
@@ -1501,17 +1512,31 @@ export class SessionSupervisor {
           return { command: sshCommand, cwd: process.cwd() };
         }
       : undefined;
+    const mutationToolNames =
+      sessionEditMode === 'apply_patch'
+        ? ['read', 'grep', 'find', 'apply_patch']
+        : ['read', 'grep', 'find', 'edit', 'write'];
     const maybeInterceptBash = (definition: Def): Def =>
-      bashInterceptEnabled ? withBashInterception(definition) : definition;
+      bashInterceptEnabled ? withBashInterception(definition, mutationToolNames) : definition;
     const buildBaseTools = (
       toolGate: ApprovalGate,
       cp?: CheckpointManager,
       writeScope?: readonly string[]
     ): Def[] => {
       const guarded = (definition: Def): Def => (cp ? withCheckpoint(definition, cp) : definition);
-      // 写范围在审批之外:越界直接拒绝,不占用审批也不落盘
-      const scoped = (kind: 'file-edit' | 'file-write', definition: Def): Def =>
-        withWriteScope(withApproval(toolGate, kind, guarded(definition)), cwd, writeScope);
+      // scope 与完整只读预检都在审批之外；checkpoint 仅在批准后触发。
+      const scoped = (
+        kind: 'file-edit' | 'file-write',
+        definition: Def,
+        preflight?: (params: unknown, signal: AbortSignal | undefined) => Promise<unknown>
+      ): Def => {
+        const approved = withApproval(toolGate, kind, guarded(definition));
+        return withWriteScope(
+          preflight ? withWritePreflight(approved, preflight) : approved,
+          cwd,
+          writeScope
+        );
+      };
       const stockEdit = createNormalizedEditTool(
         cwd,
         remoteOps ? { operations: remoteOps.edit } : undefined
@@ -1520,6 +1545,39 @@ export class SessionSupervisor {
         cwd,
         remoteOps ? { operations: remoteOps.write } : undefined
       ) as unknown as Def;
+      const patchIo = sshExecutor ? createRemoteApplyPatchIo(cwd, sshExecutor) : undefined;
+      const mutations =
+        sessionEditMode === 'apply_patch'
+          ? [
+              scoped(
+                'file-edit',
+                createApplyPatchTool({
+                  cwd,
+                  ...(patchIo ? { io: patchIo } : {}),
+                }) as unknown as Def,
+                (params: unknown, signal: AbortSignal | undefined) =>
+                  validateApplyPatchTargets(cwd, params, patchIo, signal)
+              ),
+            ]
+          : [
+              scoped(
+                'file-edit',
+                sessionEditMode === 'hashline'
+                  ? wrapHashlineEditDefinition(stockEdit, {
+                      store: hashlineStore,
+                      readText: hashlineIo.readText,
+                      writeText: hashlineIo.writeText,
+                      strictMode: true,
+                    })
+                  : stockEdit
+              ),
+              scoped(
+                'file-write',
+                sessionEditMode === 'hashline'
+                  ? withHashlineWrite(stockWrite, hashlineStore)
+                  : stockWrite
+              ),
+            ];
       return [
         ...readOnlyTools(),
         withApproval(
@@ -1542,20 +1600,7 @@ export class SessionSupervisor {
             )
           )
         ),
-        scoped(
-          'file-edit',
-          hashlineEditEnabled
-            ? wrapHashlineEditDefinition(stockEdit, {
-                store: hashlineStore,
-                readText: hashlineIo.readText,
-                writeText: hashlineIo.writeText,
-              })
-            : stockEdit
-        ),
-        scoped(
-          'file-write',
-          hashlineEditEnabled ? withHashlineWrite(stockWrite, hashlineStore) : stockWrite
-        ),
+        ...mutations,
       ];
     };
     const wrapMcpTools = (toolGate: ApprovalGate): Def[] =>
@@ -1666,6 +1711,7 @@ export class SessionSupervisor {
                     createIsolatedSandboxTool({
                       getTools: () => childSandboxCatalog.current,
                       store: new Map(),
+                      hashlineMode: sessionEditMode === 'hashline',
                     }),
                   ]
                 : []),
@@ -1894,7 +1940,13 @@ export class SessionSupervisor {
     const customTools = [
       ...sessionTools,
       ...(toolEnabled('isolated_sandbox')
-        ? [createIsolatedSandboxTool({ getTools: () => catalogRef.current, store: sandboxStore })]
+        ? [
+            createIsolatedSandboxTool({
+              getTools: () => catalogRef.current,
+              store: sandboxStore,
+              hashlineMode: sessionEditMode === 'hashline',
+            }),
+          ]
         : []),
     ].map((tool) => withTaskReminders(tool, takePendingReminders));
 

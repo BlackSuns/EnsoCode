@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { JSException, type JSValueHandle, QuickJS } from 'quickjs-wasi';
+import { isFailedApplyPatchResult } from './applyPatchResultExtension';
 
 const require = createRequire(import.meta.url);
 let wasmModule: Promise<WebAssembly.Module> | undefined;
@@ -44,6 +45,8 @@ export interface IsolatedSandboxToolOptions {
   getTools: () => readonly ToolDefinition[];
   /** 会话级 JSON 仓，跨多次 exec 的 store/load */
   store?: Map<string, unknown>;
+  /** 仅 Hashline 模式展示父级 snapshot 限制。 */
+  hashlineMode?: boolean;
 }
 
 interface HostCall {
@@ -257,6 +260,12 @@ function failed(message: string, extra?: Record<string, unknown>) {
 }
 
 export function createIsolatedSandboxTool(options: IsolatedSandboxToolOptions): ToolDefinition {
+  const hashlineDescription = options.hashlineMode
+    ? 'Nested read/grep inside exec do not create a parent hashline snapshot — if you will edit, call read/grep at the top level. '
+    : '';
+  const hashlineSnippet = options.hashlineMode
+    ? ' Nested read/grep do not create a parent hashline snapshot.'
+    : '';
   return {
     name: 'exec',
     label: 'Isolated sandbox',
@@ -269,18 +278,24 @@ export function createIsolatedSandboxTool(options: IsolatedSandboxToolOptions): 
       'Each tool returns { content, details?, isError }. No console/fetch/setTimeout/URL/TextEncoder — use return. ' +
       'Tool failures resolve as { content, isError: true } and do not reject — check isError, do not rely on throw. ' +
       'A JavaScript exception still fails the whole cell. ' +
-      'Nested read/grep inside exec do not create a parent hashline snapshot — if you will edit, call read/grep at the top level. ' +
+      hashlineDescription +
       'Return values are JSON-serialized and truncated; wrapping one call is strictly worse than calling the tool directly. ' +
       'Tool names: "-" and "__" become "_": mcp__semble__search → mcp_semble_search. ' +
       'catalog.list() / listTools() lists callable names. store()/load() last for this live session. Not a shell.',
     promptSnippet:
-      'exec: prefer for 3+ similar read/grep/find when you only need a reduced result (count, path list, boolean, extracted fields) — not for exploring, dumping full file bodies, or wrapping a single call. Nested read/grep do not create a parent hashline snapshot. Write JS and return the value. Uncaught throw fails the cell. MCP names collapse __ and - to _.',
+      'exec: prefer for 3+ similar read/grep/find when you only need a reduced result (count, path list, boolean, extracted fields) — not for exploring, dumping full file bodies, or wrapping a single call.' +
+      hashlineSnippet +
+      ' Write JS and return the value. Uncaught throw fails the cell. MCP names collapse __ and - to _.',
     promptGuidelines: [
       'Do not wrap a single read/grep/find. Use exec only for 3+ similar calls that you reduce before returning (count, path list, boolean, extracted fields). Do not use exec to explore unknown code or to load full files into parent context.',
       'No console.log — there is no console, fetch, setTimeout, URL, TextEncoder, or structuredClone. Use return.',
       'Tool failures resolve with isError: true and do not throw. A JS exception still fails the whole cell.',
       'Each nested tool returns { content: string, details?: unknown, isError: boolean }. Do not treat the result as a raw string.',
-      'Nested read/grep inside exec do not create a parent hashline snapshot. If you will edit the file, call read/grep at the top level.',
+      ...(options.hashlineMode
+        ? [
+            'Nested read/grep inside exec do not create a parent hashline snapshot. If you will edit the file, call read/grep at the top level.',
+          ]
+        : []),
       'Tool names replace "-" and "__" with "_": mcp__semble__search → mcp_semble_search. Use catalog.list() or listTools() for names.',
       'store(key, value) / load(key) keep JSON across exec cells until this session unloads; they do not survive resume.',
       'exec is deterministic code with no LLM inside. Use subagent when each item needs judgment.',
@@ -505,7 +520,9 @@ async function runGuest(input: {
           undefined,
           input.ctx as never
         );
-        const isError = (result as { isError?: boolean }).isError === true;
+        const isError =
+          (result as { isError?: boolean }).isError === true ||
+          isFailedApplyPatchResult(job.name, (result as { details?: unknown }).details);
         ok = !isError;
         payload = guestResult({ ...result, isError });
         if (isError) error = textOf(result) || 'tool error';

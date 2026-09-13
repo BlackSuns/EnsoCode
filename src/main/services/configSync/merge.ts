@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { isReservedAgentTypeName } from '@shared/builtinAgents';
 import type { ConfigSyncSummary } from '@shared/types';
-import { DEFAULT_PRESET_ID } from '@shared/types';
+import { DEFAULT_PRESET_ID, resolveEditMode } from '@shared/types';
 
 import type { ConfigSyncBundle } from './types';
 
@@ -46,7 +46,7 @@ const SCALAR_SETTING_KEYS = [
   'loadHarnessAssets',
   'exploreFoldEnabled',
   'bashInterceptEnabled',
-  'hashlineEditEnabled',
+  'editMode',
   'openChangesOnFileEdit',
   'compactReadOnlyTools',
   'expandLiveEdits',
@@ -620,6 +620,10 @@ export function planImport(
 } {
   if (mode !== 'merge' && mode !== 'replace') throw new Error('Unsupported config sync mode');
   const state = clone(current);
+  if ('editMode' in state || 'hashlineEditEnabled' in state) {
+    state.editMode = resolveEditMode(state.editMode, state.hashlineEditEnabled);
+    delete state.hashlineEditEnabled;
+  }
   const incoming = {
     providers: sourceRecords(bundle, 'providers'),
     skills: sourceRecords(bundle, 'skills'),
@@ -747,7 +751,7 @@ export function planImport(
     'loadHarnessAssets',
     'exploreFoldEnabled',
     'bashInterceptEnabled',
-    'hashlineEditEnabled',
+    'editMode',
     'titleSummaryEnabled',
     'compactStrategy',
     'smartCompactEnabled',

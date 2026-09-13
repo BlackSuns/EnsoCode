@@ -1,8 +1,15 @@
-import { BUILTIN_TOOLS } from '@shared/types';
+import { BUILTIN_TOOLS, EDIT_MODES, type EditMode, isEditMode } from '@shared/types';
 import type { BrowserClearKind } from '@shared/types/browser';
 import { Globe, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
@@ -13,6 +20,12 @@ import {
   useOccupancyRows,
 } from './OccupancyMark';
 
+const EDIT_MODE_LABEL: Record<EditMode, string> = {
+  replace: 'Text replacement (default)',
+  hashline: 'Hashline',
+  apply_patch: 'Apply patch',
+};
+
 export function BuiltinToolsSettings() {
   const { t } = useI18n();
   const disabled = useSettingsStore((state) => state.disabledBuiltinTools);
@@ -21,8 +34,8 @@ export function BuiltinToolsSettings() {
   const setExploreFoldEnabled = useSettingsStore((state) => state.setExploreFoldEnabled);
   const bashInterceptEnabled = useSettingsStore((state) => state.bashInterceptEnabled);
   const setBashInterceptEnabled = useSettingsStore((state) => state.setBashInterceptEnabled);
-  const hashlineEditEnabled = useSettingsStore((state) => state.hashlineEditEnabled);
-  const setHashlineEditEnabled = useSettingsStore((state) => state.setHashlineEditEnabled);
+  const editMode = useSettingsStore((state) => state.editMode);
+  const setEditMode = useSettingsStore((state) => state.setEditMode);
   const occupancy = useOccupancyRows(
     BUILTIN_TOOLS.map((tool) => tool.id),
     () => window.electronAPI.assets.builtinToolOccupancy()
@@ -97,25 +110,39 @@ export function BuiltinToolsSettings() {
         <Switch checked={bashInterceptEnabled} onCheckedChange={setBashInterceptEnabled} />
       </div>
 
-      <div
-        className="space-y-2 rounded-lg border px-3 py-2.5"
-        data-settings-row="tools.hashlineEditEnabled"
-      >
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="font-medium text-sm">{t('Hashline edit')}</p>
+      <div className="space-y-2 rounded-lg border px-3 py-2.5" data-settings-row="tools.editMode">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="font-medium text-sm">{t('File edit mode')}</p>
             <p className="text-muted-foreground text-xs">
               {t(
-                'Line-anchored read/edit with snapshot tags. Off by default. Takes effect on the next session. oldText replace still works when Force read/find is off.'
+                'Choose how files are modified. Text replacement is the default. New and cold-restored sessions use this mode; already warm sessions keep their current mode.'
               )}
             </p>
           </div>
-          <Switch checked={hashlineEditEnabled} onCheckedChange={setHashlineEditEnabled} />
+          <Select
+            items={Object.fromEntries(EDIT_MODES.map((mode) => [mode, t(EDIT_MODE_LABEL[mode])]))}
+            value={editMode}
+            onValueChange={(value) => {
+              if (isEditMode(value)) setEditMode(value);
+            }}
+          >
+            <SelectTrigger className="w-44 shrink-0" aria-label={t('File edit mode')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup>
+              {EDIT_MODES.map((mode) => (
+                <SelectItem key={mode} value={mode}>
+                  {t(EDIT_MODE_LABEL[mode])}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
         </div>
-        {hashlineEditEnabled && !bashInterceptEnabled ? (
+        {editMode === 'hashline' && !bashInterceptEnabled ? (
           <p className="text-muted-foreground text-xs">
             {t(
-              'Also turn on Force read/find tools so the model uses tagged read more often. Edit still accepts oldText replace either way.'
+              'Also turn on Force read/find tools so the model uses tagged reads more consistently.'
             )}
           </p>
         ) : null}

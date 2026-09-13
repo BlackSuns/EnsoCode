@@ -11,6 +11,8 @@ import {
   HASHLINE_EDIT_GUIDELINES,
   HASHLINE_PUT_EXAMPLE,
   HASHLINE_PUT_RULE,
+  HASHLINE_STRICT_EDIT_DESCRIPTION,
+  HASHLINE_STRICT_EDIT_GUIDELINES,
   withGuidelines,
 } from './prompts';
 import type { InMemorySnapshotStore } from './snapshots';
@@ -20,15 +22,24 @@ import { withHashlineRead } from './withRead';
 type NamedTool = { name: string; execute: (...args: never[]) => unknown };
 
 /** 宽松对象：hashline `{input}` 与 replace `{path,edits}` 都能过 schema，分流放运行时 */
+const HASHLINE_INPUT_PROPERTY = {
+  type: 'string',
+  description: `Hashline mode only (do not combine with edits/oldText/newText). First line: the exact [path#TAG] header from the latest read/grep/write. Then PUT blocks. ${HASHLINE_PUT_RULE} Example:\n${HASHLINE_PUT_EXAMPLE}`,
+};
+
 export const HASHLINE_EDIT_PARAMETERS = {
   type: 'object',
   properties: {
-    input: {
-      type: 'string',
-      description: `Hashline mode only (do not combine with edits/oldText/newText). First line: the exact [path#TAG] header from the latest read/grep/write. Then PUT blocks. ${HASHLINE_PUT_RULE} Example:\n${HASHLINE_PUT_EXAMPLE}`,
-    },
+    input: HASHLINE_INPUT_PROPERTY,
     ...EDIT_REPLACE_PROPERTIES,
   },
+} as unknown as ToolDefinition['parameters'];
+
+export const HASHLINE_STRICT_EDIT_PARAMETERS = {
+  type: 'object',
+  properties: { input: HASHLINE_INPUT_PROPERTY },
+  required: ['input'],
+  additionalProperties: false,
 } as unknown as ToolDefinition['parameters'];
 
 export function selectHashlineTools<T extends NamedTool>(options: {
@@ -83,6 +94,8 @@ export function wrapHashlineEditDefinition<T extends { execute: (...args: never[
     store: InMemorySnapshotStore;
     readText: (path: string) => Promise<string>;
     writeText: (path: string, text: string) => Promise<void>;
+    /** 生产模式仅向模型暴露 Hashline schema；缺省保留 dual 兼容既有调用方与测试。 */
+    strictMode?: boolean;
   }
 ): T {
   const execute = stock.execute as (
@@ -95,15 +108,20 @@ export function wrapHashlineEditDefinition<T extends { execute: (...args: never[
   return withGuidelines(
     {
       ...stock,
-      description: HASHLINE_EDIT_DESCRIPTION,
-      parameters: HASHLINE_EDIT_PARAMETERS,
+      ...(options.strictMode ? { promptGuidelines: [] } : {}),
+      description: options.strictMode
+        ? HASHLINE_STRICT_EDIT_DESCRIPTION
+        : HASHLINE_EDIT_DESCRIPTION,
+      parameters: options.strictMode ? HASHLINE_STRICT_EDIT_PARAMETERS : HASHLINE_EDIT_PARAMETERS,
       prepareArguments: (args: unknown) => {
-        if (classifyEditArgs(args).kind === 'hashline') return args;
+        if (classifyEditArgs(args).kind === 'hashline' || options.strictMode) return args;
         return prepareStock ? prepareStock(args) : args;
       },
       execute: (async (toolCallId: string, params: unknown, ...rest: unknown[]) => {
         const kind = classifyEditArgs(params).kind;
-        if (kind === 'replace') return execute(toolCallId, withoutInput(params), ...rest);
+        if (kind === 'replace' && !options.strictMode) {
+          return execute(toolCallId, withoutInput(params), ...rest);
+        }
         if (kind === 'mixed') throw new Error(EDIT_MIXED_MESSAGE);
         if (kind === 'hashline') {
           const input = String((params as { input?: string } | undefined)?.input ?? '');
@@ -138,7 +156,7 @@ export function wrapHashlineEditDefinition<T extends { execute: (...args: never[
         throw new Error(EDIT_INVALID_MESSAGE);
       }) as T['execute'],
     },
-    HASHLINE_EDIT_GUIDELINES
+    options.strictMode ? HASHLINE_STRICT_EDIT_GUIDELINES : HASHLINE_EDIT_GUIDELINES
   );
 }
 

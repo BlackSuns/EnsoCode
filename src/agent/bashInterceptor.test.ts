@@ -64,6 +64,16 @@ describe('checkBashInterception', () => {
     expect(checkBashInterception('cat file.ts', ['bash']).block).toBe(false);
   });
 
+  it('apply_patch 模式把写盘 shell 引导到实际存在的 apply_patch，不推荐 edit/write', () => {
+    for (const command of ["sed -i 's/a/b/' file.ts", 'cat > file.ts <<EOF']) {
+      const result = checkBashInterception(command, ['read', 'grep', 'find', 'apply_patch']);
+      expect(result.block, command).toBe(true);
+      expect(result.suggestedTool, command).toBe('apply_patch');
+      expect(result.message, command).toContain('`apply_patch`');
+      expect(result.message, command).not.toMatch(/`edit`|`write`/);
+    }
+  });
+
   it('blocks cat writes and points at write, not read', () => {
     for (const command of [
       "cat >> src/agent/memory/pipeline.test.ts <<'EOF'",
@@ -114,6 +124,13 @@ describe('withBashInterception promptGuidelines', () => {
     expect(text).toContain('Do not use cat/head/tail/less/more/grep/rg');
     expect(text).toContain('Do not use cat >/>> or heredocs');
     expect(text).toContain('Use the `read`, `grep`, `edit`, `write`, or `find` tools');
+  });
+
+  it('apply_patch 模式的描述与指南不推荐不存在的 edit/write', () => {
+    const wrapped = withBashInterception(bashTool(), ['read', 'grep', 'find', 'apply_patch']);
+    const text = [wrapped.description, ...(wrapped.promptGuidelines ?? [])].join('\n');
+    expect(text).toContain('`apply_patch`');
+    expect(text).not.toMatch(/`edit`|`write`/);
   });
 
   it('追加拦截禁令，不覆盖工具原有 promptGuidelines', () => {

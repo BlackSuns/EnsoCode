@@ -382,7 +382,16 @@ describe('parent/child commands', () => {
     expect(parseAgentCommand({ ...base, bashInterceptEnabled: 1 })).toBeNull();
   });
 
-  it('spawn-parent 携 hashlineEditEnabled:合法通过,脏值拒绝,缺省当关', () => {
+  it('spawn-parent 携 editMode:仅接受三个互斥模式', () => {
+    const base = { type: 'spawn-parent', identity: parent, cwd: '/repo', model };
+    for (const editMode of ['replace', 'hashline', 'apply_patch'] as const) {
+      expect(parseAgentCommand({ ...base, editMode })).toEqual({ ...base, editMode });
+    }
+    expect(parseAgentCommand({ ...base, editMode: 'patch' })).toBeNull();
+    expect(parseAgentCommand({ ...base, editMode: true })).toBeNull();
+  });
+
+  it('spawn-parent 继续兼容旧 hashlineEditEnabled，且严格拒绝脏值', () => {
     const base = { type: 'spawn-parent', identity: parent, cwd: '/repo', model };
     expect(parseAgentCommand(base)).toEqual(base);
     expect(parseAgentCommand({ ...base, hashlineEditEnabled: true })).toEqual({
@@ -1559,5 +1568,91 @@ describe('MCP 旁路事件收窄', () => {
       parseAgentWorkerEvent({ ...event, tokens: { access_token: 'a', expires_in: 'x' } })
     ).toBeNull();
     expect(parseAgentWorkerEvent({ ...event, extra: 1 })).toBeNull();
+  });
+});
+
+describe('apply_patch fileChanges 事件收窄', () => {
+  const event = {
+    type: 'message-upsert',
+    identity: parent,
+    seq: 1,
+    index: 0,
+    message: {
+      role: 'toolResult',
+      content: [],
+      toolName: 'apply_patch',
+      fileChanges: [{ path: 'a.ts', oldText: 'a', newText: 'b', type: 'update' }],
+      applyPatchOutcome: {
+        status: 'partial',
+        applied: ['a.ts'],
+        failed: ['b.ts'],
+        error: 'write failed',
+        unattempted: ['c.ts'],
+        uncertain: [],
+      },
+    },
+  } as const;
+
+  it('接受完整白名单形状与显式 truncated', () => {
+    expect(parseAgentWorkerEvent(event)).toEqual(event);
+    expect(
+      parseAgentWorkerEvent({
+        ...event,
+        message: {
+          ...event.message,
+          fileChanges: [{ ...event.message.fileChanges[0], oldText: 'a\n…', truncated: true }],
+        },
+      })
+    ).not.toBeNull();
+  });
+
+  it('snapshot 同样收窄嵌套消息的 fileChanges', () => {
+    expect(
+      parseSessionSnapshot({
+        identity: parent,
+        status: 'idle',
+        messages: [event.message],
+        commands: [],
+      })
+    ).not.toBeNull();
+    expect(
+      parseSessionSnapshot({
+        identity: parent,
+        status: 'idle',
+        messages: [
+          { ...event.message, fileChanges: [{ ...event.message.fileChanges[0], extra: 1 }] },
+        ],
+        commands: [],
+      })
+    ).toBeNull();
+  });
+
+  it('拒绝 applyPatchOutcome 脏字段、超预算路径与不一致 applied', () => {
+    for (const applyPatchOutcome of [
+      { ...event.message.applyPatchOutcome, status: 'unknown' },
+      { ...event.message.applyPatchOutcome, failed: 'b.ts' },
+      { ...event.message.applyPatchOutcome, applied: ['other.ts'] },
+      { ...event.message.applyPatchOutcome, failed: ['x'.repeat(4_097)] },
+      { ...event.message.applyPatchOutcome, extra: true },
+      { ...event.message.applyPatchOutcome, errorTruncated: false },
+    ]) {
+      expect(
+        parseAgentWorkerEvent({ ...event, message: { ...event.message, applyPatchOutcome } })
+      ).toBeNull();
+    }
+  });
+
+  it('拒绝 fileChanges 脏字段、错误类型与不显式的 truncated=false', () => {
+    for (const fileChanges of [
+      [{ ...event.message.fileChanges[0], secret: 'x' }],
+      [{ ...event.message.fileChanges[0], oldText: 1 }],
+      [{ ...event.message.fileChanges[0], type: 'move' }],
+      [{ ...event.message.fileChanges[0], truncated: false }],
+      null,
+    ]) {
+      expect(
+        parseAgentWorkerEvent({ ...event, message: { ...event.message, fileChanges } })
+      ).toBeNull();
+    }
   });
 });

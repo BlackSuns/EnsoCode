@@ -12,7 +12,9 @@ import {
   BUILTIN_AGENT_TYPES,
   BUILTIN_TOOLS,
   DEFAULT_PRESET_ID,
+  isEditMode,
   MODEL_API_KINDS,
+  resolveEditMode,
   THINKING_LEVELS,
 } from '@shared/types';
 import { hasBase64Shape } from './assets';
@@ -87,6 +89,7 @@ const STATE_KEYS = [
   'loadHarnessAssets',
   'exploreFoldEnabled',
   'bashInterceptEnabled',
+  'editMode',
   'hashlineEditEnabled',
   'openChangesOnFileEdit',
   'compactReadOnlyTools',
@@ -846,6 +849,8 @@ export function validateBundle(value: unknown): ConfigSyncBundle {
     booleanField(state, key, 'state', false);
   if (state.compactStrategy !== undefined && parseCompactStrategy(state.compactStrategy) === null)
     throw new Error('Invalid state.compactStrategy');
+  if (state.editMode !== undefined && !isEditMode(state.editMode))
+    throw new Error('Invalid state.editMode');
   if (
     state.smartCompactMode !== undefined &&
     parseSmartCompactMode(state.smartCompactMode) === null
@@ -958,20 +963,25 @@ export function validateBundle(value: unknown): ConfigSyncBundle {
     new Set(skills.map((entry) => String(entry.id))),
     new Map(instructions.map((entry) => [String(entry.id), Number(entry.bytes)]))
   );
+  const canonicalState: Record<string, unknown> = {
+    ...state,
+    providers,
+    skills,
+    mcpServers,
+    instructions,
+    presets,
+    agentTypes,
+    subagentModels,
+  };
+  if ('editMode' in state || 'hashlineEditEnabled' in state) {
+    canonicalState.editMode = resolveEditMode(state.editMode, state.hashlineEditEnabled);
+    delete canonicalState.hashlineEditEnabled;
+  }
   return {
     format: ENVELOPE_FORMAT,
     version: VERSION,
     createdAt,
-    state: {
-      ...state,
-      providers,
-      skills,
-      mcpServers,
-      instructions,
-      presets,
-      agentTypes,
-      subagentModels,
-    } as unknown as ConfigSyncBundle['state'],
+    state: canonicalState as unknown as ConfigSyncBundle['state'],
     resources: resources as ConfigSyncBundle['resources'],
     secretsIncluded: bundle.secretsIncluded,
   };

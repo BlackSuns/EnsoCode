@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/dialog';
 import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover';
 import { type TFunction, useI18n } from '@/i18n';
+import { diffCacheKey } from '@/lib/diffCacheKey';
 import { addSidePanelChanges } from '@/lib/sidePanelDock';
 import { cn } from '@/lib/utils';
 import { useSessionsStore } from '@/stores/sessions';
@@ -41,7 +42,13 @@ import {
   resolveRewindConfirm,
 } from '@/stores/sessions/conversationRewind';
 import { formatDuration, formatTokens } from '@/stores/sessions/stats';
-import { isReadOnlyTool, parseSandboxOutput, type TimelineItem } from '@/stores/sessions/timeline';
+import {
+  isReadOnlyTool,
+  parseSandboxOutput,
+  shouldAutoExpandAppliedFileChanges,
+  shouldShowToolOutputAfterFileChanges,
+  type TimelineItem,
+} from '@/stores/sessions/timeline';
 import { useSettingsStore } from '@/stores/settings';
 import { CodeBlock } from './CodeBlock';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -106,6 +113,7 @@ function itemEqual(prev: TimelineRowProps, next: TimelineRowProps): boolean {
         a.output === b.output &&
         a.edits === b.edits &&
         a.writeContent === b.writeContent &&
+        a.fileChanges === b.fileChanges &&
         a.todos === b.todos &&
         a.durationMs === b.durationMs &&
         a.startedAt === b.startedAt &&
@@ -1290,6 +1298,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
   const compact = compactReadOnly && isReadOnlyTool(item);
   const hasDiff = Boolean(item.edits && item.edits.length > 0);
   const hasWrite = Boolean(item.writeContent);
+  const hasFileChanges = Boolean(item.fileChanges && item.fileChanges.length > 0);
   const sandbox = item.name === 'exec' ? parseSandboxOutput(item.output) : null;
   const headerSummary =
     item.nestedPending && item.state === 'running'
@@ -1297,17 +1306,23 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
       : sandbox?.calls.length && item.state !== 'error'
         ? `${item.summary} · ${sandbox.calls.length} calls`
         : item.summary;
-  const expandable = hasDiff || hasWrite || Boolean(item.output) || Boolean(item.source);
+  const expandable =
+    hasDiff || hasWrite || hasFileChanges || Boolean(item.output) || Boolean(item.source);
   // edit 的 diff 与 write 的内容只在本轮直播（running）且开启 expandLiveEdits 时默认展开；
   // 历史会话挂载时全部折叠——否则切会话时视口内成排 FileDiff 同步解析+高亮，
   // 主线程阻塞几秒白屏
   const autoExpand = expandLiveEdits && (hasDiff || hasWrite) && item.state === 'running';
   const [expanded, setExpanded] = useState(autoExpand);
-  // 直播中 edits/writeContent 随参数流式补齐晚于行挂载：到位时自动展开。
-  // 历史会话挂载时 state 已是终态，不会触发；用户手动收起后依赖项不变，不会重新弹开
+  const previouslyHadFileChanges = useRef(hasFileChanges);
+  // apply_patch 只在终态结果中拿到真实 diff：必须按「本行从无到有」识别直播，历史首次挂载不展开。
   useEffect(() => {
-    if (autoExpand) setExpanded(true);
-  }, [autoExpand]);
+    const appliedChangesArrived = shouldAutoExpandAppliedFileChanges(
+      item,
+      previouslyHadFileChanges.current
+    );
+    previouslyHadFileChanges.current = hasFileChanges;
+    if (autoExpand || (expandLiveEdits && appliedChangesArrived)) setExpanded(true);
+  }, [autoExpand, expandLiveEdits, hasFileChanges, item]);
 
   if (item.todos) return <TodoRow todos={item.todos} />;
   if (item.name.startsWith('goal_')) return <GoalSignalRow item={item} />;
@@ -1330,7 +1345,11 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
         >
           {(!compact || item.state !== 'ok') && <ToolStateIcon state={item.state} />}
           <span className={cn('shrink-0', !compact && 'font-medium')}>
-            {item.name === 'exec' ? t('Isolated sandbox') : item.name}
+            {item.name === 'exec'
+              ? t('Isolated sandbox')
+              : item.name === 'apply_patch'
+                ? t('Apply patch')
+                : item.name}
           </span>
           {item.summary && (
             <>
@@ -1342,7 +1361,11 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                   item.state === 'error' ? 'text-destructive' : 'text-muted-foreground'
                 )}
               >
-                {item.state === 'error' && item.output ? firstLine(item.output) : headerSummary}
+                {item.state === 'error' && item.output
+                  ? item.name === 'apply_patch' && hasFileChanges
+                    ? `${headerSummary} · ${firstLine(item.output)}`
+                    : firstLine(item.output)
+                  : headerSummary}
               </span>
             </>
           )}
@@ -1374,7 +1397,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
             />
           )}
         </button>
-        {(hasDiff || hasWrite) && item.state === 'ok' && (
+        {(hasDiff || hasWrite || hasFileChanges) && (item.state === 'ok' || hasFileChanges) && (
           <button
             type="button"
             title={t('Open in side panel')}
@@ -1390,6 +1413,31 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
           <EditDiff path={item.summary} blocks={item.edits} />
         </ToolContentScroller>
       )}
+      {expanded && hasFileChanges && item.fileChanges && (
+        <ToolContentScroller follow={item.state === 'running'}>
+          {item.fileChanges.map((change) => (
+            <div
+              key={`${change.type}:${diffCacheKey(change.path, change.oldText, change.newText)}`}
+            >
+              <div className="flex items-center gap-2 border-t border-border/60 px-3 py-1 font-mono text-[10px] text-muted-foreground">
+                <span className="uppercase">{change.type}</span>
+                <span className="min-w-0 flex-1 truncate" title={change.path}>
+                  {change.path}
+                </span>
+                {change.truncated && <span>{t('Truncated preview')}</span>}
+              </div>
+              <EditDiff path={change.path} blocks={[change]} snapshot={change} />
+            </div>
+          ))}
+        </ToolContentScroller>
+      )}
+      {expanded && shouldShowToolOutputAfterFileChanges(item) && (
+        <ToolContentScroller follow={false} className="border-t border-border/60">
+          <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+            {item.output}
+          </pre>
+        </ToolContentScroller>
+      )}
       {expanded && hasWrite && item.writeContent && (
         <ToolContentScroller
           follow={item.state === 'running'}
@@ -1398,7 +1446,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
           <ReadFileView path={item.summary} contents={item.writeContent} />
         </ToolContentScroller>
       )}
-      {expanded && !hasDiff && !hasWrite && (item.output || item.source) && (
+      {expanded && !hasDiff && !hasWrite && !hasFileChanges && (item.output || item.source) && (
         <ToolContentScroller
           follow={item.state === 'running'}
           className={

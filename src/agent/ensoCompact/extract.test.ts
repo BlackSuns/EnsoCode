@@ -63,6 +63,38 @@ describe('extractCompactFacts', () => {
     );
   });
 
+  it('apply_patch 只从结果 fileChanges 记录真实已写路径，不把调用意图或失败目标当落盘', () => {
+    const facts = extractCompactFacts([
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolCall',
+            id: 'p1',
+            name: 'apply_patch',
+            arguments: { patch: '*** Update File: src/intent.ts' },
+          },
+        ],
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'p1',
+        toolName: 'apply_patch',
+        isError: true,
+        content: [{ type: 'text', text: 'partial' }],
+        details: {
+          kind: 'apply_patch',
+          status: 'partial',
+          fileChanges: [{ path: 'src/written.ts', oldText: 'a', newText: 'b', type: 'update' }],
+          failed: ['src/intent.ts'],
+        },
+      },
+    ] as unknown as AgentMessage[]);
+    expect(facts.modifiedFiles).toEqual(['src/written.ts']);
+    expect(facts.files).toContain('src/written.ts');
+    expect(facts.modifiedFiles).not.toContain('src/intent.ts');
+  });
+
   it('只采用最后一次 todo 调用的状态', () => {
     const facts = extractCompactFacts([
       {

@@ -3,14 +3,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createWriteToolDefinition, type ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it, vi } from 'vitest';
+import { createApplyPatchTool, validateApplyPatchTargets } from './applyPatch';
 import { ApprovalGate, withApproval } from './approval';
 import { createNormalizedEditTool } from './editTool';
 import { InMemorySnapshotStore } from './hashline/snapshots';
 import { wrapHashlineEditDefinition } from './hashline/tools';
 import {
   extractEditTargetPath,
+  extractWriteTargetPaths,
   globToRegExp,
   isPathInWriteScope,
+  withWritePreflight,
   withWriteScope,
 } from './writeScope';
 
@@ -32,6 +35,33 @@ describe('extractEditTargetPath', () => {
     expect(extractEditTargetPath({ input: '\n  [src/x.ts#aBcD]  \nPUT 1.=1:\n+x' })).toBe(
       'src/x.ts'
     );
+  });
+});
+
+describe('extractWriteTargetPaths', () => {
+  it('apply_patch 优先走自身 parser，返回全部目标并包含 move 两端', () => {
+    const input = [
+      '*** Begin Patch',
+      '*** Update File: src/old.test.ts',
+      '*** Move to: src/new.test.ts',
+      '*** End Patch',
+    ].join('\n');
+    expect(extractWriteTargetPaths('apply_patch', { input })).toEqual([
+      'src/old.test.ts',
+      'src/new.test.ts',
+    ]);
+    expect(() =>
+      extractWriteTargetPaths('apply_patch', { input, path: 'src/decoy.test.ts' })
+    ).toThrow(/exactly one/);
+  });
+
+  it('非 apply_patch 不会把普通 input 与 patch parser 串台，也不退回诱饵 path', () => {
+    expect(
+      extractWriteTargetPaths('edit', {
+        input: '*** Begin Patch\n*** Add File: src/a.test.ts\n+x\n*** End Patch',
+        path: 'src/decoy.test.ts',
+      })
+    ).toEqual([]);
   });
 });
 
@@ -88,6 +118,33 @@ describe('isPathInWriteScope', () => {
   it('Windows cwd 下其他盘符/cwd 外绝对路径恒为 false', () => {
     expect(isPathInWriteScope('D:\\repo\\src\\a.test.ts', 'C:\\repo', scope)).toBe(false);
     expect(isPathInWriteScope('C:\\outside\\a.test.ts', 'C:\\repo', scope)).toBe(false);
+  });
+});
+
+describe('withWritePreflight', () => {
+  it('完整只读预检失败时不会进入审批层，成功时才继续', async () => {
+    const approvalExecute = vi.fn(async () => ({ content: [], details: undefined }));
+    const approval = {
+      name: 'apply_patch',
+      label: 'apply_patch',
+      description: '',
+      parameters: { type: 'object', properties: {} },
+      execute: approvalExecute,
+    } as unknown as ToolDefinition;
+    const failed = withWritePreflight(approval, async () => {
+      throw new Error('preflight conflict');
+    });
+    await expect(
+      failed.execute('patch', { input: 'invalid' }, undefined, undefined, {} as never)
+    ).rejects.toThrow('preflight conflict');
+    expect(approvalExecute).not.toHaveBeenCalled();
+
+    const controller = new AbortController();
+    const seenSignal = vi.fn();
+    const passed = withWritePreflight(approval, async (_params, signal) => seenSignal(signal));
+    await passed.execute('patch', { input: 'valid' }, controller.signal, undefined, {} as never);
+    expect(seenSignal).toHaveBeenCalledWith(controller.signal);
+    expect(approvalExecute).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -237,6 +294,110 @@ describe('withWriteScope', () => {
     expect(files.get(path.resolve(cwd, allowed))).toBe('allowed after\n');
     expect(files.get(path.resolve(cwd, outside))).toBe('outside before\n');
     expect(requests.at(-1)?.summary).toBe(allowed);
+  });
+
+  it('apply_patch 第二个目标越界时在审批和写入前拒绝，move 两端同样全量检查', async () => {
+    const executed = vi.fn(async () => ({ content: [], details: {} }));
+    const definition = {
+      ...makeToolDef(),
+      name: 'apply_patch',
+      execute: executed,
+    } as unknown as ToolDefinition;
+    const requests: string[] = [];
+    const gate = new ApprovalGate(
+      'assistant',
+      (info) => requests.push(info.summary),
+      () => undefined,
+      { review: async () => ({ decision: 'auto_allow' }) }
+    );
+    const wrapped = withWriteScope(withApproval(gate, 'file-edit', definition), '/repo', [
+      'allowed/**',
+    ]);
+    const input = [
+      '*** Begin Patch',
+      '*** Add File: allowed/a.ts',
+      '+a',
+      '*** Update File: allowed/old.ts',
+      '*** Move to: outside/new.ts',
+      '*** End Patch',
+    ].join('\n');
+
+    await expect(
+      wrapped.execute('patch', { input }, undefined, undefined, {} as never)
+    ).rejects.toThrow(/write scope/);
+    expect(requests).toEqual([]);
+    expect(executed).not.toHaveBeenCalled();
+  });
+
+  it('apply_patch 审批摘要保留全部目标与 move 两端，拒绝时零写入', async () => {
+    const executed = vi.fn(async () => ({ content: [], details: {} }));
+    const definition = {
+      ...makeToolDef(),
+      name: 'apply_patch',
+      execute: executed,
+    } as unknown as ToolDefinition;
+    const infos: Array<{ requestId: string; summary: string }> = [];
+    const gate = new ApprovalGate(
+      'supervised',
+      (info) => infos.push(info),
+      () => undefined
+    );
+    const wrapped = withWriteScope(withApproval(gate, 'file-edit', definition), '/repo', [
+      'allowed/**',
+    ]);
+    const input = [
+      '*** Begin Patch',
+      '*** Add File: allowed/a.ts',
+      '+a',
+      '*** Update File: allowed/old.ts',
+      '*** Move to: allowed/new.ts',
+      '*** End Patch',
+    ].join('\n');
+    const pending = wrapped.execute('patch', { input }, undefined, undefined, {} as never);
+    await vi.waitFor(() => expect(infos).toHaveLength(1));
+    expect(infos[0].summary).toBe('allowed/a.ts\nallowed/old.ts\nallowed/new.ts');
+    gate.respond(infos[0].requestId, 'deny');
+    await expect(pending).rejects.toThrow(/denied/);
+    expect(executed).not.toHaveBeenCalled();
+  });
+
+  it('真实 apply_patch 引擎通过 scope 与审批后写入，摘要列出全部目标', async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), 'enso-patch-scope-'));
+    try {
+      await mkdir(path.join(cwd, 'allowed'));
+      await writeFile(path.join(cwd, 'allowed/a.ts'), 'before\n');
+      const requests: string[] = [];
+      const gate = new ApprovalGate(
+        'assistant',
+        (info) => requests.push(info.summary),
+        () => undefined,
+        { review: async () => ({ decision: 'auto_allow' }) }
+      );
+      const tool = withWriteScope(
+        withWritePreflight(
+          withApproval(gate, 'file-edit', createApplyPatchTool({ cwd })),
+          (params) => validateApplyPatchTargets(cwd, params)
+        ),
+        cwd,
+        ['allowed/**']
+      );
+      const input = [
+        '*** Begin Patch',
+        '*** Update File: allowed/a.ts',
+        '@@',
+        '-before',
+        '+after',
+        '*** Add File: allowed/b.ts',
+        '+new',
+        '*** End Patch',
+      ].join('\n');
+      await tool.execute('patch', { input }, undefined, undefined, {} as never);
+      expect(await readFile(path.join(cwd, 'allowed/a.ts'), 'utf8')).toBe('after\n');
+      expect(await readFile(path.join(cwd, 'allowed/b.ts'), 'utf8')).toBe('new\n');
+      expect(requests).toEqual(['allowed/a.ts\nallowed/b.ts']);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it('真实 write 工具按 path+content 检查范围内透传、越界拒绝', async () => {

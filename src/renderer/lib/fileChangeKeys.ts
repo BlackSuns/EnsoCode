@@ -4,7 +4,12 @@ import type { TimelineItem } from '@/stores/sessions/timeline';
 export function fileChangeKeys(timeline: TimelineItem[]): Set<string> {
   const keys = new Set<string>();
   for (const item of timeline) {
-    if (item.kind !== 'tool' || item.state !== 'ok') continue;
+    if (item.kind !== 'tool') continue;
+    if (item.name === 'apply_patch') {
+      if (item.fileChanges?.length) keys.add(item.key);
+      continue;
+    }
+    if (item.state !== 'ok') continue;
     if (item.output === null && item.durationMs === null) continue;
     if (item.name !== 'edit' && item.name !== 'write') continue;
     if (item.name === 'edit' && !(item.edits && item.edits.length > 0)) continue;

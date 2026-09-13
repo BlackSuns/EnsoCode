@@ -124,6 +124,23 @@ describe('config sync settings transaction', () => {
     expect(state.customProxyUrl).not.toBe('http://imported:9');
   });
 
+  it('canonical editMode 提交删除本机遗留 hashline bool', () => {
+    const current = settings.readSettings() as Record<string, unknown>;
+    const state = (current['enso-settings'] as { state: Record<string, unknown> }).state;
+    state.hashlineEditEnabled = true;
+    delete state.editMode;
+
+    const result = settings.commitSettingsTransaction(settings.settingsFingerprint(current), {
+      editMode: 'apply_patch',
+    });
+    expect(result).toMatchObject({ ok: true });
+    const persisted = JSON.parse(readFileSync(path.join(userData, 'settings.json'), 'utf8'))[
+      'enso-settings'
+    ].state;
+    expect(persisted.editMode).toBe('apply_patch');
+    expect(persisted).not.toHaveProperty('hashlineEditEnabled');
+  });
+
   it('config-sync 备份只保留最近 5 份', () => {
     for (let i = 0; i < 7; i += 1) {
       const result = settings.commitSettingsTransaction(

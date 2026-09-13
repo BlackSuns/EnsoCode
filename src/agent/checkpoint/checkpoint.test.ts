@@ -144,22 +144,25 @@ describe('CheckpointManager', () => {
     expect(await manager.restoreForEntry('e9', 9000)).toBe(false);
   });
 
-  it('withCheckpoint 包装 powershell 工具时也触发本轮快照', async () => {
-    const manager = new CheckpointManager(root, 's1', () => ({
-      entryId: 'e1',
-      entryTimestamp: 1000,
-    }));
-    const definition = {
-      name: 'powershell',
-      label: 'powershell',
-      description: '',
-      parameters: { type: 'object', properties: {} },
-      execute: async () => ({ content: [], details: undefined }),
-    } as unknown as Parameters<typeof withCheckpoint>[0];
-    const wrapped = withCheckpoint(definition, manager);
-    await wrapped.execute('t1', {}, undefined as never, undefined as never, undefined as never);
-    expect(await loadAllCheckpoints(root, 's1')).toHaveLength(1);
-  });
+  it.each(['powershell', 'apply_patch'])(
+    'withCheckpoint 包装 %s 工具时也触发本轮快照',
+    async (name) => {
+      const manager = new CheckpointManager(root, 's1', () => ({
+        entryId: 'e1',
+        entryTimestamp: 1000,
+      }));
+      const definition = {
+        name,
+        label: name,
+        description: '',
+        parameters: { type: 'object', properties: {} },
+        execute: async () => ({ content: [], details: undefined }),
+      } as unknown as Parameters<typeof withCheckpoint>[0];
+      const wrapped = withCheckpoint(definition, manager);
+      await wrapped.execute('t1', {}, undefined as never, undefined as never, undefined as never);
+      expect(await loadAllCheckpoints(root, 's1')).toHaveLength(1);
+    }
+  );
 
   it('非 git 目录静默降级,不抛错', async () => {
     const plain = mkdtempSync(join(tmpdir(), 'enso-cp-plain-'));

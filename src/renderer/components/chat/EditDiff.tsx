@@ -25,13 +25,37 @@ type Loaded =
   | { kind: 'blocks' };
 
 /** 用 @pierre/diffs 渲染 edit 工具的改动：优先读实际文件给出真实行号+上下文，否则回退片段 diff */
-export function EditDiff({ path, blocks }: { path: string; blocks: EditBlock[] }) {
+export function EditDiff({
+  path,
+  blocks,
+  snapshot,
+}: {
+  path: string;
+  blocks: EditBlock[];
+  /** 已知的前后完整文本；用于历史结果，避免按当前磁盘重建原始 diff */
+  snapshot?: EditBlock;
+}) {
   const { t } = useI18n();
   const name = path.split('/').pop() || 'file';
   const [state, setState] = useState<Loaded>({ kind: 'loading' });
 
   useEffect(() => {
     let alive = true;
+    if (snapshot) {
+      setState({ kind: 'loading' });
+      ensureHighlighter()
+        .then(() => {
+          if (alive) {
+            setState({ kind: 'full', oldText: snapshot.oldText, newText: snapshot.newText });
+          }
+        })
+        .catch(() => {
+          if (alive) setState({ kind: 'blocks' });
+        });
+      return () => {
+        alive = false;
+      };
+    }
     Promise.all([ensureHighlighter(), window.electronAPI.files.read(path)])
       .then(([, current]) => {
         if (!alive) return;
@@ -50,7 +74,7 @@ export function EditDiff({ path, blocks }: { path: string; blocks: EditBlock[] }
     return () => {
       alive = false;
     };
-  }, [path, blocks]);
+  }, [path, blocks, snapshot]);
 
   if (state.kind === 'loading') {
     return (

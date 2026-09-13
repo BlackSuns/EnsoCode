@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { migrateSettings, SETTINGS_VERSION } from './migrate';
+import { mergeSettingsState, migrateSettings, SETTINGS_VERSION } from './migrate';
 
 /** v0 持久化数据里订阅条目的形状 */
 const legacyProvider = {
@@ -47,6 +47,7 @@ describe('设置持久化迁移', () => {
     expect(migrateSettings(v1, 1)).toEqual({
       ...v1,
       defaultModel: null,
+      editMode: 'replace',
       titleSummaryEnabled: false,
       titleSummaryModel: null,
       approvalReviewer: null,
@@ -79,6 +80,7 @@ describe('设置持久化迁移', () => {
     const v2 = { theme: 'dark', defaultModel: { providerId: 'p', modelId: 'm' } };
     expect(migrateSettings(v2, 2)).toEqual({
       ...v2,
+      editMode: 'replace',
       titleSummaryEnabled: false,
       titleSummaryModel: null,
       approvalReviewer: null,
@@ -95,6 +97,7 @@ describe('设置持久化迁移', () => {
     expect(migrateSettings(v3, 3)).toEqual({
       ...v3,
       approvalReviewer: null,
+      editMode: 'replace',
       lastApprovalMode: null,
     });
   });
@@ -103,6 +106,7 @@ describe('设置持久化迁移', () => {
     const v4 = { theme: 'dark', approvalReviewer: { providerId: 'p', modelId: 'm' } };
     expect(migrateSettings(v4, 4)).toEqual({
       ...v4,
+      editMode: 'replace',
       lastApprovalMode: null,
     });
   });
@@ -113,6 +117,7 @@ describe('设置持久化迁移', () => {
       providers: [legacyProvider],
       lastApprovalMode: 'full',
       customFutureKey: { kept: true },
+      editMode: 'replace',
     };
     const previous = {
       ...preserved,
@@ -129,22 +134,27 @@ describe('设置持久化迁移', () => {
     expect(migrateSettings({ theme: 'dark', disabledBuiltinTools: [] }, 7)).toEqual({
       theme: 'dark',
       disabledBuiltinTools: ['memory'],
+      editMode: 'replace',
     });
   });
 
   it('v7 → v8 已有其它禁用项时只追加 memory，不覆盖用户选择', () => {
     expect(migrateSettings({ disabledBuiltinTools: ['browser'] }, 7)).toEqual({
       disabledBuiltinTools: ['browser', 'memory'],
+      editMode: 'replace',
     });
   });
 
   it('v7 → v8 已经关掉 memory 则不重复追加', () => {
     const state = { disabledBuiltinTools: ['memory', 'browser'] };
-    expect(migrateSettings(state, 7)).toEqual(state);
+    expect(migrateSettings(state, 7)).toEqual({ ...state, editMode: 'replace' });
   });
 
   it('v7 没有 disabledBuiltinTools 字段时不捏造（缺字段走 initialState 默认）', () => {
-    expect(migrateSettings({ theme: 'dark' }, 7)).toEqual({ theme: 'dark' });
+    expect(migrateSettings({ theme: 'dark' }, 7)).toEqual({
+      theme: 'dark',
+      editMode: 'replace',
+    });
   });
 
   it('v0 数据一路迁到当前版本，标题总结字段同样补齐', () => {
@@ -175,6 +185,37 @@ describe('设置持久化迁移', () => {
     ).toMatchObject({ compactStrategy: 'smart' });
   });
 
+  it('v9 → v10 把旧 hashline 开关迁为 canonical editMode，合法新枚举优先', () => {
+    expect(migrateSettings({ hashlineEditEnabled: true }, 9)).toEqual({ editMode: 'hashline' });
+    expect(migrateSettings({ hashlineEditEnabled: false }, 9)).toEqual({ editMode: 'replace' });
+    expect(migrateSettings({}, 9)).toEqual({ editMode: 'replace' });
+    expect(migrateSettings({ editMode: 'apply_patch', hashlineEditEnabled: true }, 9)).toEqual({
+      editMode: 'apply_patch',
+    });
+    expect(migrateSettings({ editMode: 'broken', hashlineEditEnabled: true }, 9)).toEqual({
+      editMode: 'hashline',
+    });
+    expect(migrateSettings(migrateSettings({ hashlineEditEnabled: true }, 9), 9)).toEqual({
+      editMode: 'hashline',
+    });
+  });
+
+  it('hydrate 收窄当前版本坏枚举、移除旧布尔，partial 缺编辑字段时保留内存模式', () => {
+    const current = { editMode: 'apply_patch' as const, theme: 'dark' };
+    expect(mergeSettingsState({ editMode: 'broken' }, current)).toEqual({
+      editMode: 'replace',
+      theme: 'dark',
+    });
+    expect(mergeSettingsState({ hashlineEditEnabled: true }, current)).toEqual({
+      editMode: 'hashline',
+      theme: 'dark',
+    });
+    expect(mergeSettingsState({ theme: 'light' }, current)).toEqual({
+      editMode: 'apply_patch',
+      theme: 'light',
+    });
+  });
+
   it('已是当前版本时原样返回，不重复搬运', () => {
     const current = { providers: [{ id: 'p1', oauthAccountKey: 'anthropic#2' }] };
     expect(migrateSettings(current, SETTINGS_VERSION)).toBe(current);
@@ -186,6 +227,7 @@ describe('设置持久化迁移', () => {
       providers: null,
       theme: 'dark',
       defaultModel: null,
+      editMode: 'replace',
       titleSummaryEnabled: false,
       titleSummaryModel: null,
       approvalReviewer: null,

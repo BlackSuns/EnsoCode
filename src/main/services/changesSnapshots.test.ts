@@ -47,14 +47,14 @@ describe('changesSnapshots', () => {
     }
   });
 
-  it('读取时丢弃非字符串值并保留字符串值', () => {
+  it('读取时保留字符串与 unknown baseline 的 null，丢弃其它值', () => {
     fs.writeFileSync(path.join(tmp, `${ID}.json`), JSON.stringify({ a: 'old', b: 1, c: null }));
-    expect(readSnapshots(tmp, ID)).toEqual({ a: 'old' });
+    expect(readSnapshots(tmp, ID)).toEqual({ a: 'old', c: null });
   });
 
   it('写入会创建目录并可完整读回', () => {
     const dir = path.join(tmp, 'nested', 'snapshots');
-    const snapshots = { 'src/a.ts': 'before', '空 文件.txt': '' };
+    const snapshots = { 'src/a.ts': 'before', '空 文件.txt': '', 'large.ts': null };
     expect(writeSnapshots(dir, ID, snapshots)).toBe(true);
     expect(readSnapshots(dir, ID)).toEqual(snapshots);
   });

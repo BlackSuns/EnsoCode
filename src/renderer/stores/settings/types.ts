@@ -10,6 +10,7 @@ import type { StatusLineSegmentId } from '@shared/statusLine';
 import type { TerminalShell } from '@shared/terminalShell';
 import type {
   AgentTypeEntry,
+  EditMode,
   InstructionEntry,
   McpServerEntry,
   ModelProvider,
@@ -112,8 +113,8 @@ export interface SettingsState {
   /** 强制用 read/grep/edit/write/find 替代 cat/grep/sed -i 等 shell 读写；缺省关 */
   bashInterceptEnabled: boolean;
 
-  /** Hashline 行锚点 read/edit；缺省关。开时 edit 仍兼容 oldText replace */
-  hashlineEditEnabled: boolean;
+  /** 文件编辑工具模式；缺省 replace，新建或冷恢复会话生效。 */
+  editMode: EditMode;
 
   /** 上下文压缩策略；缺省 standard，新会话生效。 */
   compactStrategy: CompactStrategy;
@@ -277,7 +278,7 @@ export interface SettingsState {
   setMemoryDistillEnabled: (value: boolean) => void;
   setMemoryKgEnabled: (value: boolean) => void;
   setBashInterceptEnabled: (value: boolean) => void;
-  setHashlineEditEnabled: (value: boolean) => void;
+  setEditMode: (value: EditMode) => void;
   setCompactStrategy: (value: CompactStrategy) => void;
   setSmartCompactEnabled: (value: boolean) => void;
   setSmartCompactModel: (value: DefaultModelRef | null) => void;

@@ -60,10 +60,20 @@ const RULES: Rule[] = [
 
 const DEFAULT_TOOLS = ['read', 'grep', 'edit', 'write', 'find'];
 
-const BASH_INTERCEPT_HINT =
-  'Do not use cat/head/tail/less/more/grep/rg/sed -i to read or edit files. ' +
-  'Do not use cat >/>> or heredocs to create or append files. ' +
-  'Use the `read`, `grep`, `edit`, `write`, or `find` tools instead. Piped stdin consumers and git are allowed.';
+function bashInterceptHint(availableTools: readonly string[]): string {
+  const tools = DEFAULT_TOOLS.filter((name) => availableTools.includes(name));
+  if (availableTools.includes('apply_patch')) tools.push('apply_patch');
+  const quoted = tools.map((name) => `\`${name}\``);
+  const names =
+    quoted.length < 2
+      ? (quoted[0] ?? 'dedicated file')
+      : `${quoted.slice(0, -1).join(', ')}, or ${quoted.at(-1)}`;
+  return (
+    'Do not use cat/head/tail/less/more/grep/rg/sed -i to read or edit files. ' +
+    'Do not use cat >/>> or heredocs to create or append files. ' +
+    `Use the ${names} tools instead. Piped stdin consumers and git are allowed.`
+  );
+}
 
 function isCatFileWrite(candidate: string): boolean {
   if (!/^\s*cat\b/.test(candidate)) return false;
@@ -79,13 +89,18 @@ export function checkBashInterception(
   const tools = new Set(availableTools);
   for (const candidate of interceptionCandidates(command)) {
     for (const rule of RULES) {
-      if (!tools.has(rule.tool)) continue;
+      const suggestedTool = tools.has(rule.tool)
+        ? rule.tool
+        : (rule.tool === 'edit' || rule.tool === 'write') && tools.has('apply_patch')
+          ? 'apply_patch'
+          : undefined;
+      if (!suggestedTool) continue;
       rule.pattern.lastIndex = 0;
       if (rule.pattern.test(candidate) && (!rule.match || rule.match(candidate))) {
         return {
           block: true,
-          suggestedTool: rule.tool,
-          message: `Blocked: ${rule.message}\n\nOriginal command: ${command}`,
+          suggestedTool,
+          message: `Blocked: ${rule.message.replace(`\`${rule.tool}\``, `\`${suggestedTool}\``)}\n\nOriginal command: ${command}`,
         };
       }
     }
@@ -161,13 +176,17 @@ function splitSegments(command: string): Array<{ text: string; pipedStdin: boole
   return segments;
 }
 
-export function withBashInterception(definition: ToolDefinition): ToolDefinition {
-  const description = [definition.description, BASH_INTERCEPT_HINT].filter(Boolean).join('\n');
+export function withBashInterception(
+  definition: ToolDefinition,
+  availableTools: readonly string[] = DEFAULT_TOOLS
+): ToolDefinition {
+  const hint = bashInterceptHint(availableTools);
+  const description = [definition.description, hint].filter(Boolean).join('\n');
   const stock = Array.isArray(definition.promptGuidelines) ? definition.promptGuidelines : [];
   return {
     ...definition,
     description,
-    promptGuidelines: [...stock, BASH_INTERCEPT_HINT],
+    promptGuidelines: [...stock, hint],
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const command = (params as { command?: string }).command;
       if (typeof command === 'string') {
@@ -176,7 +195,7 @@ export function withBashInterception(definition: ToolDefinition): ToolDefinition
           typeof ctx === 'object' &&
           Array.isArray((ctx as unknown as { toolNames?: unknown }).toolNames)
             ? (ctx as unknown as { toolNames: string[] }).toolNames
-            : DEFAULT_TOOLS;
+            : availableTools;
         const hit = checkBashInterception(command, names);
         if (hit.block) throw new Error(hit.message);
       }

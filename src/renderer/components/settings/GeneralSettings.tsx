@@ -127,7 +127,7 @@ function SidePanelSection() {
         rowId="general.expandLiveEdits"
         title={t('Expand file edits while running')}
         description={t(
-          'Automatically unfold the diff or written content of edit/write calls while the agent is still running'
+          'Automatically unfold diffs or written content from file modification tools while the agent is still running'
         )}
         checked={expandLiveEdits}
         onChange={setExpandLiveEdits}

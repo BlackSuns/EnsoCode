@@ -24,6 +24,15 @@ import { parseMaxActiveCoworkers } from '../maxActiveCoworkers';
 import { PRODUCT_SURFACE_INVENTORY, type ProductSurfaceId } from '../productSurfaces';
 import { parseSmartCompactMode } from '../smartCompactMode';
 import { WINDOWS_LOCAL_SHELLS, type WindowsLocalShell } from '../windowsLocalShell';
+import { type EditMode, isEditMode } from './editMode';
+import {
+  PROJECTED_APPLY_PATCH_PATH_COUNT_LIMIT,
+  PROJECTED_APPLY_PATCH_PATH_TEXT_LIMIT,
+  PROJECTED_FILE_CHANGE_LIMIT,
+  PROJECTED_FILE_TEXT_LIMIT,
+  type ProjectedApplyPatchOutcome,
+  type ProjectedFileChange,
+} from './fileChanges';
 import {
   MODEL_API_KINDS,
   type ModelApiKind,
@@ -534,7 +543,9 @@ export type AgentCommand =
       exploreFoldEnabled?: boolean;
       /** 拦截 cat/grep/sed -i 等，强制走 read/grep/edit/write/find；缺省关 */
       bashInterceptEnabled?: boolean;
-      /** Hashline 行锚点 read/edit；缺省关 */
+      /** 文件编辑工具模式；缺省 replace */
+      editMode?: EditMode;
+      /** @deprecated 仅用于读取旧 Main 命令；新代码发送 editMode。 */
       hashlineEditEnabled?: boolean;
       /** 上下文压缩策略；缺省 standard。与旧 smartCompactEnabled 过渡兼容。 */
       compactStrategy?: CompactStrategy;
@@ -776,6 +787,10 @@ export interface ProjectedMessage {
   subagentMeta?: { modelId?: string; outputTokens?: number; steps?: number };
   /** Hashline edit 成功结果：补丁前后全文（不含 patch） */
   editDiff?: { oldText: string; newText: string };
+  /** apply_patch toolResult 中已确实落盘的物理文件操作 */
+  fileChanges?: ProjectedFileChange[];
+  /** apply_patch 完整终态清单，不依赖普通 content 截断预算 */
+  applyPatchOutcome?: ProjectedApplyPatchOutcome;
   /** compactionSummary 消息：压缩前的上下文 token 数 */
   tokensBefore?: number;
   /** 摘要来自 Enso compact hook，不是原生 summarizer */
@@ -1141,6 +1156,91 @@ const hasExactKeys = (value: Record<string, unknown>, keys: readonly string[]): 
 
 const isSequence = (value: unknown): value is number =>
   Number.isInteger(value) && (value as number) >= 0;
+
+function parseProjectedFileChanges(value: unknown): ProjectedFileChange[] | null {
+  if (!Array.isArray(value) || value.length > PROJECTED_FILE_CHANGE_LIMIT) return null;
+  for (const item of value) {
+    if (
+      !isRecord(item) ||
+      !hasOnlyKeys(item, ['path', 'oldText', 'newText', 'type', 'truncated']) ||
+      !isNonEmptyString(item.path) ||
+      item.path.length > PROJECTED_APPLY_PATCH_PATH_TEXT_LIMIT ||
+      typeof item.oldText !== 'string' ||
+      typeof item.newText !== 'string' ||
+      (item.type !== 'add' && item.type !== 'update' && item.type !== 'delete') ||
+      (item.truncated !== undefined && item.truncated !== true) ||
+      item.oldText.length > PROJECTED_FILE_TEXT_LIMIT + (item.truncated === true ? 2 : 0) ||
+      item.newText.length > PROJECTED_FILE_TEXT_LIMIT + (item.truncated === true ? 2 : 0) ||
+      (item.truncated === true && !item.oldText.endsWith('\n…') && !item.newText.endsWith('\n…'))
+    ) {
+      return null;
+    }
+  }
+  return value as ProjectedFileChange[];
+}
+
+function parseProjectedApplyPatchOutcome(value: unknown): ProjectedApplyPatchOutcome | null {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, [
+      'status',
+      'applied',
+      'failed',
+      'unattempted',
+      'uncertain',
+      'error',
+      'errorTruncated',
+    ]) ||
+    (value.status !== 'success' && value.status !== 'partial' && value.status !== 'failed')
+  ) {
+    return null;
+  }
+  const lists = [value.applied, value.failed, value.unattempted, value.uncertain];
+  if (
+    lists.some(
+      (list) =>
+        !Array.isArray(list) ||
+        list.some(
+          (path) => !isNonEmptyString(path) || path.length > PROJECTED_APPLY_PATCH_PATH_TEXT_LIMIT
+        )
+    )
+  ) {
+    return null;
+  }
+  const [applied, failed, unattempted, uncertain] = lists as string[][];
+  const allPaths = [...applied, ...failed, ...unattempted, ...uncertain];
+  const error = typeof value.error === 'string' && value.error.length > 0 ? value.error : null;
+  if (
+    allPaths.length > PROJECTED_APPLY_PATCH_PATH_COUNT_LIMIT ||
+    new Set(allPaths).size !== allPaths.length ||
+    (value.error !== undefined && error === null) ||
+    (value.errorTruncated !== undefined && value.errorTruncated !== true) ||
+    (value.errorTruncated === true &&
+      (error === null || error.length > PROJECTED_FILE_TEXT_LIMIT + 2 || !error.endsWith('\n…'))) ||
+    (value.errorTruncated !== true && error !== null && error.length > PROJECTED_FILE_TEXT_LIMIT) ||
+    (value.status === 'success' &&
+      (error !== null || failed.length > 0 || unattempted.length > 0 || uncertain.length > 0)) ||
+    (value.status === 'partial' && (applied.length === 0 || error === null)) ||
+    (value.status === 'failed' && (applied.length > 0 || error === null))
+  ) {
+    return null;
+  }
+  return value as unknown as ProjectedApplyPatchOutcome;
+}
+
+function hasValidProjectedFileChanges(value: Record<string, unknown>): boolean {
+  const fileChanges =
+    value.fileChanges === undefined ? undefined : parseProjectedFileChanges(value.fileChanges);
+  if (fileChanges === null) return false;
+  if (value.applyPatchOutcome === undefined) return true;
+  const outcome = parseProjectedApplyPatchOutcome(value.applyPatchOutcome);
+  return (
+    outcome !== null &&
+    fileChanges !== undefined &&
+    outcome.applied.length === fileChanges.length &&
+    outcome.applied.every((path, index) => path === fileChanges[index]?.path)
+  );
+}
 
 /**
  * worker 回传的 token：白名单外的字段（SDK 会保留 id_token）**裁掉而不是整条判负——
@@ -1838,7 +1938,9 @@ export function parseSessionSnapshot(value: unknown): SessionSnapshot | null {
     !parseAnySessionIdentity(value.identity) ||
     (value.status !== 'idle' && value.status !== 'running' && value.status !== 'failed') ||
     !Array.isArray(value.messages) ||
-    value.messages.some((message) => !isRecord(message)) ||
+    value.messages.some(
+      (message) => !isRecord(message) || !hasValidProjectedFileChanges(message)
+    ) ||
     !Array.isArray(value.commands) ||
     value.commands.some(
       (command) =>
@@ -1895,6 +1997,7 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
           'loadHarnessAssets',
           'exploreFoldEnabled',
           'bashInterceptEnabled',
+          'editMode',
           'hashlineEditEnabled',
           'compactStrategy',
           'smartCompactEnabled',
@@ -1924,6 +2027,7 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
         (value.exploreFoldEnabled !== undefined && typeof value.exploreFoldEnabled !== 'boolean') ||
         (value.bashInterceptEnabled !== undefined &&
           typeof value.bashInterceptEnabled !== 'boolean') ||
+        (value.editMode !== undefined && !isEditMode(value.editMode)) ||
         (value.hashlineEditEnabled !== undefined &&
           typeof value.hashlineEditEnabled !== 'boolean') ||
         (value.compactStrategy !== undefined &&
@@ -2392,7 +2496,9 @@ export function parseAgentWorkerEvent(value: unknown): AgentWorkerEvent | null {
         ? (value as unknown as AgentWorkerEvent)
         : null;
     case 'message-upsert':
-      return isSequence(value.index) && isRecord(value.message)
+      return isSequence(value.index) &&
+        isRecord(value.message) &&
+        hasValidProjectedFileChanges(value.message)
         ? (value as unknown as AgentWorkerEvent)
         : null;
     case 'turn-completed':

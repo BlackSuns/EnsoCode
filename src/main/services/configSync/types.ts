@@ -5,6 +5,7 @@ import type { SmartCompactMode } from '@shared/smartCompactMode';
 import type { StatusLineSegmentId } from '@shared/statusLine';
 import type {
   AgentTypeEntry,
+  EditMode,
   InstructionEntry,
   McpServerEntry,
   ModelProvider,
@@ -124,6 +125,8 @@ export interface ConfigSyncState {
   loadHarnessAssets?: boolean;
   exploreFoldEnabled?: boolean;
   bashInterceptEnabled?: boolean;
+  editMode?: EditMode;
+  /** @deprecated 仅用于读取旧配置包；校验后迁为 editMode。 */
   hashlineEditEnabled?: boolean;
   openChangesOnFileEdit?: boolean;
   compactReadOnlyTools?: boolean;

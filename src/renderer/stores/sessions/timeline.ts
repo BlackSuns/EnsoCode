@@ -5,6 +5,7 @@ import type {
   TodoItem,
   TurnPerf,
 } from '@shared/types/agent';
+import type { ProjectedApplyPatchOutcome, ProjectedFileChange } from '@shared/types/fileChanges';
 
 /** edit 工具的单个替换块（pi edit 工具参数 edits[] 的元素） */
 export interface EditBlock {
@@ -45,6 +46,8 @@ export type TimelineItem =
       edits: EditBlock[] | null;
       /** write 工具写入的文件内容,展开即可查看;非 write 为 null */
       writeContent: string | null;
+      /** apply_patch 实际落盘的多文件操作；失败结果也可能非空 */
+      fileChanges?: ProjectedFileChange[] | null;
       /** todo 工具的清单快照；非 todo 为 null */
       todos: TodoItem[] | null;
       /** 工具执行耗时（完成后显示）；未知为 null */
@@ -95,6 +98,41 @@ export type TimelineItem =
   | { kind: 'task-note'; key: string; summary: string; detail: string }
   /** 不进入 LLM context 的 parent/child SessionManager custom entry。 */
   | { kind: 'session-custom'; key: string; entry: AgentSessionCustomEntry };
+
+export function formatApplyPatchOutcome(outcome: ProjectedApplyPatchOutcome): string {
+  const list = (label: string, paths: string[]): string =>
+    `${label}:\n${paths.length > 0 ? paths.map((path) => `- ${path}`).join('\n') : '(none)'}`;
+  return [
+    `Patch ${outcome.status}.`,
+    list('Applied', outcome.applied),
+    list('Failed paths', outcome.failed),
+    ...(outcome.error ? [`Error: ${outcome.error}`] : []),
+    list('Unattempted', outcome.unattempted),
+    list('Uncertain', outcome.uncertain),
+    ...(outcome.status === 'success' ? [] : ['Re-read failed or uncertain paths before retrying.']),
+  ].join('\n');
+}
+
+export function shouldAutoExpandAppliedFileChanges(
+  item: TimelineItem,
+  previouslyHadFileChanges: boolean
+): boolean {
+  return (
+    !previouslyHadFileChanges &&
+    item.kind === 'tool' &&
+    item.name === 'apply_patch' &&
+    Boolean(item.fileChanges?.length)
+  );
+}
+
+export function shouldShowToolOutputAfterFileChanges(item: TimelineItem): boolean {
+  return (
+    item.kind === 'tool' &&
+    item.name === 'apply_patch' &&
+    Boolean(item.fileChanges?.length) &&
+    Boolean(item.output)
+  );
+}
 
 export interface ToolGroupStats {
   commands: number;
@@ -430,6 +468,8 @@ function buildMessageTimeline(
       durationMs: number | null;
       agentMeta: { modelId?: string; outputTokens?: number; steps?: number } | null;
       editDiff: { oldText: string; newText: string } | null;
+      fileChanges: ProjectedFileChange[] | null;
+      applyPatchOutcome: ProjectedApplyPatchOutcome | null;
     }
   >();
   for (const message of messages) {
@@ -441,6 +481,8 @@ function buildMessageTimeline(
         durationMs: message.toolDurationMs ?? null,
         agentMeta: message.subagentMeta ?? null,
         editDiff: message.editDiff ?? null,
+        fileChanges: message.fileChanges ?? null,
+        applyPatchOutcome: message.applyPatchOutcome ?? null,
       });
     }
   }
@@ -600,7 +642,11 @@ function buildMessageTimeline(
           // 未完成时退而用执行中的输出快照（空串不算，否则行会变“可展开但空”）
           const partial = toolOutputs?.[part.id];
           const execSource = part.name === 'exec' ? execSourceFromArgs(part.arguments) : null;
-          const output = result ? result.output : (partial ?? null) || null;
+          const output = result
+            ? result.applyPatchOutcome
+              ? formatApplyPatchOutcome(result.applyPatchOutcome)
+              : result.output
+            : (partial ?? null) || null;
           const sandboxView = part.name === 'exec' ? parseSandboxOutput(output) : null;
           items.push({
             kind: 'tool',
@@ -608,7 +654,11 @@ function buildMessageTimeline(
             name: part.name,
             summary: execSource
               ? summarizeExecSource(execSource)
-              : summarizeArgs(part.arguments, cwd),
+              : part.name === 'apply_patch' && result?.fileChanges?.length
+                ? result.fileChanges.length === 1
+                  ? toProjectRelativePath(result.fileChanges[0].path, cwd)
+                  : `${result.fileChanges.length} files`
+                : summarizeArgs(part.arguments, cwd),
             source: execSource,
             output,
             nestedPending: nestedPendingCount(part.id, pendingApprovals) || undefined,
@@ -629,6 +679,7 @@ function buildMessageTimeline(
               : (extractEdits(part.name, part.arguments) ??
                 extractHashlineDiff(part.name, result?.editDiff)),
             writeContent: extractWriteContent(part.name, part.arguments),
+            fileChanges: result?.fileChanges ?? null,
             todos: result?.todos ?? null,
             durationMs: result?.durationMs ?? null,
             agentMeta: result?.agentMeta ?? null,
@@ -785,9 +836,13 @@ export function patchStreamingTimeline(
 /** 已完成的 edit/write 身份；思考/正文流式变长时保持不变，供 Files/Changes 跳过重渲染。 */
 export function completedEditWriteFingerprint(messages: readonly ProjectedMessage[]): string {
   const failed = new Map<string, boolean>();
+  const appliedPatches = new Map<string, ProjectedFileChange[]>();
   for (const message of messages) {
     if (message.role === 'toolResult' && message.toolCallId) {
       failed.set(message.toolCallId, message.isError === true);
+      if (message.toolName === 'apply_patch' && message.fileChanges?.length) {
+        appliedPatches.set(message.toolCallId, message.fileChanges);
+      }
     }
   }
   const parts: string[] = [];
@@ -795,6 +850,21 @@ export function completedEditWriteFingerprint(messages: readonly ProjectedMessag
     if (message.role !== 'assistant') continue;
     for (const part of message.content) {
       if (part.type !== 'toolCall') continue;
+      if (part.name === 'apply_patch') {
+        const changes = appliedPatches.get(part.id);
+        if (!changes) continue;
+        parts.push(
+          part.id,
+          part.name,
+          changes
+            .map(
+              (change) =>
+                `${change.path}:${change.type}:${change.oldText.length}:${change.newText.length}:${change.truncated === true}`
+            )
+            .join('|')
+        );
+        continue;
+      }
       if (part.name !== 'edit' && part.name !== 'write') continue;
       const isError = failed.get(part.id);
       if (isError === undefined || isError) continue;
@@ -1078,7 +1148,8 @@ export function foldTimeline(
     // 非 compact 仍把 running 钉在组外，方便看此刻在跑什么。
     const pinned = (s: TimelineItem): boolean => {
       if (s.kind !== 'tool') return false;
-      if (s.edits !== null || s.writeContent || s.name === 'todo') return true;
+      if (s.edits !== null || s.writeContent || s.fileChanges?.length || s.name === 'todo')
+        return true;
       if (s.state !== 'running' && s.state !== 'reviewing') return false;
       return !(compact && isReadOnlyTool(s));
     };

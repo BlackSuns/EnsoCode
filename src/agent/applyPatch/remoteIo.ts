@@ -1,0 +1,164 @@
+import type { SshExecResult, SshExecutor } from '../ssh/executor';
+import { normalizePatchPath } from './localIo';
+import type { PatchEntry, PatchIo } from './types';
+import { PatchMutationUncertainError } from './types';
+
+const INSPECT_SCRIPT = String.raw`set -f
+root=$(cd -P "$1" 2>/dev/null && pwd) || exit 70
+rel=$2
+current=$root
+oldifs=$IFS
+IFS=/
+set -- $rel
+IFS=$oldifs
+index=1
+count=$#
+for part do
+  parent=$current
+  current=$current/$part
+  if [ -L "$current" ]; then printf 'symlink\n%s\n' "$current"; exit 0; fi
+  if [ ! -e "$current" ]; then
+    [ -w "$parent" ] && [ -x "$parent" ] || exit 79
+    printf 'missing\n%s/%s\n' "$root" "$rel"
+    exit 0
+  fi
+  if [ "$index" -lt "$count" ] && [ ! -d "$current" ]; then printf 'other\n%s\n' "$current"; exit 0; fi
+  index=$((index + 1))
+done
+if [ -f "$current" ]; then
+  [ -w "$parent" ] && [ -x "$parent" ] || exit 79
+  kind=file
+elif [ -d "$current" ]; then kind=directory
+else kind=other
+fi
+printf '%s\n%s\n' "$kind" "$current"`;
+
+const CAT_SCRIPT = `set -f
+root=$(cd -P "$1" 2>/dev/null && pwd) || exit 70
+max=$2
+rel=$3
+head -c "$max" "$root/$rel"`;
+
+const WRITE_SCRIPT = `set -f
+root=$(cd -P "$1" 2>/dev/null && pwd) || exit 70
+exclusive=$2
+rel=$3
+parent=$(dirname -- "$rel")
+if [ "$parent" = . ]; then parent=; fi
+current=$root
+oldifs=$IFS
+IFS=/
+set -- $parent
+IFS=$oldifs
+for part do
+  [ -n "$part" ] || continue
+  current=$current/$part
+  if [ -L "$current" ]; then exit 71
+  elif [ -e "$current" ]; then [ -d "$current" ] || exit 72
+  else mkdir -- "$current" || exit 73
+  fi
+done
+target=$root/$rel
+[ ! -L "$target" ] || exit 74
+if [ "$exclusive" = 1 ]; then
+  (set -C; cat > "$target")
+  exit $?
+fi
+[ -f "$target" ] || exit 75
+tmp=$(mktemp "$current/.enso-patch.XXXXXX") || exit 76
+cleanup() { [ -z "$tmp" ] || rm -f -- "$tmp"; }
+trap cleanup 0
+trap 'exit 79' 1 2 15
+cat > "$tmp" || exit 76
+mode=$(stat -c %a "$target" 2>/dev/null || stat -f %Lp "$target" 2>/dev/null) || exit 77
+chmod "$mode" "$tmp" && mv -f -- "$tmp" "$target" || exit 78
+tmp=
+trap - 0 1 2 15`;
+
+const REMOVE_SCRIPT = `set -f
+root=$(cd -P "$1" 2>/dev/null && pwd) || exit 70
+rel=$2
+current=$root
+oldifs=$IFS
+IFS=/
+set -- $rel
+IFS=$oldifs
+for part do
+  current=$current/$part
+  [ ! -L "$current" ] || exit 71
+done
+[ -f "$current" ] || exit 72
+rm -- "$current"`;
+
+function command(script: string, cwd: string, relative: string, ...extra: string[]): string[] {
+  return ['sh', '-c', script, 'enso-apply-patch', cwd, ...extra, relative];
+}
+
+export function createRemoteApplyPatchIo(cwd: string, executor: SshExecutor): PatchIo {
+  return {
+    async inspect(value, maxBytes = 4 * 1024 * 1024, signal, timeoutMs = 30_000) {
+      const relative = normalizePatchPath(value);
+      const result = await executor.exec(command(INSPECT_SCRIPT, cwd, relative), {
+        signal,
+        timeoutMs,
+      });
+      if (result.code !== 0) throw new Error(result.stderr.trim() || `Cannot inspect ${relative}`);
+      const newline = result.stdout.indexOf('\n');
+      const second = result.stdout.indexOf('\n', newline + 1);
+      const kind = result.stdout.slice(0, newline) as PatchEntry['kind'];
+      const canonicalPath = result.stdout.slice(newline + 1, second < 0 ? undefined : second);
+      if (!['missing', 'file', 'directory', 'symlink', 'other'].includes(kind)) {
+        throw new Error(`Invalid remote inspection for ${relative}`);
+      }
+      if (kind !== 'file') return { kind, canonicalPath };
+      const raw = await executor.execRaw(command(CAT_SCRIPT, cwd, relative, String(maxBytes + 1)), {
+        signal,
+        timeoutMs,
+      });
+      if (raw.code !== 0) throw new Error(raw.stderr.trim() || `Cannot read ${relative}`);
+      if (raw.stdout.length > maxBytes)
+        throw new Error(`File exceeds apply_patch read limit: ${relative}`);
+      return { kind, canonicalPath, raw: raw.stdout };
+    },
+    async write(value, raw, options) {
+      const relative = normalizePatchPath(value);
+      let result: SshExecResult;
+      try {
+        result = await executor.exec(
+          command(WRITE_SCRIPT, cwd, relative, options.exclusive ? '1' : '0'),
+          { stdin: raw, signal: options.signal, timeoutMs: options.timeoutMs ?? 30_000 }
+        );
+      } catch (error) {
+        throw new PatchMutationUncertainError(
+          error instanceof Error ? error.message : `SSH transport failed while writing ${relative}`
+        );
+      }
+      if (result.code === 255) {
+        throw new PatchMutationUncertainError(
+          result.stderr.trim() || `SSH transport failed while writing ${relative}`
+        );
+      }
+      if (result.code !== 0) throw new Error(result.stderr.trim() || `Cannot write ${relative}`);
+    },
+    async remove(value, signal, timeoutMs = 30_000) {
+      const relative = normalizePatchPath(value);
+      let result: SshExecResult;
+      try {
+        result = await executor.exec(command(REMOVE_SCRIPT, cwd, relative), {
+          signal,
+          timeoutMs,
+        });
+      } catch (error) {
+        throw new PatchMutationUncertainError(
+          error instanceof Error ? error.message : `SSH transport failed while deleting ${relative}`
+        );
+      }
+      if (result.code === 255) {
+        throw new PatchMutationUncertainError(
+          result.stderr.trim() || `SSH transport failed while deleting ${relative}`
+        );
+      }
+      if (result.code !== 0) throw new Error(result.stderr.trim() || `Cannot delete ${relative}`);
+    },
+  };
+}

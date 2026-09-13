@@ -44,7 +44,7 @@ describe('looksLikeShellCommand', () => {
 });
 
 describe('createIsolatedSandboxTool', () => {
-  it('prompt 只鼓励 3+ 聚合，并写明单次包装、父级 hashline 与截断成本', () => {
+  it('非 hashline 模式的 prompt 不展示 snapshot 专属说明，其他约束保留', () => {
     const tool = createIsolatedSandboxTool({ getTools: () => [] });
     const text = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join(
       '\n'
@@ -54,12 +54,20 @@ describe('createIsolatedSandboxTool', () => {
     expect(text).toMatch(/reduced result/i);
     expect(text).toMatch(/not for exploring/i);
     expect(text).toMatch(/Do not wrap a single read\/grep\/find/i);
-    expect(text).toMatch(/parent hashline snapshot/i);
+    expect(text).not.toMatch(/parent hashline snapshot/i);
     expect(text).toMatch(/JSON-serialized and truncated/i);
     expect(text).not.toMatch(/Hashline headers require the Hashline setting/i);
     expect(text).toMatch(/No console/i);
     expect(text).toMatch(/isError: true/i);
     expect(text).toMatch(/listTools/i);
+  });
+
+  it('hashline 模式才提示 nested read 不产生父级 snapshot', () => {
+    const tool = createIsolatedSandboxTool({ getTools: () => [], hashlineMode: true });
+    const text = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join(
+      '\n'
+    );
+    expect(text).toMatch(/parent hashline snapshot/i);
   });
 
   it('guestCallableName 把 MCP 名收成合法标识符且不撞名', () => {
@@ -158,6 +166,31 @@ describe('createIsolatedSandboxTool', () => {
     );
     expect(maxLive).toBe(2);
     expect(result.details.value).toEqual(['a.ts', 'b.ts']);
+  });
+
+  it('apply_patch partial 即使工具 execute 返回未标错，guest 仍收到 isError 且保留 details', async () => {
+    const patch = mockTool('apply_patch', async () => ({
+      content: [{ type: 'text', text: 'one file applied, one failed' }],
+      details: {
+        kind: 'apply_patch',
+        status: 'partial',
+        applied: ['a.ts'],
+        failed: ['b.ts'],
+      },
+    }));
+    const result = await run(
+      `const out = await apply_patch({ patch: "x" }); return { error: out.isError, details: out.details };`,
+      [patch]
+    );
+    expect(result.details.value).toEqual({
+      error: true,
+      details: {
+        kind: 'apply_patch',
+        status: 'partial',
+        applied: ['a.ts'],
+        failed: ['b.ts'],
+      },
+    });
   });
 
   it('工具失败 resolve 为 isError，不拖垮 Promise.all', async () => {

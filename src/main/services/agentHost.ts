@@ -23,7 +23,7 @@ import { mcpTimeoutsForSpawn } from '@shared/mcpTimeout';
 import { pickModelCapabilityOverrides } from '@shared/modelCatalog';
 import { proxyEnvPatchFromEnv } from '@shared/proxy';
 import { parseSmartCompactMode } from '@shared/smartCompactMode';
-import { effectiveDisabledBuiltinTools } from '@shared/types';
+import { effectiveDisabledBuiltinTools, resolveEditMode } from '@shared/types';
 import type {
   AgentCommand,
   AgentRemoteConfig,
@@ -338,6 +338,23 @@ export function resolveModelSelection(
   };
 }
 
+export function expectedAgentTypeToolIds(tools: AgentTypeEntry['tools']): readonly string[] {
+  return tools === 'readonly'
+    ? ['read', 'grep', 'find', 'ls', 'message_main_agent', 'message_coworker']
+    : [
+        'read',
+        'grep',
+        'find',
+        'ls',
+        'bash',
+        'edit',
+        'apply_patch',
+        'write',
+        'message_main_agent',
+        'message_coworker',
+      ];
+}
+
 export function resolveAgentTypeSpawnConfig(
   typeKey: AgentTypeKey,
   parentModel: ResolvedModelSelection,
@@ -418,20 +435,7 @@ export function resolveAgentTypeSpawnConfig(
       systemPromptHash: createHash('sha256').update(definition.systemPrompt).digest('hex'),
     },
     expectedModel: selectedModel.ref,
-    expectedToolIds:
-      definition.tools === 'readonly'
-        ? ['read', 'grep', 'find', 'ls', 'message_main_agent', 'message_coworker']
-        : [
-            'read',
-            'grep',
-            'find',
-            'ls',
-            'bash',
-            'edit',
-            'write',
-            'message_main_agent',
-            'message_coworker',
-          ],
+    expectedToolIds: expectedAgentTypeToolIds(definition.tools),
   };
 }
 
@@ -473,7 +477,7 @@ export function spawnSession(
   const windowsLocalShell = parseWindowsLocalShell(state?.windowsLocalShell);
   const exploreFoldEnabled = state?.exploreFoldEnabled === true;
   const bashInterceptEnabled = state?.bashInterceptEnabled === true;
-  const hashlineEditEnabled = state?.hashlineEditEnabled === true;
+  const editMode = resolveEditMode(state?.editMode, state?.hashlineEditEnabled);
   const compactStrategy = resolveCompactStrategy(
     state?.compactStrategy,
     state?.smartCompactEnabled
@@ -509,7 +513,7 @@ export function spawnSession(
     ...(windowsLocalShell !== 'auto' ? { windowsLocalShell } : {}),
     ...(exploreFoldEnabled ? { exploreFoldEnabled: true } : {}),
     ...(bashInterceptEnabled ? { bashInterceptEnabled: true } : {}),
-    ...(hashlineEditEnabled ? { hashlineEditEnabled: true } : {}),
+    editMode,
     ...(compactStrategy !== 'standard' ? { compactStrategy } : {}),
     ...(smartCompactEnabled ? { smartCompactEnabled: true } : {}),
     ...(smartCompactSummaryModel ? { smartCompactSummaryModel } : {}),

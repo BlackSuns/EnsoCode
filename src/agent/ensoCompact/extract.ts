@@ -47,6 +47,20 @@ function targetPath(args: Record<string, unknown> | undefined): string | undefin
   return undefined;
 }
 
+function appliedPatchPaths(message: AgentMessage): string[] {
+  const value = message as { toolName?: unknown; details?: unknown };
+  if (value.toolName !== 'apply_patch' || !value.details || typeof value.details !== 'object') {
+    return [];
+  }
+  const details = value.details as Record<string, unknown>;
+  if (details.kind !== 'apply_patch' || !Array.isArray(details.fileChanges)) return [];
+  return details.fileChanges.flatMap((change) => {
+    if (!change || typeof change !== 'object') return [];
+    const path = (change as Record<string, unknown>).path;
+    return typeof path === 'string' && path ? [path] : [];
+  });
+}
+
 function todoItems(
   args: Record<string, unknown> | undefined
 ): Array<{ content: string; status: string }> {
@@ -106,9 +120,14 @@ export function extractCompactFacts(messages: AgentMessage[], fileOps?: FileOpsL
           if (items.length) lastTodos = items;
         }
       }
-    } else if (role === 'toolResult' && (message as { isError?: boolean }).isError === true) {
-      const line = text.trim().slice(0, 200);
-      if (line) errors.push(line);
+    } else if (role === 'toolResult') {
+      const patched = appliedPatchPaths(message);
+      modifiedFiles.push(...patched);
+      files.push(...patched);
+      if ((message as { isError?: boolean }).isError === true) {
+        const line = text.trim().slice(0, 200);
+        if (line) errors.push(line);
+      }
     }
   }
 

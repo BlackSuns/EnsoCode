@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { SessionChangeSnapshots } from '@shared/types/fileChanges';
 import { isValidId } from './instructionStore';
 
 /** Changes 面板「Session」模式的编辑前快照：userData/changes-snapshots/<conversationId>.json */
 
 const file = (dir: string, id: string): string => path.join(dir, `${id}.json`);
 
-export function readSnapshots(dir: string, conversationId: string): Record<string, string> {
+export function readSnapshots(dir: string, conversationId: string): SessionChangeSnapshots {
   if (!isValidId(conversationId)) return {};
   let parsed: unknown;
   try {
@@ -15,9 +16,9 @@ export function readSnapshots(dir: string, conversationId: string): Record<strin
     return {};
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-  const out: Record<string, string> = {};
+  const out: SessionChangeSnapshots = {};
   for (const [key, value] of Object.entries(parsed)) {
-    if (typeof value === 'string') out[key] = value;
+    if (typeof value === 'string' || value === null) out[key] = value;
   }
   return out;
 }
@@ -26,7 +27,7 @@ export function readSnapshots(dir: string, conversationId: string): Record<strin
 export function writeSnapshots(
   dir: string,
   conversationId: string,
-  snapshots: Record<string, string>
+  snapshots: SessionChangeSnapshots
 ): boolean {
   if (!isValidId(conversationId)) return false;
   const target = file(dir, conversationId);

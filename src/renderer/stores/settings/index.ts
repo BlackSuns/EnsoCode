@@ -42,7 +42,7 @@ import {
   normalizeAutoArchiveIdleDays,
   normalizeAutoDeleteArchivedDays,
 } from './autoArchiveIdleDays';
-import { migrateSettings, SETTINGS_VERSION } from './migrate';
+import { mergeSettingsState, migrateSettings, SETTINGS_VERSION } from './migrate';
 import { electronStorage, getWriteGeneration, openPersistWriteGate } from './storage';
 import type {
   BackgroundSizeMode,
@@ -131,7 +131,7 @@ const initialState = {
   windowsLocalShell: 'auto' as const,
   exploreFoldEnabled: false,
   bashInterceptEnabled: false,
-  hashlineEditEnabled: false,
+  editMode: 'replace' as import('@shared/types').EditMode,
   compactStrategy: 'standard' as import('@shared/compactStrategy').CompactStrategy,
   smartCompactEnabled: false,
   smartCompactModel: null as import('@shared/defaultModel').DefaultModelRef | null,
@@ -276,7 +276,7 @@ export const useSettingsStore = create<SettingsState>()(
       setMemoryDistillEnabled: (memoryDistillEnabled) => set({ memoryDistillEnabled }),
       setMemoryKgEnabled: (memoryKgEnabled) => set({ memoryKgEnabled }),
       setBashInterceptEnabled: (bashInterceptEnabled) => set({ bashInterceptEnabled }),
-      setHashlineEditEnabled: (hashlineEditEnabled) => set({ hashlineEditEnabled }),
+      setEditMode: (editMode) => set({ editMode }),
       setCompactStrategy: (compactStrategy) =>
         set({ compactStrategy, smartCompactEnabled: compactStrategy === 'smart' }),
       setSmartCompactEnabled: (smartCompactEnabled) =>
@@ -830,6 +830,7 @@ export const useSettingsStore = create<SettingsState>()(
       storage: createJSONStorage(() => electronStorage),
       version: SETTINGS_VERSION,
       migrate: (persisted, version) => migrateSettings(persisted, version) as SettingsState,
+      merge: (persisted, current) => mergeSettingsState(persisted, current),
       onRehydrateStorage: () => (state, error) => {
         // merge 已完成：此后（含下面的补写）才允许落盘；读失败保持关闸
         if (!error) openPersistWriteGate('enso-settings');

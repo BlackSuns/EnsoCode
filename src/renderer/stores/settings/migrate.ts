@@ -1,4 +1,5 @@
 import { resolveCompactStrategy } from '@shared/compactStrategy';
+import { type EditMode, resolveEditMode } from '@shared/types';
 
 /**
  * 持久化数据的版本迁移。
@@ -12,7 +13,21 @@ import { resolveCompactStrategy } from '@shared/compactStrategy';
  */
 
 /** 当前持久化数据版本；改数据形状时 +1 并在 `migrateSettings` 里加一段 */
-export const SETTINGS_VERSION = 9;
+export const SETTINGS_VERSION = 10;
+
+export function mergeSettingsState<T extends { editMode: EditMode }>(
+  persisted: unknown,
+  current: T
+): T {
+  if (!persisted || typeof persisted !== 'object' || Array.isArray(persisted)) return current;
+  const source = persisted as Record<string, unknown>;
+  const { hashlineEditEnabled, ...rest } = source;
+  const editMode =
+    'editMode' in source || 'hashlineEditEnabled' in source
+      ? resolveEditMode(source.editMode, hashlineEditEnabled)
+      : current.editMode;
+  return { ...current, ...rest, editMode } as T;
+}
 
 /**
  * v0 → v1：`ModelProvider.oauthProviderId` 改名为 `oauthAccountKey`。
@@ -24,6 +39,7 @@ export const SETTINGS_VERSION = 9;
  * v7 → v8：旧落盘的空 `disabledBuiltinTools` 不是「用户打开了 memory」——
  * 只是 memory 加进默认关名单之前就写下的「全开」。补上 memory，缺字段不动（initialState 已是关）。
  * v8 → v9：压缩策略改为互斥枚举；旧 `smartCompactEnabled` 布尔迁为 `compactStrategy`，缺字段不动。
+ * v9 → v10：文件编辑模式改为互斥枚举；旧 hashline 开关迁移后删除。
  */
 export function migrateSettings(persisted: unknown, version: number): unknown {
   if (version >= SETTINGS_VERSION) return persisted;
@@ -73,6 +89,13 @@ export function migrateSettings(persisted: unknown, version: number): unknown {
     state = {
       ...state,
       compactStrategy: resolveCompactStrategy(state.compactStrategy, state.smartCompactEnabled),
+    };
+  }
+  if (version < 10) {
+    const { hashlineEditEnabled, ...rest } = state;
+    state = {
+      ...rest,
+      editMode: resolveEditMode(state.editMode, hashlineEditEnabled),
     };
   }
   return state;

@@ -181,13 +181,22 @@ async function textOf(
 }
 
 /** 常规起手式：spawn 一个父会话 + 一个名为 bob 的 coworker（首轮任务不驱动完成态）。 */
-async function spawnParentAndCoworker(events: AgentWorkerEvent[]) {
+async function spawnParentAndCoworker(
+  events: AgentWorkerEvent[],
+  editMode?: 'replace' | 'hashline' | 'apply_patch'
+) {
   const supervisor = new SessionSupervisor({
     emit: (event) => events.push(event),
     agentDir: '/tmp/agent',
     sessionDir: mkdtempSync(path.join(tmpdir(), 'enso-cw-')),
   });
-  supervisor.handleCommand({ type: 'spawn-parent', identity: parent, cwd: '/workspace', model });
+  supervisor.handleCommand({
+    type: 'spawn-parent',
+    identity: parent,
+    cwd: '/workspace',
+    model,
+    ...(editMode ? { editMode } : {}),
+  });
   await settleUntil(() => mocks.createAgentSession.mock.calls.length > 0);
   const parentSession = mocks.sessions[0] as ReturnType<typeof session>;
   const parentOptions = mocks.createAgentSession.mock.calls[0][0] as {
@@ -255,6 +264,24 @@ describe('SessionSupervisor coworker wait/report', () => {
     vi.clearAllTimers();
     vi.useRealTimers();
   });
+
+  it.each([
+    ['replace', ['edit', 'write'], ['apply_patch']],
+    ['hashline', ['edit', 'write'], ['apply_patch']],
+    ['apply_patch', ['apply_patch'], ['edit', 'write']],
+  ] as const)(
+    '%s 模式传给工具直雇 coworker，子会话写工具保持互斥',
+    async (editMode, included, excluded) => {
+      const { supervisor, childOptions } = await spawnParentAndCoworker([], editMode);
+      const names = childOptions.customTools.map((tool) => tool.name);
+      for (const name of included) expect(names).toContain(name);
+      for (const name of excluded) expect(names).not.toContain(name);
+      const childLoader = mocks.loaderOptions.at(-1);
+      const factories = (childLoader?.extensionFactories ?? []) as Array<{ name?: string }>;
+      expect(factories.some((factory) => factory.name === 'apply-patch-result')).toBe(true);
+      await supervisor.shutdown();
+    }
+  );
 
   it('workspace lock defers internal wakeups and installs branch context once per live session', async () => {
     const events: AgentWorkerEvent[] = [];

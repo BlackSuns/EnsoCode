@@ -1,6 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { AgentCommand, AgentWorkerEvent } from '@shared/types/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   managers: [] as Array<Record<string, unknown>>,
   mcpToolsFor: vi.fn(),
   createAgentSession: vi.fn(),
+  loaderOptions: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock('./cursor/loadProvider', () => ({
@@ -26,6 +28,9 @@ vi.mock('./mcp', () => ({
 vi.mock('@earendil-works/pi-coding-agent', async (importOriginal) => {
   const original = await importOriginal<Record<string, unknown>>();
   class Loader {
+    constructor(options: Record<string, unknown>) {
+      mocks.loaderOptions.push(options);
+    }
     async reload() {}
     getSkills() {
       return { skills: [] };
@@ -156,6 +161,139 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
     mocks.createAgentSession.mockImplementation(async (options: Record<string, unknown>) => ({
       session: session(options),
     }));
+  });
+
+  it.each([
+    ['replace', ['edit', 'write'], ['apply_patch']],
+    ['hashline', ['edit', 'write'], ['apply_patch']],
+    ['apply_patch', ['apply_patch'], ['edit', 'write']],
+  ] as const)(
+    '%s 模式只装配互斥写工具，且所有普通 ResourceLoader 注册 patch 结果 hook',
+    async (editMode, included, excluded) => {
+      const events: AgentWorkerEvent[] = [];
+      const supervisor = new SessionSupervisor({
+        emit: (event) => events.push(event),
+        agentDir: '/tmp/agent',
+        sessionDir: mkdtempSync(path.join(tmpdir(), 'enso-dispatch-mode-')),
+      });
+      supervisor.handleCommand({
+        type: 'spawn-parent',
+        identity: parent,
+        cwd: '/workspace',
+        model,
+        editMode,
+        hashlineEditEnabled: true,
+      });
+      await waitFor(events, 'parent-ready');
+      const options = mocks.createAgentSession.mock.calls.at(-1)?.[0] as {
+        customTools: Array<{
+          name: string;
+          parameters?: { properties?: Record<string, unknown> };
+          description?: string;
+          promptGuidelines?: string[];
+        }>;
+      };
+      const names = options.customTools.map((tool) => tool.name);
+      for (const name of included) {
+        expect(names).toContain(name);
+        expect(
+          options.customTools.find((tool) => tool.name === name)?.description?.length
+        ).toBeGreaterThan(0);
+      }
+      for (const name of excluded) expect(names).not.toContain(name);
+      if (editMode === 'hashline') {
+        const edit = options.customTools.find((tool) => tool.name === 'edit');
+        expect(Object.keys(edit?.parameters?.properties ?? {})).toEqual(['input']);
+        expect([edit?.description, ...(edit?.promptGuidelines ?? [])].join('\n')).not.toMatch(
+          /\breplace\b|\bedits\b/i
+        );
+      }
+      if (editMode === 'apply_patch') {
+        const patch = options.customTools.find((tool) => tool.name === 'apply_patch');
+        expect(Object.keys(patch?.parameters?.properties ?? {})).toEqual(['input']);
+        expect(patch?.description).toContain('*** Begin Patch');
+        expect(patch?.description).not.toMatch(/\b(?:edit|write) tool\b/i);
+      }
+      const loader = mocks.loaderOptions.at(-1);
+      expect(String(loader?.systemPrompt ?? '')).not.toMatch(/\b(?:edit|write)\b/i);
+      const factories = (loader?.extensionFactories ?? []) as Array<{ name?: string }>;
+      expect(factories.some((factory) => factory.name === 'apply-patch-result')).toBe(true);
+      await supervisor.shutdown();
+    }
+  );
+
+  it('apply_patch 完整只读预检失败时不会进入 approval', async () => {
+    const events: AgentWorkerEvent[] = [];
+    const cwd = mkdtempSync(path.join(tmpdir(), 'enso-dispatch-preflight-'));
+    writeFileSync(path.join(cwd, 'exists.ts'), 'keep\n');
+    const supervisor = new SessionSupervisor({
+      emit: (event) => events.push(event),
+      agentDir: '/tmp/agent',
+      sessionDir: mkdtempSync(path.join(tmpdir(), 'enso-dispatch-preflight-session-')),
+    });
+    supervisor.handleCommand({
+      type: 'spawn-parent',
+      identity: parent,
+      cwd,
+      model,
+      editMode: 'apply_patch',
+      approvalMode: 'assistant',
+    });
+    await waitFor(events, 'parent-ready');
+    const options = mocks.createAgentSession.mock.calls.at(-1)?.[0] as {
+      customTools: Array<ToolDefinition>;
+    };
+    const patch = options.customTools.find((tool) => tool.name === 'apply_patch');
+    await expect(
+      patch!.execute(
+        'patch',
+        { input: '*** Begin Patch\n*** Add File: exists.ts\n+x\n*** End Patch' },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/exists/i);
+    expect(events.some((event) => event.type === 'approval-request')).toBe(false);
+    await supervisor.shutdown();
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it('旧 hashline bool 仍解析为 strict hashline，warm 同 generation 不被后续模式改写', async () => {
+    const events: AgentWorkerEvent[] = [];
+    const supervisor = new SessionSupervisor({
+      emit: (event) => events.push(event),
+      agentDir: '/tmp/agent',
+      sessionDir: mkdtempSync(path.join(tmpdir(), 'enso-dispatch-legacy-mode-')),
+    });
+    supervisor.handleCommand({
+      type: 'spawn-parent',
+      identity: parent,
+      cwd: '/workspace',
+      model,
+      hashlineEditEnabled: true,
+    });
+    await waitFor(events, 'parent-ready');
+    const first = mocks.createAgentSession.mock.calls.at(-1)?.[0] as {
+      customTools: Array<{ name: string; parameters?: { properties?: Record<string, unknown> } }>;
+    };
+    expect(
+      Object.keys(
+        first.customTools.find((tool) => tool.name === 'edit')?.parameters?.properties ?? {}
+      )
+    ).toEqual(['input']);
+    const creates = mocks.createAgentSession.mock.calls.length;
+    supervisor.handleCommand({
+      type: 'spawn-parent',
+      identity: parent,
+      cwd: '/workspace',
+      model,
+      editMode: 'replace',
+    });
+    await settle();
+    expect(mocks.createAgentSession).toHaveBeenCalledTimes(creates);
+    expect(first.customTools.some((tool) => tool.name === 'write')).toBe(true);
+    expect(first.customTools.some((tool) => tool.name === 'apply_patch')).toBe(false);
+    await supervisor.shutdown();
   });
 
   it('emits real parent/child ready, enforces locked tools, and prompts the child exactly once', async () => {
@@ -380,6 +518,7 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
       identity: parent,
       cwd: '/workspace',
       model,
+      editMode: 'apply_patch',
     });
     await settleUntil(() => mocks.sessions.length > 0);
     const parentSession = mocks.sessions[0] as ReturnType<typeof session>;
@@ -426,8 +565,10 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
         ): Promise<unknown>;
       }>;
     };
+    const childNames = childOptions.customTools.map((tool) => tool.name);
     const messageMain = childOptions.customTools.find((tool) => tool.name === 'message_main_agent');
 
+    expect(childNames).not.toEqual(expect.arrayContaining(['apply_patch', 'edit', 'write']));
     expect(messageMain).toBeDefined();
     await messageMain!.execute('call', { message: 'explicit handoff', urgent: true });
     expect(parentSession.prompt).toHaveBeenCalledWith(expect.stringContaining('explicit handoff'));

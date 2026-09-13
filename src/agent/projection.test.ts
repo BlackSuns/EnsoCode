@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PROJECTED_TEXT_LIMIT, projectMessage } from './projection';
+import { PROJECTED_FILE_CHANGE_LIMIT, PROJECTED_TEXT_LIMIT, projectMessage } from './projection';
 
 describe('projectMessage', () => {
   it('assistant 消息只保留白名单字段，provider 原始数据不出 worker', () => {
@@ -268,5 +268,193 @@ describe('projectMessage', () => {
         compactionSource: 'bogus',
       })
     ).not.toHaveProperty('memory');
+  });
+
+  it('apply_patch 只投影已落盘的多文件白名单快照，partial error 也不吞', () => {
+    const projected = projectMessage({
+      role: 'toolResult',
+      toolName: 'apply_patch',
+      toolCallId: 'patch-1',
+      isError: true,
+      content: [{ type: 'text', text: 'partially applied' }],
+      details: {
+        kind: 'apply_patch',
+        status: 'partial',
+        fileChanges: [
+          {
+            path: 'src/a.ts',
+            oldText: 'before-a',
+            newText: 'after-a',
+            type: 'update',
+            secret: 'drop-me',
+          },
+          { path: 'old.ts', oldText: 'old', newText: '', type: 'delete' },
+          { path: 'new.ts', oldText: '', newText: 'new', type: 'add' },
+        ],
+        applied: ['src/a.ts', 'old.ts', 'new.ts'],
+        failed: ['failed.ts'],
+        error: 'source delete failed',
+        unattempted: ['later.ts'],
+        uncertain: [],
+      },
+    });
+    expect(projected?.fileChanges).toEqual([
+      { path: 'src/a.ts', oldText: 'before-a', newText: 'after-a', type: 'update' },
+      { path: 'old.ts', oldText: 'old', newText: '', type: 'delete' },
+      { path: 'new.ts', oldText: '', newText: 'new', type: 'add' },
+    ]);
+    expect(JSON.stringify(projected)).not.toContain('drop-me');
+    expect(projected?.isError).toBe(true);
+    expect(projected?.applyPatchOutcome).toEqual({
+      status: 'partial',
+      applied: ['src/a.ts', 'old.ts', 'new.ts'],
+      failed: ['failed.ts'],
+      error: 'source delete failed',
+      unattempted: ['later.ts'],
+      uncertain: [],
+    });
+  });
+
+  it('apply_patch 长 Applied 正文被截断时仍完整结构化投影尾部失败清单', () => {
+    const applied = Array.from(
+      { length: 99 },
+      (_, index) => `${index}-${'nested-path/'.repeat(32)}file.ts`
+    );
+    const failedPath = 'failed-tail.ts';
+    const projected = projectMessage({
+      role: 'toolResult',
+      toolName: 'apply_patch',
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: `Patch partial.\nApplied: ${applied.join(', ')}\nFailed paths: ${failedPath}`,
+        },
+      ],
+      details: {
+        kind: 'apply_patch',
+        status: 'partial',
+        fileChanges: applied.map((path) => ({
+          path,
+          oldText: 'a',
+          newText: 'b',
+          type: 'update',
+        })),
+        applied,
+        failed: [failedPath],
+        error: 'write failed',
+        unattempted: [],
+        uncertain: [],
+      },
+    });
+
+    expect(projected?.content[0]).not.toHaveProperty('text', expect.stringContaining(failedPath));
+    expect(projected?.applyPatchOutcome).toMatchObject({
+      applied,
+      failed: [failedPath],
+      error: 'write failed',
+    });
+  });
+
+  it('apply_patch 丢弃脏 fileChange，且不从非约定 details 推断修改', () => {
+    const dirty = projectMessage({
+      role: 'toolResult',
+      toolName: 'apply_patch',
+      content: [],
+      details: {
+        kind: 'apply_patch',
+        status: 'failed',
+        fileChanges: [
+          { path: '', oldText: 'a', newText: 'b', type: 'update' },
+          { path: 'bad.ts', oldText: 1, newText: 'b', type: 'update' },
+          { path: 'bad-type.ts', oldText: 'a', newText: 'b', type: 'move' },
+          null,
+        ],
+      },
+    });
+    expect(dirty?.fileChanges).toEqual([]);
+    expect(
+      projectMessage({
+        role: 'toolResult',
+        toolName: 'apply_patch',
+        content: [],
+        details: { status: 'success', fileChanges: [{ path: 'a', oldText: '', newText: 'x' }] },
+      })
+    ).not.toHaveProperty('fileChanges');
+
+    const dirtyOutcome = projectMessage({
+      role: 'toolResult',
+      toolName: 'apply_patch',
+      content: [],
+      details: {
+        kind: 'apply_patch',
+        status: 'partial',
+        fileChanges: [{ path: 'a.ts', oldText: 'a', newText: 'b', type: 'update' }],
+        applied: ['a.ts'],
+        failed: ['x'.repeat(4_097)],
+        error: 'failed',
+        unattempted: [],
+        uncertain: [],
+      },
+    });
+    expect(dirtyOutcome?.fileChanges).toHaveLength(1);
+    expect(dirtyOutcome).not.toHaveProperty('applyPatchOutcome');
+
+    const tooManyPaths = projectMessage({
+      role: 'toolResult',
+      toolName: 'apply_patch',
+      content: [],
+      details: {
+        kind: 'apply_patch',
+        status: 'failed',
+        fileChanges: [],
+        applied: [],
+        failed: Array.from({ length: 101 }, (_, index) => `${index}.ts`),
+        error: 'failed',
+        unattempted: [],
+        uncertain: [],
+      },
+    });
+    expect(tooManyPaths?.fileChanges).toEqual([]);
+    expect(tooManyPaths).not.toHaveProperty('applyPatchOutcome');
+  });
+
+  it('apply_patch fileChanges 投影有固定条数上限', () => {
+    const fileChanges = Array.from({ length: PROJECTED_FILE_CHANGE_LIMIT + 1 }, (_, index) => ({
+      path: `${index}.ts`,
+      oldText: '',
+      newText: `${index}`,
+      type: 'add',
+    }));
+    const projected = projectMessage({
+      role: 'toolResult',
+      toolName: 'apply_patch',
+      content: [],
+      details: { kind: 'apply_patch', status: 'success', fileChanges },
+    });
+    expect(projected?.fileChanges).toHaveLength(PROJECTED_FILE_CHANGE_LIMIT);
+  });
+
+  it('apply_patch 超长快照显式标 truncated，不冒充完整文件', () => {
+    const oldText = `${'o'.repeat(PROJECTED_TEXT_LIMIT)}tail`;
+    const projected = projectMessage({
+      role: 'toolResult',
+      toolName: 'apply_patch',
+      content: [],
+      details: {
+        kind: 'apply_patch',
+        status: 'success',
+        fileChanges: [{ path: 'large.ts', oldText, newText: 'new', type: 'update' }],
+      },
+    });
+    expect(projected?.fileChanges).toEqual([
+      {
+        path: 'large.ts',
+        oldText: `${'o'.repeat(PROJECTED_TEXT_LIMIT)}\n…`,
+        newText: 'new',
+        type: 'update',
+        truncated: true,
+      },
+    ]);
   });
 });

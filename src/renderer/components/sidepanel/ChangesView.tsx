@@ -1,7 +1,14 @@
 import type { CodeViewItem } from '@pierre/diffs';
 import { CodeView } from '@pierre/diffs/react';
 import type { ProjectedMessage } from '@shared/types/agent';
-import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import type { SessionChangeSnapshots } from '@shared/types/fileChanges';
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  CircleAlert,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CODE_THEME, ensureHighlighter } from '@/components/chat/codeHighlighter';
 import { useI18n } from '@/i18n';
@@ -30,7 +37,11 @@ const CODE_VIEW_OPTIONS = {
 
 const CODE_VIEW_STYLE = { height: '100%', overflow: 'auto' } as const;
 
-const NO_FILES: { files: never[]; snapshots: Record<string, string> } = {
+const NO_FILES: {
+  files: never[];
+  snapshots: SessionChangeSnapshots;
+  incompletePaths?: string[];
+} = {
   files: [],
   snapshots: {},
 };
@@ -86,11 +97,19 @@ export function ChangesView({
       root
     );
     const next = timeline.flatMap((item): SessionChangeTool[] => {
-      if (item.kind !== 'tool' || item.state !== 'ok') return [];
-      if (item.name !== 'edit' && item.name !== 'write') return [];
+      if (item.kind !== 'tool') return [];
+      if (item.name === 'apply_patch') {
+        return (item.fileChanges ?? []).map((change) => ({
+          path: change.path,
+          edits: null,
+          writeContent: null,
+          fileChange: change,
+        }));
+      }
+      if (item.state !== 'ok' || (item.name !== 'edit' && item.name !== 'write')) return [];
       if (!item.summary) return [];
       if (item.name === 'edit' && !(item.edits && item.edits.length > 0)) return [];
-      if (item.name === 'write' && !item.writeContent) return [];
+      if (item.name === 'write' && item.writeContent == null) return [];
       return [{ path: item.summary, edits: item.edits, writeContent: item.writeContent }];
     });
     if (sameTools(toolsRef.current, next)) return toolsRef.current;
@@ -204,6 +223,7 @@ export function ChangesView({
   }, [conversationId, mode, projectId, ssh, workspaceMigrating, workspaceRevision]);
 
   const files = mode === 'git' ? gitFiles : allResult.files;
+  const incompletePaths = mode === 'git' ? [] : (allResult.incompletePaths ?? []);
   // 折叠态按 item id 记；折叠的文件 CodeView 只渲 header，不解析不高亮
   const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(() => new Set());
   const toggleCollapsed = useCallback((id: string) => {
@@ -264,17 +284,37 @@ export function ChangesView({
         )}
       </div>
       <div className="min-h-0 flex-1">
-        {loading || files.length === 0 ? (
+        {loading || (files.length === 0 && incompletePaths.length === 0) ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
             {loading ? t('Loading...') : emptyText}
           </div>
         ) : (
-          <CodeView
-            items={items}
-            style={CODE_VIEW_STYLE}
-            options={CODE_VIEW_OPTIONS}
-            renderCustomHeader={renderCustomHeader}
-          />
+          <div className="flex h-full min-h-0 flex-col">
+            {incompletePaths.map((path) => (
+              <div
+                key={path}
+                className="m-2 flex shrink-0 items-start gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground"
+              >
+                <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <div className="min-w-0">
+                  <div className="truncate font-mono text-foreground" title={path}>
+                    {path}
+                  </div>
+                  <div>{t('Diff unavailable because the original snapshot was truncated.')}</div>
+                </div>
+              </div>
+            ))}
+            {files.length > 0 && (
+              <div className="min-h-0 flex-1">
+                <CodeView
+                  items={items}
+                  style={CODE_VIEW_STYLE}
+                  options={CODE_VIEW_OPTIONS}
+                  renderCustomHeader={renderCustomHeader}
+                />
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

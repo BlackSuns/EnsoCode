@@ -100,6 +100,35 @@ describe('wrapHashlineEditDefinition', () => {
     expect(wrapped.prepareArguments(args)).toBe(args);
   });
 
+  it('生产 strict 模式只公开 input schema 与 PUT 提示，且拒绝 replace 直调', async () => {
+    const fixture = wrappedFixture();
+    const wrapped = wrapHashlineEditDefinition(fixture.stock, {
+      store: fixture.store,
+      readText: async () => 'world\n',
+      writeText: fixture.writeText,
+      strictMode: true,
+    });
+    const schema = wrapped.parameters as unknown as {
+      properties?: Record<string, unknown>;
+      required?: string[];
+      additionalProperties?: boolean;
+    };
+    expect(Object.keys(schema.properties ?? {})).toEqual(['input']);
+    expect(schema.required).toEqual(['input']);
+    expect(schema.additionalProperties).toBe(false);
+    expect(String((wrapped as { description?: string }).description)).toMatch(/PUT/);
+    expect(String((wrapped as { description?: string }).description)).not.toMatch(
+      /\breplace\b|\bedits\b/i
+    );
+    expect((wrapped as { promptGuidelines?: string[] }).promptGuidelines?.join('\n')).not.toMatch(
+      /\breplace\b|\bedits\b/i
+    );
+    await expect(
+      wrapped.execute('replace', { path: 'a.ts', edits: [{ oldText: 'a', newText: 'b' }] })
+    ).rejects.toThrow();
+    expect(fixture.stock.execute).not.toHaveBeenCalled();
+  });
+
   it('有效 Hashline 执行写入文件且不调用 stock edit', async () => {
     const path = '/tmp/a.ts';
     const body = 'world\n';

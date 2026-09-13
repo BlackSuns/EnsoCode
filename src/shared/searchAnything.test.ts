@@ -211,7 +211,7 @@ describe('buildSettingsCatalog', () => {
     'agents.maxActiveCoworkers',
     'tools.root',
     'tools.bashInterceptEnabled',
-    'tools.hashlineEditEnabled',
+    'tools.editMode',
     'skills.root',
     'mcp.root',
     'instructions.root',

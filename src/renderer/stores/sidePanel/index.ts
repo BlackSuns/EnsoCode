@@ -1,3 +1,4 @@
+import type { SessionChangeSnapshots } from '@shared/types/fileChanges';
 import type { SerializedDockview } from 'dockview-react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -26,7 +27,7 @@ interface SidePanelState {
    * Changes「Session」模式的编辑前全文，按会话惰性从主进程回读（运行态，不 persist）。
    * 会话键不存在 = 尚未加载；已加载但无快照为 `{}`。
    */
-  snapshotsByConversation: Record<string, Record<string, string>>;
+  snapshotsByConversation: Record<string, SessionChangeSnapshots>;
   toggleOpen: () => void;
   ensureOpen: (conversationId?: string) => void;
   nudgeWidth: (delta: number) => void;
@@ -34,7 +35,7 @@ interface SidePanelState {
   setFullscreen: (fullscreen: boolean) => void;
   saveLayout: (conversationId: string, layout: SerializedDockview) => void;
   setChangesMode: (conversationId: string, mode: ChangesMode) => void;
-  saveSnapshots: (conversationId: string, snapshots: Record<string, string>) => void;
+  saveSnapshots: (conversationId: string, snapshots: SessionChangeSnapshots) => void;
   loadSnapshots: (conversationId: string) => void;
   setBrowserHole: (key: string, rect: ScreenRect | null) => void;
 }
@@ -142,7 +143,7 @@ export const useSidePanelStore = create<SidePanelState>()(
       loadSnapshots: (conversationId) => {
         if (conversationId in get().snapshotsByConversation) return;
         // 读失败也要标记已加载（空），否则 ChangesView 永不聚合；回包前已有 save 则不覆盖
-        const apply = (snapshots: Record<string, string>) => {
+        const apply = (snapshots: SessionChangeSnapshots) => {
           if (conversationId in get().snapshotsByConversation) return;
           set({
             snapshotsByConversation: {

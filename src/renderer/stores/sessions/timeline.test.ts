@@ -8,6 +8,8 @@ import {
   isReadOnlyCommand,
   parseSandboxOutput,
   patchStreamingTimeline,
+  shouldAutoExpandAppliedFileChanges,
+  shouldShowToolOutputAfterFileChanges,
   type TimelineItem,
   terminalErrorText,
 } from './timeline';
@@ -1508,6 +1510,113 @@ describe('patchStreamingTimeline', () => {
         true
       )
     ).toBeNull();
+  });
+});
+
+describe('apply_patch timeline', () => {
+  const call: ProjectedMessage = {
+    role: 'assistant',
+    content: [
+      { type: 'toolCall', id: 'patch-1', name: 'apply_patch', arguments: { patch: '***' } },
+    ],
+  };
+
+  it('partial error 仍携带所有实际落盘文件，不把参数意图当 diff', () => {
+    const changes = [
+      { path: 'src/a.ts', oldText: 'a', newText: 'aa', type: 'update' as const },
+      { path: 'old.ts', oldText: 'old', newText: '', type: 'delete' as const },
+      { path: 'new.ts', oldText: '', newText: 'new', type: 'add' as const },
+    ];
+    const timeline = buildTimeline(
+      [
+        call,
+        {
+          role: 'toolResult',
+          toolCallId: 'patch-1',
+          toolName: 'apply_patch',
+          isError: true,
+          content: [{ type: 'text', text: 'partially applied' }],
+          fileChanges: changes,
+          applyPatchOutcome: {
+            status: 'partial',
+            applied: changes.map((change) => change.path),
+            failed: ['failed.ts'],
+            error: 'source delete failed',
+            unattempted: ['later.ts'],
+            uncertain: ['unknown.ts'],
+          },
+        },
+      ],
+      false
+    );
+    expect(timeline[0]).toMatchObject({
+      kind: 'tool',
+      name: 'apply_patch',
+      state: 'error',
+      fileChanges: changes,
+      edits: null,
+    });
+    expect(shouldShowToolOutputAfterFileChanges(timeline[0])).toBe(true);
+    expect(timeline[0]).toMatchObject({
+      output: expect.stringContaining('Failed paths:\n- failed.ts'),
+    });
+    expect(timeline[0]).toMatchObject({
+      output: expect.stringContaining('Uncertain:\n- unknown.ts'),
+    });
+  });
+
+  it('apply_patch 结果从无到有时才自动展开，历史挂载时不展开', () => {
+    const timeline = buildTimeline(
+      [
+        call,
+        {
+          role: 'toolResult',
+          toolCallId: 'patch-1',
+          toolName: 'apply_patch',
+          content: [],
+          fileChanges: [{ path: 'a.ts', oldText: 'a', newText: 'b', type: 'update' }],
+        },
+      ],
+      true
+    );
+    expect(timeline[0]).toMatchObject({ name: 'apply_patch', state: 'ok' });
+    expect(shouldAutoExpandAppliedFileChanges(timeline[0], false)).toBe(true);
+    expect(shouldAutoExpandAppliedFileChanges(timeline[0], true)).toBe(false);
+  });
+
+  it('全量预检失败没有 fileChanges，不从 patch 参数造 diff', () => {
+    const timeline = buildTimeline(
+      [
+        call,
+        {
+          role: 'toolResult',
+          toolCallId: 'patch-1',
+          toolName: 'apply_patch',
+          isError: true,
+          content: [{ type: 'text', text: 'preflight failed' }],
+          fileChanges: [],
+        },
+      ],
+      false
+    );
+    expect(timeline[0]).toMatchObject({ fileChanges: [], edits: null, writeContent: null });
+  });
+
+  it('有实际修改的 partial result 会改变 Changes 指纹', () => {
+    const withResult: ProjectedMessage[] = [
+      call,
+      {
+        role: 'toolResult',
+        toolCallId: 'patch-1',
+        toolName: 'apply_patch',
+        isError: true,
+        content: [],
+        fileChanges: [{ path: 'a.ts', oldText: 'a', newText: 'b', type: 'update' }],
+      },
+    ];
+    expect(completedEditWriteFingerprint(withResult)).not.toBe(
+      completedEditWriteFingerprint([call])
+    );
   });
 });
 

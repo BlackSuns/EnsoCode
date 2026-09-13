@@ -21,6 +21,7 @@ import type {
   ConfigSyncPreviewResult,
   ConfigSyncSummary,
 } from '@shared/types';
+import { resolveEditMode } from '@shared/types';
 import { app } from 'electron';
 import {
   commitSettingsTransaction,
@@ -65,7 +66,8 @@ export const CONFIG_SYNC_FIELD_POLICY = {
   windowsLocalShell: { mode: 'excluded', reason: 'platform-specific shell selection' },
   exploreFoldEnabled: { mode: 'portable' },
   bashInterceptEnabled: { mode: 'portable' },
-  hashlineEditEnabled: { mode: 'portable' },
+  editMode: { mode: 'portable' },
+  hashlineEditEnabled: { mode: 'excluded', reason: 'legacy read-only edit mode migration' },
   compactStrategy: { mode: 'portable' },
   smartCompactEnabled: { mode: 'portable' },
   smartCompactModel: { mode: 'portable' },
@@ -180,6 +182,10 @@ function portableState(state: Record<string, unknown>): Record<string, unknown> 
   const result: Record<string, unknown> = {};
   for (const field of SYNC_FIELDS) {
     if (field in state) result[field] = structuredClone(state[field]);
+  }
+  if ('editMode' in state || 'hashlineEditEnabled' in state) {
+    result.editMode = resolveEditMode(state.editMode, state.hashlineEditEnabled);
+    delete result.hashlineEditEnabled;
   }
   for (const field of [
     'providers',

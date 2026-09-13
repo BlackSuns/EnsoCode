@@ -25,6 +25,14 @@ export const HASHLINE_EDIT_GUIDELINES = [
   `Hashline supports only PUT. ${HASHLINE_PUT_RULE} To delete lines, PUT a wider range and re-emit the lines you keep. Never invent or fabricate a tag.`,
 ];
 
+export const HASHLINE_STRICT_EDIT_DESCRIPTION =
+  'Apply a Hashline patch to one file. Pass only `input`: its first line must be the exact [path#TAG] header from the latest read/grep/write, followed by one or more PUT blocks. ' +
+  HASHLINE_PUT_RULE;
+
+export const HASHLINE_STRICT_EDIT_GUIDELINES = [
+  `Use edit with only the hashline \`input\` field. ${HASHLINE_PUT_RULE} To delete lines, PUT a wider range and re-emit the lines you keep. Never invent or fabricate a tag.`,
+];
+
 export const HASHLINE_WRITE_GUIDELINES = [
   'When Hashline is on, a successful write returns [path#TAG] plus numbered lines of the written file; that header can be the first line of a later hashline edit `input`.',
 ];

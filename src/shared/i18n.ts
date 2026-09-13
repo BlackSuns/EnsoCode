@@ -145,8 +145,8 @@ export const zhTranslations: Record<string, string> = {
   'Open in side panel': '在侧栏打开',
   'Compact read-only tool calls': '精简只读工具调用',
   'Expand file edits while running': '运行中自动展开文件改动',
-  'Automatically unfold the diff or written content of edit/write calls while the agent is still running':
-    'agent 运行中，edit/write 调用的 diff 或写入内容自动展开',
+  'Automatically unfold diffs or written content from file modification tools while the agent is still running':
+    'agent 运行中，文件修改工具的 diff 或写入内容自动展开',
   'Context compaction strategy': '上下文压缩策略',
   'Standard uses default compact. Smart compaction uses Enso verified summary at compact time. Continuous memory records observations in the background so compact keeps more context; both fall back to default compact on failure and take effect on the next session.':
     '标准使用默认压缩。智能压缩在压缩时用 Enso 验证式摘要。持续记忆在后台持续记录观察，压缩时保留更多上下文；两者失败都回退默认压缩，下一个会话生效。',
@@ -1259,11 +1259,17 @@ export const zhTranslations: Record<string, string> = {
   'Force read/find tools': '强制走 read/find 工具',
   'Block cat/head/grep/sed -i in the shell and require the dedicated file tools. Off by default. Takes effect on the next session.':
     '拦截 shell 里的 cat/head/grep/sed -i，要求改用专用文件工具。默认关。下次开会话生效。',
-  'Hashline edit': 'Hashline 编辑',
-  'Line-anchored read/edit with snapshot tags. Off by default. Takes effect on the next session. oldText replace still works when Force read/find is off.':
-    '带快照标签的行锚点 read/edit。默认关。下次开会话生效。未开强制 read/find 时仍可用 oldText 替换。',
-  'Also turn on Force read/find tools so the model uses tagged read more often. Edit still accepts oldText replace either way.':
-    '建议同时打开强制走 read/find 工具，模型会更多用带标签的 read。无论是否打开，edit 仍接受 oldText 替换。',
+  'File edit mode': '文件编辑模式',
+  'Choose how files are modified. Text replacement is the default. New and cold-restored sessions use this mode; already warm sessions keep their current mode.':
+    '选择文件修改方式。默认为文本替换。新建和冷恢复的会话使用此模式；已在内存中的会话保持原模式。',
+  'Text replacement (default)': '文本替换（默认）',
+  Hashline: 'Hashline 行锚点',
+  'Apply patch': '应用补丁',
+  'Truncated preview': '截断预览',
+  'Diff unavailable because the original snapshot was truncated.':
+    '原始快照已截断，无法显示完整差异。',
+  'Also turn on Force read/find tools so the model uses tagged reads more consistently.':
+    '建议同时打开强制走 read/find 工具，让模型更稳定地使用带标签的 read。',
   'Load project harness assets': '加载项目内其它工具目录',
   'Also load skills from .claude/.codex/.cursor and rule files (.cursorrules, .cursor/rules, .claude/rules) in the project':
     '同时加载项目内 .claude/.codex/.cursor 下的 skills，以及规则文件（.cursorrules、.cursor/rules、.claude/rules）',

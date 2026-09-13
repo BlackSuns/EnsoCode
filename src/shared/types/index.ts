@@ -4,6 +4,7 @@ export * from './assets';
 export * from './browser';
 export * from './builtinTools';
 export type * from './configSync';
+export * from './editMode';
 export * from './filesWorkspace';
 export * from './gitDiff';
 export * from './ipc';

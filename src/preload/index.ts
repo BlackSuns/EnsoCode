@@ -107,6 +107,7 @@ import type {
   BrowserDesignModeEvent,
   BrowserTabState,
 } from '@shared/types/browser';
+import type { SessionChangeSnapshots } from '@shared/types/fileChanges';
 import type {
   AgentComposerPrefillEvent,
   AgentDispatchRequest,
@@ -366,11 +367,11 @@ const electronAPI = {
 
   changes: {
     /** Changes 面板会话快照（编辑前全文）：主进程按会话落盘，不进 localStorage */
-    readSnapshots: (request: { conversationId: string }): Promise<Record<string, string>> =>
+    readSnapshots: (request: { conversationId: string }): Promise<SessionChangeSnapshots> =>
       ipcRenderer.invoke(IPC_CHANNELS.CHANGES_SNAPSHOTS_READ, request),
     writeSnapshots: (request: {
       conversationId: string;
-      snapshots: Record<string, string>;
+      snapshots: SessionChangeSnapshots;
     }): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.CHANGES_SNAPSHOTS_WRITE, request),
   },
 

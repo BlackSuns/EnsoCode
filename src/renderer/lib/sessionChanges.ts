@@ -1,3 +1,5 @@
+import type { ProjectedFileChange, SessionChangeSnapshots } from '@shared/types/fileChanges';
+
 export interface EditBlock {
   oldText: string;
   newText: string;
@@ -7,6 +9,8 @@ export interface SessionChangeTool {
   path: string;
   edits: EditBlock[] | null;
   writeContent: string | null;
+  /** apply_patch 的单个实际落盘操作；每个 path 独立一项 */
+  fileChange?: ProjectedFileChange | null;
 }
 
 export interface SessionChangeFile {
@@ -23,7 +27,8 @@ export function sameTools(prev: SessionChangeTool[], next: SessionChangeTool[]):
       (tool, i) =>
         tool.path === next[i].path &&
         tool.edits === next[i].edits &&
-        tool.writeContent === next[i].writeContent
+        tool.writeContent === next[i].writeContent &&
+        tool.fileChange === next[i].fileChange
     )
   );
 }
@@ -46,9 +51,13 @@ export function reconstructOld(current: string, blocks: EditBlock[]): string | n
 
 export function aggregateSessionChanges(input: {
   tools: SessionChangeTool[];
-  snapshots: Record<string, string>;
+  snapshots: SessionChangeSnapshots;
   currentByPath: Record<string, string | null>;
-}): { files: SessionChangeFile[]; snapshots: Record<string, string> } {
+}): {
+  files: SessionChangeFile[];
+  snapshots: SessionChangeSnapshots;
+  incompletePaths?: string[];
+} {
   const byPath = new Map<string, SessionChangeTool[]>();
   for (const tool of input.tools) {
     if (!tool.path) continue;
@@ -58,16 +67,43 @@ export function aggregateSessionChanges(input: {
   }
 
   const files: SessionChangeFile[] = [];
+  const incompletePaths = new Set(
+    Object.entries(input.snapshots).flatMap(([path, snapshot]) => (snapshot === null ? [path] : []))
+  );
   const snapshots = { ...input.snapshots };
 
   for (const [path, tools] of byPath) {
     const current = input.currentByPath[path];
     const edits = tools.flatMap((tool) => tool.edits ?? []);
+    const exactChanges = tools.flatMap((tool) =>
+      tool.fileChange && tool.fileChange.truncated !== true ? [tool.fileChange] : []
+    );
     const lastWrite = [...tools].reverse().find((tool) => tool.writeContent != null)?.writeContent;
+    const firstFileChange = tools.find((tool) => tool.fileChange)?.fileChange;
+    const lastOperation = [...tools]
+      .reverse()
+      .find((tool) => tool.fileChange || tool.writeContent != null || tool.edits?.length);
+    const fallbackNew = lastOperation?.fileChange
+      ? lastOperation.fileChange.truncated === true
+        ? null
+        : lastOperation.fileChange.newText
+      : (lastOperation?.writeContent ?? null);
+    const hasSnapshot = Object.hasOwn(snapshots, path);
     const snapshot = snapshots[path];
 
-    let oldText: string | null = snapshot ?? null;
-    const newText: string | null = typeof current === 'string' ? current : (lastWrite ?? null);
+    if (!hasSnapshot && firstFileChange?.truncated === true) {
+      snapshots[path] = null;
+      incompletePaths.add(path);
+      continue;
+    }
+    if (hasSnapshot && snapshot === null) {
+      incompletePaths.add(path);
+      continue;
+    }
+
+    let oldText: string | null =
+      typeof snapshot === 'string' ? snapshot : (exactChanges[0]?.oldText ?? null);
+    const newText: string | null = typeof current === 'string' ? current : fallbackNew;
 
     if (oldText == null) {
       if (edits.length > 0 && typeof current === 'string') {
@@ -77,12 +113,19 @@ export function aggregateSessionChanges(input: {
       }
     }
 
+    if (newText == null && lastOperation?.fileChange?.truncated === true) {
+      incompletePaths.add(path);
+    }
     if (oldText == null || newText == null) continue;
-    if (oldText === newText) continue;
+    if (oldText === newText && exactChanges.length === 0) continue;
 
     snapshots[path] = oldText;
     files.push({ path, oldText, newText });
   }
 
-  return { files, snapshots };
+  return {
+    files,
+    snapshots,
+    ...(incompletePaths.size > 0 ? { incompletePaths: [...incompletePaths] } : {}),
+  };
 }
