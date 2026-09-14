@@ -13,6 +13,13 @@ import {
 } from './childReasoning';
 import { runFooter } from './runFooter';
 import { collectStructuredYield, type JsonSchema } from './structuredYield';
+import {
+  finishToolActivity,
+  settleSubagentActivities,
+  startToolActivity,
+  updateAssistantActivity,
+  updateToolActivity,
+} from './subagentActivity';
 
 /** 进度事件节流 */
 const UPDATE_INTERVAL_MS = 500;
@@ -68,14 +75,6 @@ function asJsonSchema(value: unknown): JsonSchema | undefined {
 }
 
 let counter = 0;
-
-/** 活动历史追加,capped 防内存/IPC 膨胀 */
-function pushLog(info: SubagentInfo, line: string): void {
-  if (!info.activityLog) info.activityLog = [];
-  const log = info.activityLog;
-  log.push(line);
-  if (log.length > 200) log.splice(0, log.length - 200);
-}
 
 const ABORTED = 'Subagent aborted';
 
@@ -332,7 +331,7 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
         status: 'running',
         steps: 0,
         currentActivity: 'starting…',
-        activityLog: [],
+        activities: [],
         modelId: modelOption?.config.modelId ?? agentType?.model?.modelId ?? deps.modelId,
         ...(agentType ? { agentType: agentType.name } : {}),
         startedAt: Date.now(),
@@ -367,13 +366,31 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
         dirty = false;
         deps.emitUpdate({ ...info });
       }, UPDATE_INTERVAL_MS);
+      let assistantSequence = 0;
+      let activeAssistantId: string | null = null;
       const unsubscribe = session.subscribe((event) => {
         if (event.type === 'message_start') {
           const role = (event.message as { role?: string }).role;
           if (role === 'assistant') {
             info.steps += 1;
-            info.currentActivity = 'thinking…';
+            activeAssistantId = `assistant-${++assistantSequence}`;
+            info.currentActivity = 'responding…';
             dirty = true;
+          }
+        } else if (event.type === 'message_update') {
+          const role = (event.message as { role?: string }).role;
+          if (role === 'assistant') {
+            activeAssistantId ??= `assistant-${++assistantSequence}`;
+            const next = updateAssistantActivity(
+              info.activities ?? [],
+              activeAssistantId,
+              event.message
+            );
+            if (next !== info.activities) {
+              info.activities = next;
+              info.currentActivity = 'writing…';
+              dirty = true;
+            }
           }
         } else if (event.type === 'message_end') {
           const message = event.message as {
@@ -385,17 +402,19 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
             info.outputTokens = (info.outputTokens ?? 0) + message.usage.output;
             dirty = true;
           }
-          // 子代理阶段性文本进历史（首行,截断）
-          if (message.role === 'assistant' && Array.isArray(message.content)) {
-            const text = message.content
-              .map((part) =>
-                (part as { type?: string; text?: string }).type === 'text'
-                  ? ((part as { text?: string }).text ?? '')
-                  : ''
-              )
-              .join('')
-              .trim();
-            if (text) pushLog(info, text.slice(0, 200));
+          if (message.role === 'assistant') {
+            activeAssistantId ??= `assistant-${++assistantSequence}`;
+            const next = updateAssistantActivity(
+              info.activities ?? [],
+              activeAssistantId,
+              message,
+              false
+            );
+            if (next !== info.activities) {
+              info.activities = next;
+              dirty = true;
+            }
+            activeAssistantId = null;
           }
         } else if (event.type === 'tool_execution_start') {
           const args = event.args as Record<string, unknown> | undefined;
@@ -406,7 +425,31 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
                 ? args.path
                 : '';
           info.currentActivity = `${event.toolName} ${summary}`.trim().slice(0, 80);
-          pushLog(info, `→ ${event.toolName} ${summary}`.trim().slice(0, 160));
+          info.activities = startToolActivity(
+            info.activities ?? [],
+            event.toolCallId,
+            event.toolName,
+            event.args
+          );
+          dirty = true;
+        } else if (event.type === 'tool_execution_update') {
+          const next = updateToolActivity(
+            info.activities ?? [],
+            event.toolCallId,
+            event.partialResult
+          );
+          if (next !== info.activities) {
+            info.activities = next;
+            dirty = true;
+          }
+        } else if (event.type === 'tool_execution_end') {
+          info.activities = finishToolActivity(
+            info.activities ?? [],
+            event.toolCallId,
+            event.result,
+            event.isError
+          );
+          info.currentActivity = 'working…';
           dirty = true;
         }
       });
@@ -450,6 +493,10 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
           }
           const aborted = controller.signal.aborted;
           info.status = aborted ? 'failed' : 'done';
+          info.activities = settleSubagentActivities(
+            info.activities ?? [],
+            aborted ? 'aborted' : 'done'
+          );
           info.resultText = result;
           info.currentActivity = '';
           deps.emitUpdate({ ...info });
@@ -457,6 +504,10 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
           return result;
         } catch (error) {
           info.status = 'failed';
+          info.activities = settleSubagentActivities(
+            info.activities ?? [],
+            controller.signal.aborted ? 'aborted' : 'failed'
+          );
           info.currentActivity = '';
           info.resultText ??= error instanceof Error ? error.message : String(error);
           deps.emitUpdate({ ...info });

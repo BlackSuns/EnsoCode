@@ -74,6 +74,34 @@ describe('applyHistoryPage', () => {
 });
 
 describe('applyAgentEvent', () => {
+  it('完整保留 subagent 的结构化活动投影', () => {
+    const event: RendererAgentEvent = {
+      type: 'subagent-update',
+      identity: identity(),
+      seq: 1,
+      agent: {
+        id: 'agent-1',
+        description: 'inspect',
+        status: 'running',
+        steps: 1,
+        currentActivity: 'read src/a.ts',
+        startedAt: 1,
+        activities: [
+          {
+            id: 'tool-1',
+            type: 'tool',
+            toolName: 'read',
+            argumentsText: '{"path":"src/a.ts"}',
+            outputText: 'body',
+            status: 'done',
+          },
+        ],
+      },
+    };
+    const next = applyAgentEvent(base, 's1', event);
+    expect(next.subagents[0]).toEqual(event.agent);
+  });
+
   it('drops low seq and events for another session', () => {
     const advanced = applyAgentEvent(base, 's1', status(5, 'running'));
     expect(applyAgentEvent(advanced, 's1', status(3, 'idle'))).toBe(advanced);

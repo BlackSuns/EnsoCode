@@ -155,6 +155,7 @@ import {
   withAgentRead,
 } from './structuredYield';
 import { createSubagentTool, lastAssistantText } from './subagent';
+import { pruneCompletedSubagentDetails } from './subagentRetention';
 import {
   buildInitialTitleUserText,
   buildRollingTitleUserText,
@@ -1807,12 +1808,23 @@ export class SessionSupervisor {
         const managed = managedRef ?? this.sessions.get(sessionId);
         if (!managed) return;
         managed.subagents.set(agent.id, agent);
-        this.options.emit({
-          type: 'subagent-update',
-          identity: managed.identity,
-          seq: ++managed.seq,
-          agent,
-        });
+        const changed = new Set<string>();
+        if (agent.status !== 'running') {
+          const retained = pruneCompletedSubagentDetails([...managed.subagents.values()]);
+          for (const item of retained.agents) managed.subagents.set(item.id, item);
+          for (const id of retained.prunedIds) changed.add(id);
+        }
+        changed.add(agent.id);
+        for (const id of changed) {
+          const current = managed.subagents.get(id);
+          if (!current) continue;
+          this.options.emit({
+            type: 'subagent-update',
+            identity: managed.identity,
+            seq: ++managed.seq,
+            agent: current,
+          });
+        }
       },
       registerAbort: (id, abort) => {
         const managed = managedRef ?? this.sessions.get(sessionId);

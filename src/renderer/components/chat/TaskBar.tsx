@@ -1,10 +1,11 @@
-import type { BackgroundTaskInfo, SubagentInfo } from '@shared/types/agent';
+import type { BackgroundTaskInfo, SubagentActivity, SubagentInfo } from '@shared/types/agent';
 import { Bot, ChevronDown, Circle, Square, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { formatDuration } from '@/stores/sessions/stats';
 import { Markdown } from './Markdown';
+import { shouldFollowTaskBarOutput } from './taskBarScroll';
 
 interface TaskBarProps {
   sessionId: string;
@@ -87,14 +88,7 @@ export function TaskBar({ sessionId, tasks, subagents }: TaskBarProps) {
             </button>
           </div>
           {openTask && <TailView tail={openTask.tail} />}
-          {openAgent &&
-            (openAgent.status !== 'running' && openAgent.resultText ? (
-              <div className="max-h-56 overflow-auto px-3 py-2 text-sm">
-                <Markdown text={openAgent.resultText} />
-              </div>
-            ) : (
-              <TailView tail={(openAgent.activityLog ?? []).join('\n') || openAgent.status} />
-            ))}
+          {openAgent && <AgentDetails key={openAgent.id} agent={openAgent} />}
         </div>
       )}
       {visible.map((task) => {
@@ -200,6 +194,124 @@ export function TaskBar({ sessionId, tasks, subagents }: TaskBarProps) {
         );
       })}
     </div>
+  );
+}
+
+function AgentDetails({ agent }: { agent: SubagentInfo }) {
+  const { t } = useI18n();
+  const activities = agent.activities ?? [];
+  const ref = useRef<HTMLDivElement>(null);
+  const followingRef = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 流式活动或终态报告变化时贴底
+  useEffect(() => {
+    const el = ref.current;
+    if (el && followingRef.current) el.scrollTop = el.scrollHeight;
+  }, [activities, agent.resultText]);
+  return (
+    <div
+      ref={ref}
+      className="max-h-96 space-y-2 overflow-auto px-3 py-2 text-sm"
+      onScroll={(event) => {
+        followingRef.current = shouldFollowTaskBarOutput(event.currentTarget);
+      }}
+    >
+      {activities.map((activity) => (
+        <AgentActivityView key={activity.id} activity={activity} />
+      ))}
+      {activities.length === 0 && !agent.resultText && (
+        <pre className="font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+          {(agent.activityLog ?? []).join('\n') || t('(no output yet)')}
+        </pre>
+      )}
+      {agent.detailsPruned && (
+        <div className="rounded-md border border-dashed px-2.5 py-2 text-xs text-muted-foreground">
+          {t('Earlier activity details were cleared; the final report is still available.')}
+        </div>
+      )}
+      {agent.resultText && agent.status !== 'running' && (
+        <section
+          className={cn(
+            'rounded-lg border px-3 py-2',
+            agent.status === 'failed'
+              ? 'border-destructive/30 bg-destructive/5'
+              : 'border-blue-500/30 bg-blue-500/5'
+          )}
+        >
+          <div className="mb-1.5 font-medium text-xs text-foreground">{t('Final report')}</div>
+          <Markdown text={agent.resultText} />
+        </section>
+      )}
+    </div>
+  );
+}
+
+function AgentActivityView({ activity }: { activity: SubagentActivity }) {
+  const { t } = useI18n();
+  if (activity.type === 'assistant') {
+    return (
+      <section className="rounded-md bg-muted/30 px-2.5 py-2">
+        <div className="mb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+          {t('Assistant')}
+        </div>
+        <FoldedContent text={activity.text} markdown />
+      </section>
+    );
+  }
+  return (
+    <section className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+      <div className="flex items-center justify-between gap-2 font-mono text-xs">
+        <span className="truncate">→ {activity.toolName}</span>
+        <span
+          className={cn(
+            'shrink-0 text-[10px]',
+            activity.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'
+          )}
+        >
+          {t(activity.status)}
+        </span>
+      </div>
+      <div className="mt-1.5 space-y-1.5">
+        <FoldedContent text={activity.argumentsText} label={t('Arguments')} />
+        {activity.outputText && <FoldedContent text={activity.outputText} label={t('Result')} />}
+      </div>
+    </section>
+  );
+}
+
+function FoldedContent({
+  text,
+  label,
+  markdown = false,
+}: {
+  text: string;
+  label?: string;
+  markdown?: boolean;
+}) {
+  const { t } = useI18n();
+  const long = text.length > 800 || text.split('\n').length > 16;
+  const body = markdown ? (
+    <Markdown text={text} />
+  ) : (
+    <pre className="overflow-x-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
+      {text}
+    </pre>
+  );
+  if (!long) {
+    return (
+      <div>
+        {label && <div className="mb-0.5 text-[10px] text-muted-foreground">{label}</div>}
+        {body}
+      </div>
+    );
+  }
+  return (
+    <details className="group/details">
+      <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
+        {label ? `${label} · ` : ''}
+        {t('{{count}} chars', { count: text.length })}
+      </summary>
+      <div className="mt-1.5">{body}</div>
+    </details>
   );
 }
 

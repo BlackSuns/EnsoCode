@@ -196,6 +196,23 @@ export interface SubagentModelOption {
   description?: string;
 }
 
+export type SubagentActivity =
+  | {
+      id: string;
+      type: 'assistant';
+      /** 仅可见 text part，不含 thinking */
+      text: string;
+      streaming: boolean;
+    }
+  | {
+      id: string;
+      type: 'tool';
+      toolName: string;
+      argumentsText: string;
+      outputText?: string;
+      status: 'running' | 'done' | 'failed' | 'aborted';
+    };
+
 /** 子代理状态（渲染层状态行与 snapshot 共用） */
 export interface SubagentInfo {
   id: string;
@@ -207,6 +224,10 @@ export interface SubagentInfo {
   currentActivity: string;
   /** 活动历史（工具调用与阶段性文本,capped） */
   activityLog?: string[];
+  /** 有界的可见正文与工具执行详情，不含 thinking */
+  activities?: SubagentActivity[];
+  /** 较早的过程详情已按会话预算清理；最终报告仍保留 */
+  detailsPruned?: boolean;
   /** 完成后的最终产出（markdown） */
   resultText?: string;
   /** 使用的模型 */

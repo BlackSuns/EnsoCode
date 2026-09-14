@@ -416,6 +416,110 @@ describe('subagent 启动失败收尾', () => {
   );
 });
 
+describe('subagent 可见活动详情', () => {
+  it('归并 assistant 流式正文与工具参数、输出和结果', async () => {
+    let listener: ((event: Record<string, unknown>) => void) | undefined;
+    const session = {
+      ...fakeSession('final report'),
+      subscribe: (next: (event: Record<string, unknown>) => void) => {
+        listener = next;
+        return () => {};
+      },
+      prompt: vi.fn(async () => {
+        listener?.({ type: 'message_start', message: { role: 'assistant', content: [] } });
+        listener?.({
+          type: 'message_update',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', thinking: 'hidden' },
+              { type: 'text', text: 'checking' },
+            ],
+          },
+        });
+        listener?.({
+          type: 'message_end',
+          message: { role: 'assistant', content: [{ type: 'text', text: 'checking files' }] },
+        });
+        listener?.({
+          type: 'tool_execution_start',
+          toolCallId: 'read-1',
+          toolName: 'read',
+          args: { path: 'src/a.ts', offset: 10 },
+        });
+        listener?.({
+          type: 'tool_execution_update',
+          toolCallId: 'read-1',
+          partialResult: { content: [{ type: 'text', text: 'partial' }] },
+        });
+        listener?.({
+          type: 'tool_execution_end',
+          toolCallId: 'read-1',
+          result: { content: [{ type: 'text', text: 'file body' }] },
+          isError: false,
+        });
+      }),
+    } as unknown as AgentSession;
+    const deps = makeDeps({ createSubSession: vi.fn(async () => session) });
+    const tool = createSubagentTool(deps);
+    await tool.execute('t1', { description: 'x', prompt: 'do' }, undefined, undefined, {} as never);
+
+    const final = (deps.emitUpdate as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
+    expect(final.activities).toEqual([
+      {
+        id: 'assistant-1',
+        type: 'assistant',
+        text: 'checking files',
+        streaming: false,
+      },
+      {
+        id: 'read-1',
+        type: 'tool',
+        toolName: 'read',
+        argumentsText: expect.stringContaining('"offset": 10'),
+        outputText: 'file body',
+        status: 'done',
+      },
+    ]);
+    expect(JSON.stringify(final.activities)).not.toContain('hidden');
+  });
+
+  it('失败时保留此前采集的可见过程', async () => {
+    let listener: ((event: Record<string, unknown>) => void) | undefined;
+    const session = {
+      ...fakeSession('partial'),
+      subscribe: (next: (event: Record<string, unknown>) => void) => {
+        listener = next;
+        return () => {};
+      },
+      prompt: vi.fn(async () => {
+        listener?.({ type: 'message_start', message: { role: 'assistant', content: [] } });
+        listener?.({
+          type: 'message_update',
+          message: { role: 'assistant', content: [{ type: 'text', text: 'work before failure' }] },
+        });
+        throw new Error('provider failed');
+      }),
+    } as unknown as AgentSession;
+    const deps = makeDeps({ createSubSession: vi.fn(async () => session) });
+    const tool = createSubagentTool(deps);
+    await expect(
+      tool.execute('t1', { description: 'x', prompt: 'do' }, undefined, undefined, {} as never)
+    ).rejects.toThrow('provider failed');
+
+    const final = (deps.emitUpdate as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
+    expect(final).toMatchObject({ status: 'failed', resultText: 'provider failed' });
+    expect(final.activities).toEqual([
+      {
+        id: 'assistant-1',
+        type: 'assistant',
+        text: 'work before failure',
+        streaming: false,
+      },
+    ]);
+  });
+});
+
 describe('subagent 手动中止', () => {
   it('createSubSession 挂起时 abort 能结束 starting 并标 failed', async () => {
     let abort: (() => void) | undefined;
