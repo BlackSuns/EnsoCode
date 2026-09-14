@@ -104,8 +104,12 @@ export function createCoworkerTool(deps: CoworkerToolDeps): ToolDefinition {
     name: 'coworker',
     label: 'Coworker',
     description:
-      'Hire a persistent coworker agent that keeps its own context across multiple send calls. ' +
-      'Unlike `subagent` (one-shot, disposed after a single report), a coworker stays alive: ' +
+      'Before hiring, decide whether delegation has clear value. Handle short tasks directly when their context is already known. ' +
+      'Delegate only when the user explicitly requests it, or when parallel execution, isolated context, or independent review offers a clear benefit. ' +
+      'After deciding delegation is worthwhile, use a coworker only when sustained collaboration and context reuse are explicitly useful. ' +
+      'For one-shot work, use `subagent` if available. Tool availability does not itself justify delegation. ' +
+      'A persistent coworker keeps its own context across multiple send calls. ' +
+      'Unlike a one-shot subagent, a coworker stays alive: ' +
       'spawn it once with a role and initial task, then send follow-ups that build on everything it has seen. ' +
       'The user watches each coworker in its own tab and may reply there directly. ' +
       'Operations: spawn {name, agent_type?, task} / send {name, message} / wait {name, gate?} / ' +
@@ -118,29 +122,27 @@ export function createCoworkerTool(deps: CoworkerToolDeps): ToolDefinition {
       '(e.g. "pnpm test"). Inline results are truncated; report {name} returns the full text of the last round.' +
       (typeList ? ` Available agent types: ${typeList}.` : ''),
     promptSnippet:
-      'coworker: hire a persistent named agent (own tab, own accumulating context, multi-round by design). ' +
-      'Use subagent for one-shot subtasks; use coworker whenever follow-up rounds are possible or the user ' +
-      'should watch and join, then keep steering it with send. ' +
+      'coworker: first decide whether delegation adds clear value; handle short tasks directly when their context is already known. ' +
+      'Delegate only on user request or a clear parallel, context-isolation, or independent-review benefit. ' +
+      'After deciding delegation is worthwhile, use coworker only for sustained collaboration and context reuse; use subagent if available for one-shot work. ' +
+      'Tool availability does not itself justify delegation. A coworker is persistent (own tab and accumulating context). ' +
       'spawn/send are async by default — you get notified on completion; when idle use wait {name} ' +
       'instead of sleep/poll, and report {name} for the untruncated last result. ' +
       'Peer coworkers with operation=message (to + text). ' +
-      'Verify delegated work with gate:"<command>" (exit code speaks, not the coworker). ' +
-      'One coworker per role, reused across rounds; dismiss when its goal is met' +
+      'When executable verification applies, use gate:"<command>"; for read-only review, assess the report evidence instead. ' +
+      'Assess each report; send only for a concrete gap, otherwise dismiss and finish. One coworker per role, reused across rounds' +
       (deps.models.length > 0
         ? '. A model parameter on spawn lets you pick a cheaper/stronger model per role — required for [custom model required] types, otherwise omit to inherit'
         : ''),
     promptGuidelines: [
-      'Hire a coworker whenever the same thread MAY need a follow-up round: review/verify loops, test-fix loops, ' +
-        'requests phrased like "check it, fix whatever it finds, check again" (看看有没有问题、有问题再改再审), ' +
-        'or when the user should watch and join. Spawn it in the FIRST round, not after a subagent already reported. ' +
-        'When in doubt choose coworker: an unused coworker costs one dismiss, while a chained one-shot subagent ' +
-        'must re-read everything and forgets the previous round. ' +
-        'Prefer it over redoing multi-step work yourself or chaining one-shot subagents for the same thread',
-      'A coworker is multi-round by default: give it the role and the first step in spawn, then steer with send. ' +
-        'A "finished a round" notice is not completion — reply with send to verify, correct, or ask for evidence; ' +
-        'do not redo its work yourself and do not spawn a second coworker for the same role (reuse the name). ' +
-        'When a coworker reaches you via message_main_agent, answer it with send. ' +
-        "dismiss only when the role's goal is met or the user says stop",
+      'Delegate only when the user requests delegation or parallel execution, isolated context, or independent review offers a clear benefit. ' +
+        'Handle short tasks directly when their context is already known. After deciding delegation is worthwhile, ' +
+        'hire a coworker only for sustained collaboration and context reuse; use subagent if available for one-shot work. ' +
+        'Availability alone does not justify delegation',
+      'Give a coworker its role and first step in spawn, and reuse the same name for that role across rounds. ' +
+        'When a round finishes, first assess the report against the goal. Send only when there is a concrete gap, correction, or needed follow-up. ' +
+        'When a coworker reaches you via message_main_agent with a question or need for a response, answer it with send; assess completion reports first. ' +
+        'If the goal is met, dismiss the coworker and finish without another round',
       ...(requiredPickTypes.length > 0 && modelNames.length > 0
         ? [
             `When spawning an agent_type marked [custom model required] (${requiredPickTypes.join(', ')}), always pass model on the first spawn — omitting it fails, do not retry without model. Available: ${modelNames.join(', ')}`,

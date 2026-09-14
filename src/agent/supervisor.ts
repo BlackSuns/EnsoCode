@@ -3535,9 +3535,9 @@ export function waitIdleBounded(
 }
 /** 异步通知里的摘要上限;全文经 coworker report 取 */
 const NOTIFY_SUMMARY_LIMIT = 1500;
-/** 一轮结束回父的摘要尾句：阻塞/非阻塞两条路径共用，把「继续 send」写成默认动作 */
+/** 一轮结束回父的摘要尾句：阻塞/非阻塞两条路径共用，按验收结果决定是否继续 */
 const COWORKER_FOLLOW_UP_HINT =
-  '(follow up with coworker send to verify or steer; dismiss only when its goal is met)';
+  '(assess the report against the goal; send only for a concrete gap or needed follow-up; if the goal is met, dismiss the coworker and finish)';
 
 /** gate 验收:在会话 cwd 跑命令,退出码即结论(比再叫一个模型评审便宜且诚实)。
  * 远程会话传 executor,命令改在远端 cwd 执行 */

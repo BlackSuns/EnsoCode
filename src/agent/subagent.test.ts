@@ -121,7 +121,7 @@ describe('subagent tool model 参数', () => {
     );
   });
 
-  it('promptGuidelines 写入主动委派规则，含内置类型选型；无类型时不提类型', () => {
+  it('promptGuidelines 写入条件式委派规则，含内置类型选型；无类型时不提类型', () => {
     const guidelines = createSubagentTool(
       makeDeps({
         agentTypes: [
@@ -131,7 +131,7 @@ describe('subagent tool model 参数', () => {
         ],
       })
     ).promptGuidelines;
-    expect(guidelines?.join('\n')).toMatch(/independent.*same message/i);
+    expect(guidelines?.join('\n')).toMatch(/clear benefit.*parallel/is);
     expect(guidelines?.join('\n')).toMatch(/scout.*worker.*reviewer/s);
     expect(createSubagentTool(makeDeps()).promptGuidelines?.join('\n')).not.toMatch(/scout/);
   });
@@ -179,10 +179,25 @@ describe('subagent tool model 参数', () => {
     expect(text).not.toMatch(/reviewer/);
   });
 
-  it('description/promptSnippet 不再用保守措辞抢话', () => {
+  it('先判断委派收益，短小且上下文已知时直接做，并一次性选择委派类型', () => {
     const tool = createSubagentTool(makeDeps());
-    expect(tool.description).not.toMatch(/parallelizable or context-heavy/);
-    expect(tool.promptSnippet).toMatch(/default/i);
+    const text = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join(
+      '\n'
+    );
+    expect(text).toMatch(/short tasks.*directly.*context.*known/is);
+    expect(text).toMatch(/user.*request/is);
+    expect(text).toMatch(/parallel/is);
+    expect(text).toMatch(/isolated context/is);
+    expect(text).toMatch(/independent review/is);
+    expect(text).not.toMatch(/hand any independent subtask|Delegate by default|anti-pattern/i);
+  });
+
+  it('交叉推荐 coworker 带可用性条件，且仅持续协作与上下文复用时选择', () => {
+    const tool = createSubagentTool(makeDeps());
+    const text = `${tool.description}\n${tool.promptSnippet}`;
+    expect(text).toMatch(/coworker.*if available/is);
+    expect(text).toMatch(/sustained collaboration.*context reuse/is);
+    expect(text).toMatch(/availability.*does not.*delegat|do not delegate.*availability/is);
   });
 
   it('当 agent_type 锁定模型（allowModelOverride === false）时，主 agent 传 model 报错拒绝', async () => {

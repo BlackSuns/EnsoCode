@@ -117,22 +117,33 @@ describe('coworker tool model 参数', () => {
     );
   });
 
-  it('promptGuidelines 把多轮闭环写成默认动作，task 不再自称 self-contained', () => {
+  it('promptGuidelines 先验收报告，仅有具体不足才继续 send', () => {
     const tool = createCoworkerTool(makeDeps());
     const text = tool.promptGuidelines?.join('\n') ?? '';
-    expect(text).toMatch(/finished a round.*send/is);
-    expect(text).toMatch(/message_main_agent.*send/is);
-    expect(text).toMatch(/dismiss/);
+    expect(text).toMatch(/assess.*report.*concrete gap.*send/is);
+    expect(text).toMatch(/message_main_agent.*question.*response.*send/is);
+    expect(text).toMatch(/assess completion reports first/is);
+    expect(text).toMatch(/goal is met.*dismiss.*finish/is);
     const properties = (tool.parameters as { properties: Record<string, { description: string }> })
       .properties;
     expect(properties.task.description).not.toMatch(/self-contained/);
     expect(properties.task.description).toMatch(/send/);
   });
 
-  it('何时雇 coworker 写在 coworker 自己的 guideline 首句，不依赖 agentTypes', () => {
-    const first = createCoworkerTool(makeDeps({ agentTypes: [] })).promptGuidelines?.[0] ?? '';
-    expect(first).toMatch(/^Hire a coworker when/);
-    expect(first).toMatch(/multi-round|follow-up/i);
+  it('先判断委派收益，短小且上下文已知时直接做；持续协作与上下文复用才选 coworker', () => {
+    const tool = createCoworkerTool(makeDeps({ agentTypes: [] }));
+    const text = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join(
+      '\n'
+    );
+    expect(text).toMatch(/short tasks.*directly.*context.*known/is);
+    expect(text).toMatch(/user.*request/is);
+    expect(text).toMatch(/parallel/is);
+    expect(text).toMatch(/isolated context/is);
+    expect(text).toMatch(/independent review/is);
+    expect(text).toMatch(/sustained collaboration.*context reuse/is);
+    expect(text).not.toMatch(
+      /MAY need|FIRST round|When in doubt choose coworker|unused coworker costs one dismiss/i
+    );
   });
 
   it('存在必须自选的 agent_type 时，guidelines 提前要求 spawn 带 model', () => {
@@ -164,11 +175,18 @@ describe('coworker tool model 参数', () => {
     ).not.toMatch(/always pass model/i);
   });
 
-  it('description/promptSnippet 与 guidelines 同向：不再劝省着用、不再劝先交差', () => {
+  it('交叉推荐 subagent 带可用性条件，不因工具缺失强制改用另一种委派', () => {
     const tool = createCoworkerTool(makeDeps());
-    expect(tool.description).not.toMatch(/return to the user/);
-    expect(tool.promptSnippet).not.toMatch(/prefer few/);
-    expect(tool.promptSnippet).toMatch(/multi-round/);
+    expect(`${tool.description}\n${tool.promptSnippet}`).toMatch(/subagent.*if available/is);
+    expect(`${tool.description}\n${tool.promptSnippet}`).toMatch(
+      /availability.*does not.*delegat|do not delegate.*availability/is
+    );
+  });
+
+  it('gate 仅用于适合可执行验证的任务，只读评审按报告证据验收', () => {
+    const snippet = createCoworkerTool(makeDeps()).promptSnippet ?? '';
+    expect(snippet).toMatch(/executable verification.*gate/is);
+    expect(snippet).toMatch(/read-only review.*report evidence/is);
   });
 
   it('当 agent_type 设为必须自选（allowModelOverride === true）时，spawn 不填 model 拒绝继承', async () => {

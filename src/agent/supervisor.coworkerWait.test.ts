@@ -676,6 +676,10 @@ describe('SessionSupervisor coworker wait/report', () => {
 
     const text = await waitPromise;
     expect(text).toMatch(/round result text/);
+    expect(text).toMatch(/assess.*report/i);
+    expect(text).toMatch(/send only.*concrete gap/i);
+    expect(text).toMatch(/goal is met.*dismiss.*finish/i);
+    expect(text).not.toMatch(/follow up with coworker send to verify or steer/i);
   });
 
   it('agent_end(willRetry=true) 不 resolve wait,随后终态 agent_end 才 resolve', async () => {
