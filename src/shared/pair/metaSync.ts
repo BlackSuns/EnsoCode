@@ -127,15 +127,14 @@ export function withholdRendererMeta(
 }
 
 /**
- * 进房/snapshot 只作废 catalog：订阅裁剪会变，列表必须重拉。
- * providers/projects/appearance 变更极低频，清掉指纹会让每次前后台都打 14kB 模型表。
+ * 进房只保留 providers：14kB 模型表不必重打。
+ * 项目列表和 push-config 必须重发——PWA 刷新后内存是空的，这两项也不进可靠缓存。
  */
 export function forgetGuestSyncMeta(
   last: PairMetaFingerprints | undefined
 ): PairMetaFingerprints | undefined {
   if (!last) return undefined;
-  const { catalog: _catalog, ...stable } = last;
-  return stable;
+  return last.providers !== undefined ? { providers: last.providers } : undefined;
 }
 
 /** pair 进程内低频通道指纹，避免进房时 conn.sentMeta 被清掉后重打 providers。 */
@@ -156,7 +155,7 @@ export function rememberStableMeta(
 ): PairMetaFingerprints | undefined {
   const extra: PairMetaFingerprints = {};
   for (const key of allowed) {
-    if (key === 'catalog') continue;
+    if (key !== 'providers') continue;
     const fp = next[key];
     if (fp !== undefined) extra[key] = fp;
   }

@@ -237,15 +237,17 @@ describe('forgetGuestSyncMeta', () => {
     hostInfo: 'host',
   } as const;
 
-  it('进房只作废 catalog 指纹，providers 等低频通道下次按指纹跳过', () => {
+  it('进房只保留 providers 指纹，项目和推送配置仍重发', () => {
     expect(forgetGuestSyncMeta(fps)).toEqual({
-      projects: 'p',
       providers: 'pr',
-      appearance: 'a',
-      pushConfig: 'push',
-      hostInfo: 'host',
     });
-    expect(changedMetaChannels(forgetGuestSyncMeta(fps), fps)).toEqual(['catalog']);
+    expect(changedMetaChannels(forgetGuestSyncMeta(fps), fps)).toEqual([
+      'catalog',
+      'projects',
+      'appearance',
+      'pushConfig',
+      'hostInfo',
+    ]);
   });
 
   it('无历史指纹时仍是全新连接，不凭空造指纹', () => {
@@ -255,12 +257,24 @@ describe('forgetGuestSyncMeta', () => {
   it('进房竞态只提交了 catalog 时，合并 pair 级指纹仍跳过 providers', () => {
     const stable = forgetGuestSyncMeta(fps);
     const sent = forgetGuestSyncMeta({ catalog: 'c-old' });
-    expect(changedMetaChannels(mergeStableMeta(stable, sent), fps)).toEqual(['catalog']);
+    expect(changedMetaChannels(mergeStableMeta(stable, sent), fps)).toEqual([
+      'catalog',
+      'projects',
+      'appearance',
+      'pushConfig',
+      'hostInfo',
+    ]);
   });
 
-  it('发出前先锁 providers 指纹，并发 flush 只补 catalog', () => {
+  it('发出前只锁 providers 指纹，并发 flush 仍补项目和推送配置', () => {
     const stored = rememberStableMeta(undefined, PAIR_META_CHANNELS, fps);
-    expect(changedMetaChannels(mergeStableMeta(stored, undefined), fps)).toEqual(['catalog']);
+    expect(changedMetaChannels(mergeStableMeta(stored, undefined), fps)).toEqual([
+      'catalog',
+      'projects',
+      'appearance',
+      'pushConfig',
+      'hostInfo',
+    ]);
   });
 });
 

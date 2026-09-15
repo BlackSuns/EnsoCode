@@ -993,10 +993,15 @@ function requestMeta(conn: Connection): void {
   requestPairMeta(conn, sendMeta);
 }
 
-/** 进房只作废 catalog 指纹，避免每次前后台重打 providers。 */
+/** 进房重发目录/项目/推送配置；providers 按指纹跳过。 */
 function resyncGuestMeta(conn: Connection, forgetCatalog = true): void {
   conn.guestMeta = true;
-  if (forgetCatalog && !conn.metaSending) conn.sentMeta = forgetGuestSyncMeta(conn.sentMeta);
+  if (forgetCatalog && !conn.metaSending) {
+    conn.sentMeta = forgetGuestSyncMeta(conn.sentMeta);
+    const next = forgetGuestSyncMeta(stableMetaByPair.get(conn.device.pairId));
+    if (next) stableMetaByPair.set(conn.device.pairId, next);
+    else stableMetaByPair.delete(conn.device.pairId);
+  }
   requestMeta(conn);
 }
 
