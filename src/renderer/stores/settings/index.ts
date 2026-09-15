@@ -26,6 +26,7 @@ import { parseUsageModelPricing } from '@shared/usage/pricing';
 import { parseWindowsLocalShell } from '@shared/windowsLocalShell';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { resolveColorScheme } from '@/lib/colorScheme';
 import {
   applyTerminalThemeToApp,
   clearTerminalThemeFromApp,
@@ -64,23 +65,11 @@ function applyTerminalFont(fontFamily: string, fontSize: number): void {
 
 // Apply app theme (dark/light mode)
 function applyAppTheme(theme: Theme, terminalTheme: string): void {
-  let isDark: boolean;
-
-  switch (theme) {
-    case 'light':
-      isDark = false;
-      break;
-    case 'dark':
-      isDark = true;
-      break;
-    case 'system':
-      isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      break;
-    case 'sync-terminal':
-      isDark = isTerminalThemeDark(terminalTheme);
-      break;
-  }
-
+  const isDark =
+    resolveColorScheme(theme, {
+      prefersDark: window.matchMedia('(prefers-color-scheme: dark)').matches,
+      terminalIsDark: isTerminalThemeDark(terminalTheme),
+    }) === 'dark';
   document.documentElement.classList.toggle('dark', isDark);
 }
 

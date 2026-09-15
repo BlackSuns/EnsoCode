@@ -20,6 +20,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { addToast } from '@/components/ui/toast';
+import { useCodeHighlightOptions } from '@/hooks/useColorScheme';
 import { useI18n } from '@/i18n';
 import { addSidePanelBrowser, registerFilesTabCloser } from '@/lib/sidePanelDock';
 import { cn } from '@/lib/utils';
@@ -45,7 +46,6 @@ import { FileTreeMenu, isMarkdownRel } from './fileTreeMenu';
 import { idsToClose } from './tabCloseActions';
 
 const FILE_OPTIONS = {
-  themeType: 'system',
   theme: CODE_THEME,
   disableFileHeader: true,
   overflow: 'scroll',
@@ -91,6 +91,7 @@ interface FilesViewProps {
 
 export function FilesView({ conversationId, projectId }: FilesViewProps) {
   const { t } = useI18n();
+  const fileOptions = useCodeHighlightOptions(FILE_OPTIONS);
   const req = useMemo(() => ({ conversationId, projectId }), [conversationId, projectId]);
   const workspaceRevision = useSessionsStore(
     (s) => s.workspaceRevisionByConversation[conversationId] ?? 0
@@ -951,7 +952,7 @@ export function FilesView({ conversationId, projectId }: FilesViewProps) {
                   disableWorkerPool
                   edit
                   editorOptions={editOptions}
-                  options={FILE_OPTIONS}
+                  options={fileOptions}
                 />
               </Virtualizer>
             )}

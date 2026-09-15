@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CODE_THEME, ensureHighlighter } from '@/components/chat/codeHighlighter';
+import { useCodeHighlightOptions } from '@/hooks/useColorScheme';
 import { useI18n } from '@/i18n';
 import { buildChangeItems, type ChangeItemMemo } from '@/lib/changesItems';
 import {
@@ -26,7 +27,6 @@ import { useSettingsStore } from '@/stores/settings';
 import { useSidePanelStore } from '@/stores/sidePanel';
 
 const CODE_VIEW_OPTIONS = {
-  themeType: 'system',
   theme: CODE_THEME,
   diffStyle: 'split',
   lineDiffType: 'word',
@@ -63,6 +63,7 @@ export function ChangesView({
   projectId: string;
 }) {
   const { t } = useI18n();
+  const codeViewOptions = useCodeHighlightOptions(CODE_VIEW_OPTIONS);
   const mode = useSidePanelStore((s) => s.changesModeByConversation[conversationId]) ?? 'all';
   const setMode = useSidePanelStore((s) => s.setChangesMode);
   // tabs sliding：pill 位置/尺寸由 JS 测量写入，CSS 负责补间；首帧挂起过渡避免从 0 宽飞入
@@ -333,7 +334,7 @@ export function ChangesView({
                 <CodeView
                   items={items}
                   style={CODE_VIEW_STYLE}
-                  options={CODE_VIEW_OPTIONS}
+                  options={codeViewOptions}
                   renderCustomHeader={renderCustomHeader}
                 />
               </div>

@@ -1,15 +1,15 @@
 import { parseDiffFromFile } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
 import { useEffect, useMemo, useState } from 'react';
+import { useCodeHighlightOptions } from '@/hooks/useColorScheme';
 import { useI18n } from '@/i18n';
 import { diffCacheKey } from '@/lib/diffCacheKey';
 import { reconstructOld } from '@/lib/sessionChanges';
 import type { EditBlock } from '@/stores/sessions/timeline';
 import { CODE_THEME, ensureHighlighter } from './codeHighlighter';
 
-/** 主题跟随系统深浅色，split 左右分栏 + 词级高亮，纯 JS 高亮器（免 WASM）；高亮走根部 DiffWorkerPool */
+/** 主题跟随应用明暗，split 左右分栏 + 词级高亮，纯 JS 高亮器（免 WASM）；高亮走根部 DiffWorkerPool */
 const DIFF_OPTIONS = {
-  themeType: 'system',
   theme: CODE_THEME,
   diffStyle: 'split',
   lineDiffType: 'word',
@@ -100,11 +100,12 @@ export function EditDiff({
 }
 
 function DiffView({ name, oldText, newText }: { name: string; oldText: string; newText: string }) {
+  const options = useCodeHighlightOptions(DIFF_OPTIONS);
   const fileDiff = useMemo(() => {
     const diff = parseDiffFromFile({ name, contents: oldText }, { name, contents: newText });
     // 同一文件多条 edit 同名不同内容，默认按名缓存会串高亮
     diff.cacheKey = diffCacheKey(name, oldText, newText);
     return diff;
   }, [name, oldText, newText]);
-  return <FileDiff fileDiff={fileDiff} options={DIFF_OPTIONS} />;
+  return <FileDiff fileDiff={fileDiff} options={options} />;
 }

@@ -1,10 +1,10 @@
 import { Maximize2, Minimize2, Minus, Plus, RotateCcw, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { useOverlayGuard } from '@/hooks/useOverlayGuard';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { Z_INDEX } from '@/lib/z-index';
-import { useSettingsStore } from '@/stores/settings';
 import { decorateMermaidSvg, MERMAID_OFFSCREEN_HOST_STYLE } from './mermaidSvg';
 
 interface MermaidAPI {
@@ -84,7 +84,6 @@ export function MermaidRenderer({
   className?: string;
 }) {
   const { t } = useI18n();
-  const theme = useSettingsStore((s) => s.theme);
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -98,14 +97,7 @@ export function MermaidRenderer({
   const svgContentRef = useRef<HTMLDivElement>(null);
   const hasDraggedRef = useRef(false);
 
-  const resolvedTheme =
-    theme === 'system'
-      ? window.matchMedia('(prefers-color-scheme: dark)').matches
-        ? 'dark'
-        : 'light'
-      : theme === 'dark' || theme === 'sync-terminal'
-        ? 'dark'
-        : 'light';
+  const resolvedTheme = useColorScheme();
   const mermaidTheme = resolvedTheme === 'dark' ? 'dark' : 'default';
 
   useEffect(() => {

@@ -1,11 +1,11 @@
 import { File } from '@pierre/diffs/react';
 import { stripHashlineRead } from '@shared/hashlineRead';
 import { useEffect, useMemo, useState } from 'react';
+import { useCodeHighlightOptions } from '@/hooks/useColorScheme';
 import { useI18n } from '@/i18n';
 import { CODE_THEME, ensureHighlighter } from './codeHighlighter';
 
 const FILE_OPTIONS = {
-  themeType: 'system',
   theme: CODE_THEME,
   disableFileHeader: true,
   overflow: 'wrap',
@@ -16,6 +16,7 @@ const FILE_OPTIONS = {
 export function ReadFileView({ path, contents }: { path: string; contents: string }) {
   const { t } = useI18n();
   const [ready, setReady] = useState(false);
+  const options = useCodeHighlightOptions(FILE_OPTIONS);
   useEffect(() => {
     let alive = true;
     ensureHighlighter().then(() => {
@@ -34,5 +35,5 @@ export function ReadFileView({ path, contents }: { path: string; contents: strin
   if (!ready) {
     return <div className="px-3 py-2 text-xs text-muted-foreground">{t('Loading...')}</div>;
   }
-  return <File file={file} disableWorkerPool options={FILE_OPTIONS} />;
+  return <File file={file} disableWorkerPool options={options} />;
 }
