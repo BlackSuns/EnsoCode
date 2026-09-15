@@ -154,13 +154,13 @@ describe('apply_patch 参数和语法', () => {
 
   it('只有定位 hunk 的 Update 仍拒绝；有 -/+ 但内容相同也拒绝', () => {
     expect(() => parseApplyPatch(envelope('*** Update File: a.txt\n@@\n same'))).toThrow(
-      /No-op update chunk at line 3/
+      /Update file 'a.txt' has no '-'\/'\+' edits/
     );
     expect(() => parseApplyPatch(envelope('*** Update File: a.txt\n@@\n-same\n+same'))).toThrow(
-      /No-op update chunk at line 3/
+      /No-op update chunk at line 3: '-' and '\+' lines are identical/
     );
     expect(() =>
       parseApplyPatch(envelope('*** Update File: a.txt\n@@\n-same\n+same\n@@\n-old\n+new'))
-    ).toThrow(/No-op update chunk at line 3/);
+    ).toThrow(/No-op update chunk at line 3: '-' and '\+' lines are identical/);
   });
 });

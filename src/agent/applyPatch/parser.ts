@@ -26,8 +26,9 @@ function parsePath(line: string, marker: string, lineNumber: number): string {
   return value;
 }
 
-const NOOP_CHUNK =
-  "hunk changes nothing. Put the locator on '@@ ...' and the edit in the same hunk.";
+const NOOP_CHUNK = "'-' and '+' lines are identical";
+const NO_EDITS =
+  "has no '-'/'+' edits. Copying existing code is not a change; add insertions or deletions in this same patch.";
 
 function isIdentity(oldLines: readonly string[], newLines: readonly string[]): boolean {
   return (
@@ -179,7 +180,7 @@ export function parseApplyPatch(input: string): ApplyPatchOperation[] {
       }
       if (chunks.length === 0 && !movePath) {
         if (firstLocatorLine !== undefined) {
-          throw new Error(`No-op update chunk at line ${firstLocatorLine}: ${NOOP_CHUNK}`);
+          throw new Error(`Update file '${target}' ${NO_EDITS}`);
         }
         throw new Error(`Update file '${target}' is empty`);
       }

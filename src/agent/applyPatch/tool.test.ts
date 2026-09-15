@@ -9,6 +9,7 @@ describe('apply_patch tool 与 SSH IO', () => {
     const tool = createApplyPatchTool({ cwd: '/tmp' });
     expect(tool.name).toBe('apply_patch');
     expect(tool.promptSnippet).not.toMatch(/atomic/i);
+    expect(tool.promptSnippet).toContain("at least one '-' or '+' line");
     expect(tool.description).toContain('*** Update File: example/config.txt');
     expect(tool.description).toContain('*** Add File: example/new-note.txt');
     expect(tool.description).toContain('*** Delete File: example/old-note.txt');
@@ -22,12 +23,18 @@ describe('apply_patch tool 与 SSH IO', () => {
     expect(tool.description).toContain('*** Delete File: path');
     expect(tool.description).toContain('never use unified-diff line-number ranges');
     expect(tool.description).toContain("put the locator on '@@ ...'");
+    expect(tool.description).toContain('An Update that only copies existing lines is rejected');
     expect(tool.description).toContain('never add a BOM or NUL');
     expect(tool.description).toMatch(/explicit absolute paths/i);
     expect(tool.description).toMatch(/relative paths.*workspace/i);
     expect(tool.parameters).toMatchObject({
       type: 'object',
-      properties: { input: { type: 'string' } },
+      properties: {
+        input: {
+          type: 'string',
+          description: expect.stringContaining("at least one '-' or '+' line"),
+        },
+      },
       required: ['input'],
       additionalProperties: false,
     });
