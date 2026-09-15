@@ -929,6 +929,171 @@ describe('isReadOnlyCommand', () => {
 });
 
 describe('foldTimeline', () => {
+  it.each([false, true])('compact=%s：同一回复的连续思考合并，耗时只计一次', (compact) => {
+    const messages: ProjectedMessage[] = [
+      user('检查布局'),
+      {
+        role: 'assistant',
+        stopReason: 'stop',
+        timing: { stepStartMs: 1000, thinkingEndMs: 114000, completedMs: 115000 },
+        content: [
+          { type: 'thinking', text: '**Preparing focus measurement**' },
+          { type: 'text', text: '  \n' },
+          { type: 'thinking', text: '**Preparing editor geometry baseline**' },
+          { type: 'thinking', text: '**Preparing delayed geometry check**' },
+          { type: 'text', text: '完成' },
+        ],
+      },
+    ];
+    const items = buildTimeline(messages, false, [], undefined, { historyBaseIndex: 40 });
+    const before = structuredClone(items);
+    const folded = foldTimeline(items, false, new Set(), { compact });
+    expect(folded).toMatchObject([
+      { kind: 'user' },
+      {
+        kind: 'thinking',
+        key: '41-0',
+        text: '**Preparing focus measurement**\n\n**Preparing editor geometry baseline**\n\n**Preparing delayed geometry check**',
+        streaming: false,
+        durationMs: 113000,
+        startedAt: 1000,
+      },
+      { kind: 'text', text: '完成' },
+    ]);
+    expect(items).toEqual(before);
+    expect(folded[0]).toBe(items[0]);
+    expect(folded[2]).toBe(items.at(-1));
+  });
+
+  it('连续的标签思考与原生思考合并，并保留已知计时', () => {
+    const items = buildTimeline(
+      [
+        {
+          role: 'assistant',
+          timing: { stepStartMs: 1000, completedMs: 5000 },
+          content: [
+            { type: 'text', text: '<thinking>先检查</thinking><thinking>再测量</thinking>' },
+            { type: 'thinking', text: '原生思考' },
+            { type: 'text', text: '<thinking>最后核对</thinking>' },
+          ],
+        },
+      ],
+      false
+    );
+    expect(foldTimeline(items, false, new Set())).toEqual([
+      {
+        kind: 'thinking',
+        key: '0-0-0',
+        text: '先检查\n\n再测量\n\n原生思考\n\n最后核对',
+        streaming: false,
+        durationMs: 4000,
+        startedAt: 1000,
+      },
+    ]);
+  });
+
+  it('流式新增思考片段和后续补丁沿用首段 key，结束后整块停止流式', () => {
+    const snapshot = (texts: string[], settled = false): ProjectedMessage[] => [
+      user('检查'),
+      {
+        role: 'assistant',
+        stopReason: settled ? 'stop' : 'pending',
+        content: [
+          ...texts.map((text) => ({ type: 'thinking' as const, text })),
+          { type: 'text', text: '' },
+        ],
+      },
+    ];
+    const first = foldTimeline(buildTimeline(snapshot(['第一段']), true), true, new Set());
+    const raw = buildTimeline(snapshot(['第一段', '第二']), true);
+    const nextMessages = snapshot(['第一段', '第二段']);
+    const patched = patchStreamingTimeline(raw, nextMessages, true);
+    expect(patched).not.toBeNull();
+    const folded = foldTimeline(patched!, true, new Set());
+    expect(foldTimeline(raw, true, new Set())).toMatchObject([
+      { kind: 'user' },
+      { kind: 'thinking', key: first[1].key, text: '第一段\n\n第二', streaming: true },
+    ]);
+    expect(folded).toMatchObject([
+      { kind: 'user' },
+      {
+        kind: 'thinking',
+        key: first[1].key,
+        text: '第一段\n\n第二段',
+        streaming: true,
+        durationMs: null,
+      },
+    ]);
+    expect(folded).toEqual(foldTimeline(buildTimeline(nextMessages, true), true, new Set()));
+    expect(
+      foldTimeline(buildTimeline(snapshot(['第一段', '第二段'], true), false), false, new Set())
+    ).toMatchObject([
+      { kind: 'user' },
+      { kind: 'thinking', key: first[1].key, text: '第一段\n\n第二段', streaming: false },
+    ]);
+  });
+
+  it('正文、工具和不同回复之间的思考不合并', () => {
+    const items = buildTimeline(
+      [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', text: '一' },
+            { type: 'text', text: '说明' },
+            { type: 'thinking', text: '二' },
+            { type: 'toolCall', id: 'r1', name: 'read', arguments: { path: 'a.ts' } },
+            { type: 'thinking', text: '三' },
+          ],
+        },
+        { role: 'assistant', content: [{ type: 'thinking', text: '四' }] },
+        user('继续'),
+        { role: 'assistant', content: [{ type: 'thinking', text: '五' }] },
+      ],
+      false
+    );
+    expect(foldTimeline(items, false, new Set())).toEqual(items);
+  });
+
+  it('工具组展开后也只展示一个连续思考块，不改变工具顺序和计数', () => {
+    const items = buildTimeline(
+      [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'toolCall', id: 'r1', name: 'read' },
+            { type: 'thinking', text: '一' },
+            { type: 'thinking', text: '二' },
+            { type: 'toolCall', id: 'r2', name: 'read' },
+            { type: 'toolCall', id: 'r3', name: 'read' },
+          ],
+        },
+      ],
+      false
+    );
+    const collapsed = foldTimeline(items, false, new Set());
+    const expanded = foldTimeline(items, false, new Set([collapsed[0].key]));
+    expect(collapsed).toMatchObject([
+      {
+        kind: 'tool-group',
+        count: 3,
+        children: [
+          { kind: 'tool', key: '0-0' },
+          { kind: 'thinking', key: '0-1', text: '一\n\n二' },
+          { kind: 'tool', key: '0-3' },
+          { kind: 'tool', key: '0-4' },
+        ],
+      },
+    ]);
+    expect(expanded.map((item) => item.key)).toEqual([
+      collapsed[0].key,
+      '0-0',
+      '0-1',
+      '0-3',
+      '0-4',
+    ]);
+  });
+
   it('compact：只读 bash 进探索组，cat 记作 read、rg 记作 search', () => {
     const items = [
       { ...toolItem('a1', 'bash'), summary: 'cat README.md' },

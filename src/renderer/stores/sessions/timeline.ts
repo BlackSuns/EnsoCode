@@ -1109,6 +1109,32 @@ export function isReadOnlyTool(item: { name: string; summary: string }): boolean
   );
 }
 
+/** 仅展示层合并同一消息的相邻思考；保留原始 part 行供流式补丁定位。 */
+function mergeAdjacentThinking(items: TimelineItem[]): TimelineItem[] {
+  const result: TimelineItem[] = [];
+  for (const item of items) {
+    const previous = result.at(-1);
+    if (
+      item.kind === 'thinking' &&
+      previous?.kind === 'thinking' &&
+      messageItemIndex(item) >= 0 &&
+      messageItemIndex(previous) === messageItemIndex(item)
+    ) {
+      result[result.length - 1] = {
+        ...previous,
+        text: `${previous.text}\n\n${item.text}`,
+        streaming: previous.streaming || item.streaming,
+        // 各 part 共用 step 计时，不能累加；标签思考可能没有打点。
+        durationMs: previous.durationMs ?? item.durationMs,
+        startedAt: previous.startedAt ?? item.startedAt,
+      };
+    } else {
+      result.push(item);
+    }
+  }
+  return result;
+}
+
 /**
  * 工具行分组折叠（折中方案）：
  * - 段 = 连续的 tool/thinking 行（text/user/error 打断）；thinking 收进段内，门槛只数 tool。
@@ -1141,7 +1167,7 @@ export function foldTimeline(
     // 收集连续段
     let end = i;
     while (end < items.length && inSegment(items[end])) end += 1;
-    const segment = items.slice(i, end);
+    const segment = mergeAdjacentThinking(items.slice(i, end));
     const liveSegment = !compact && running && lastUserIndex >= 0 && i > lastUserIndex;
     // 钉住的行不进组：edit 的 diff、write 的内容、todo 清单是核心产物。
     // compact 下 running 只读行进组（避免完成后从平铺跳进组头抽动）；
