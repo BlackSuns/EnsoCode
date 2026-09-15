@@ -75,6 +75,12 @@ export function setExpandLiveEdits(enabled: boolean): void {
   if (state.expandLiveEdits !== enabled) setState({ expandLiveEdits: enabled });
 }
 
+/** 与 theme.ts 的 html.dark 对齐，供 pierre FileDiff 的 themeType 使用 */
+export function setAppearanceTheme(theme: Theme, syncTerminalTheme: boolean): void {
+  if (state.theme === theme && state.syncTerminalTheme === syncTerminalTheme) return;
+  setState({ theme, syncTerminalTheme });
+}
+
 export function getTerminalPalette(): TerminalPalette | undefined {
   return terminalPalette;
 }

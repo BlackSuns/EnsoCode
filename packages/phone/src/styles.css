@@ -183,9 +183,16 @@
 
 /* iOS 独立 PWA 从顶部固定实色层取状态栏背景，避免模糊覆盖标题。 */
 @media (display-mode: standalone) {
-  .phone-chat-root {
+  html,
+  body,
+  #root {
+    background-color: var(--background);
+  }
+  #root {
     position: fixed;
     inset: 0;
+  }
+  .phone-chat-root {
     background-color: var(--background);
   }
 }

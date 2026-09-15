@@ -422,7 +422,7 @@ export function App() {
   if (state === 'unauthorized') {
     const others = devices.length > 1;
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 pt-safe text-center">
         <Smartphone className="h-8 w-8 text-muted-foreground" />
         <h1 className="font-medium text-lg">配对已失效</h1>
         <p className="text-muted-foreground text-sm">

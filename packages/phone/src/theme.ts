@@ -1,5 +1,8 @@
 import type { HostAppearance } from '@enso/pair';
 import { applyTerminalThemeToApp, clearTerminalThemeFromApp } from './stubs/ghostty-theme';
+import { setAppearanceTheme } from './stubs/settings-store';
+import { cssColorToHex, stampThemeColorMetas } from './themeColor';
+import { settingsThemeFromPhone, type ThemePreference } from './themePreference';
 
 /**
  * 主题优先级：本地覆盖 > 桌面下发 > 跟随系统。
@@ -7,7 +10,7 @@ import { applyTerminalThemeToApp, clearTerminalThemeFromApp } from './stubs/ghos
  * sync-terminal 与桌面同语义：整套 UI 配色由终端调色板推导。
  */
 
-export type ThemePreference = 'auto' | 'light' | 'dark';
+export type { ThemePreference } from './themePreference';
 
 const OVERRIDE_KEY = 'enso-phone-theme';
 
@@ -25,44 +28,25 @@ function readOverride(): ThemePreference {
  * 让 Safari 的状态栏/工具栏底色跟随页面。写死的 theme-color 在主题切换后
  * 会与页面对不上，表现为上下两条系统灰边。
  *
- * 注意：浏览器取「第一个匹配的」theme-color 标签，所以必须清掉 index.html 里
- * 那两条带 media 的兜底并插到 head 最前，否则动态值永远轮不上。
- * 取实际渲染出的背景色（rgb 形式兼容性最好），下一帧再读以确保新变量已生效。
+ * iOS 独立 PWA 只在启动时认新插入的 meta，运行中必须改已有节点的 content。
+ * 颜色用 #rrggbb：rgb()/oklch() 它不刷新额头。
  */
 function syncThemeColorMeta(): void {
   requestAnimationFrame(() => {
-    const computed = getComputedStyle(document.body).backgroundColor;
-    if (!computed) return;
-    // 计算值可能是 oklch()（主题变量就是 oklch），theme-color 对新色彩空间的
-    // 支持不一，统一过一遍 canvas 转成 rgb
-    const color = toRgb(computed);
-    for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.remove();
-    const meta = document.createElement('meta');
-    meta.name = 'theme-color';
-    meta.content = color;
-    document.head.prepend(meta);
+    const computed =
+      getComputedStyle(document.documentElement).backgroundColor ||
+      getComputedStyle(document.body).backgroundColor;
+    const hex = cssColorToHex(computed);
+    if (!hex) return;
+    const metas = [...document.querySelectorAll('meta[name="theme-color"]')];
+    if (metas.length === 0) {
+      const meta = document.createElement('meta');
+      meta.name = 'theme-color';
+      document.head.prepend(meta);
+      metas.push(meta);
+    }
+    stampThemeColorMetas(metas, hex);
   });
-}
-
-/**
- * 把任意 CSS 颜色规约成 rgb()。canvas 的 fillStyle 对 oklch 是原样回吐、不做
- * 转换，所以实际画一像素再读回 —— 这一步一定得到 sRGB 数值。
- */
-function toRgb(color: string): string {
-  if (color.startsWith('rgb') || color.startsWith('#')) return color;
-  try {
-    const canvas = document.createElement('canvas');
-    canvas.width = 1;
-    canvas.height = 1;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return color;
-    ctx.fillStyle = color;
-    ctx.fillRect(0, 0, 1, 1);
-    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-    return `rgb(${r}, ${g}, ${b})`;
-  } catch {
-    return color;
-  }
 }
 
 function apply(): void {
@@ -79,6 +63,8 @@ function apply(): void {
   }
   for (const listener of listeners) listener();
   syncThemeColorMeta();
+  const appearance = settingsThemeFromPhone(override, hostTheme);
+  setAppearanceTheme(appearance.theme, appearance.syncTerminalTheme);
 }
 
 /** 桌面下发的偏好（仅在未本地覆盖时生效） */
