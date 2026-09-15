@@ -35,7 +35,8 @@ const CODE_VIEW_OPTIONS = {
   stickyHeaders: true,
 } as const;
 
-const CODE_VIEW_STYLE = { height: '100%', overflow: 'auto' } as const;
+// 内容矮于视口时不能 height:100%：CodeView sticky 会按视口把列表顶下去。
+const CODE_VIEW_STYLE = { height: 'auto', maxHeight: '100%', overflow: 'auto' } as const;
 
 const NO_FILES: {
   files: never[];
