@@ -1,5 +1,6 @@
 import type { PairedDevice } from '@enso/pair';
 import { migrateStore, type StoredDevice } from './deviceList';
+import { phoneCache } from './sessionCache';
 
 /**
  * 配对凭据持久化（多桌面）。含 contentKey，故存 localStorage（浏览器沙箱内），
@@ -53,29 +54,11 @@ export function saveActiveDeviceId(pairId: string | null): void {
   else localStorage.removeItem(ACTIVE_KEY);
 }
 
-/** 解绑某台：顺带清掉它命名空间下的游标与最近会话 */
+/** 解绑某台：顺带清掉它命名空间下的缓存、旧游标与最近会话 */
 export function clearDeviceData(pairId: string): void {
+  void phoneCache.clear(pairId);
   localStorage.removeItem(cursorKey(pairId));
   localStorage.removeItem(lastSessionKey(pairId));
-}
-
-/** 每会话的消息游标（按桌面分命名空间），用于重连增量续传 */
-
-export function loadCursors(pairId: string): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(cursorKey(pairId));
-    return raw ? (JSON.parse(raw) as Record<string, number>) : {};
-  } catch {
-    return {};
-  }
-}
-
-/** 直接覆写（可回退）：截断/压缩后游标必须能退，否则 host 会把后续新消息当旧消息过掉 */
-export function saveCursor(pairId: string, sessionId: string, index: number): void {
-  const cursors = loadCursors(pairId);
-  if (cursors[sessionId] === index) return;
-  cursors[sessionId] = index;
-  localStorage.setItem(cursorKey(pairId), JSON.stringify(cursors));
 }
 
 /** 每台桌面各自记住最近打开的会话 */

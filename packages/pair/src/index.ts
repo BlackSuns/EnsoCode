@@ -78,6 +78,8 @@ export {
   type IceServerEntry,
   isPhoneCommand,
   type PairControl,
+  type PairSessionSync,
+  type PairSyncCursor,
   PHONE_COMMAND_TYPES,
   type PhoneToHost,
   type ProjectEntry,
@@ -114,3 +116,4 @@ export {
   shouldUsePinnedRelaySocket,
   TAILSCALE_MAGIC_DNS,
 } from './revive';
+export { isPairSyncCursor, parsePairSessionSync } from './sessionSync';

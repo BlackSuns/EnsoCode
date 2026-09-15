@@ -20,9 +20,46 @@ describe('手机命令白名单', () => {
       { type: 'ask-respond', sessionId: 's', requestId: 'r', answer: 'yes' },
       { type: 'snapshot' },
       { type: 'subscribe', sessionId: 's', sinceIndex: 3 },
+      { type: 'subscribe', sessionId: 's', sync: { requestId: 'r1' } },
+      {
+        type: 'subscribe',
+        sessionId: 's',
+        sync: { requestId: 'r2', cursor: { epoch: 'epoch-1', seq: 4 } },
+      },
       { type: 'subscribe', sessionId: null },
     ];
     for (const cmd of ok) expect(parsePhoneCommand(cmd).ok, JSON.stringify(cmd)).toBe(true);
+  });
+
+  it('subscribe 严格校验 sync 与 sinceIndex，旧端形状保持兼容', () => {
+    expect(parsePhoneCommand({ type: 'subscribe', sessionId: 's' }).ok).toBe(true);
+    expect(parsePhoneCommand({ type: 'subscribe', sessionId: 's', sinceIndex: -1 }).ok).toBe(true);
+    const bad = [
+      { type: 'subscribe', sessionId: 's', sinceIndex: -2 },
+      { type: 'subscribe', sessionId: 's', sinceIndex: 1.5 },
+      { type: 'subscribe', sessionId: 's', sinceIndex: Number.MAX_SAFE_INTEGER + 1 },
+      { type: 'subscribe', sessionId: 's', sync: null },
+      { type: 'subscribe', sessionId: null, sync: { requestId: 'r' } },
+      { type: 'subscribe', sessionId: 'x'.repeat(513), sync: { requestId: 'r' } },
+      { type: 'subscribe', sessionId: 's', sync: {} },
+      { type: 'subscribe', sessionId: 's', sync: { requestId: '' } },
+      { type: 'subscribe', sessionId: 's', sync: { requestId: 'x'.repeat(513) } },
+      { type: 'subscribe', sessionId: 's', sync: { requestId: 'r', extra: true } },
+      { type: 'subscribe', sessionId: 's', sync: { requestId: 'r', cursor: null } },
+      {
+        type: 'subscribe',
+        sessionId: 's',
+        sync: { requestId: 'r', cursor: { epoch: 'e', seq: -1 } },
+      },
+      {
+        type: 'subscribe',
+        sessionId: 's',
+        sync: { requestId: 'r', cursor: { epoch: 'e', seq: 0, extra: true } },
+      },
+    ];
+    for (const command of bad) {
+      expect(parsePhoneCommand(command).ok, JSON.stringify(command)).toBe(false);
+    }
   });
 
   it('放行队列操作命令，缺字段被拒', () => {
@@ -393,6 +430,14 @@ describe('snapshot 裁剪（批事件，本身无 sessionId）', () => {
     // 600KB 预算下 300KB 的消息最多装 2 条
     expect(session.messages.length).toBeLessThanOrEqual(2);
     expect(session.baseIndex).toBe(10 - session.messages.length);
+  });
+
+  it('单条消息超过 relay 限制时允许发空尾窗，不能生成必丢的大帧', () => {
+    const messages = [{ text: 'x'.repeat(1_100_000) }];
+    const out = narrowSnapshot({ type: 'snapshot', sessions: [{ sessionId: 'a', messages }] }, 'a');
+    expect(Buffer.byteLength(JSON.stringify(out), 'utf8')).toBeLessThan(900_000);
+    const session = out?.sessions[0] as { messages: unknown[] } | undefined;
+    expect(session?.messages).toEqual([]);
   });
 
   it('字节预算按 UTF-8 计，中文不能按字符数低估', () => {

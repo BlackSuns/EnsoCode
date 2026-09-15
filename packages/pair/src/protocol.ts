@@ -48,6 +48,18 @@ export interface DirectCandidate {
 /** 信令帧单字段上限：SDP 通常 < 4KB，候选 < 300B；超出即非法 */
 export const DIRECT_SIGNAL_MAX_CHARS = 16_384;
 
+export type PairSyncCursor = { epoch: string; seq: number };
+
+export type PairSessionSync = {
+  type: 'session-sync';
+  sessionId: string;
+  requestId: string;
+  cursor: PairSyncCursor;
+} & (
+  | { mode: 'snapshot'; snapshot: unknown }
+  | { mode: 'replay'; fromSeq: number; events: unknown[] }
+);
+
 // ── 上行：手机 → Electron（加密 payload，白名单）─────────────────────────
 export type PhoneToHost =
   | { type: 'prompt'; sessionId: string; text: string; images?: AttachedImage[] }
@@ -56,7 +68,12 @@ export type PhoneToHost =
   | { type: 'approval-respond'; sessionId: string; requestId: string; decision: ApprovalDecision }
   | { type: 'ask-respond'; sessionId: string; requestId: string; answer: string }
   | { type: 'snapshot' }
-  | { type: 'subscribe'; sessionId: string | null; sinceIndex?: number }
+  | {
+      type: 'subscribe';
+      sessionId: string | null;
+      sinceIndex?: number;
+      sync?: { requestId: string; cursor?: PairSyncCursor };
+    }
   | {
       type: 'spawn';
       sessionId: string;
@@ -272,7 +289,8 @@ export type HostToPhone =
       /** 桌面「运行中自动展开文件改动」偏好；缺省（旧桌面）时手机按默认开处理 */
       expandLiveEdits?: boolean;
     }
-  | { type: 'agent-event'; event: unknown }
+  | { type: 'agent-event'; event: unknown; cursor?: PairSyncCursor }
+  | PairSessionSync
   /** Web Push 能力下发：手机拿 VAPID 公钥才能 pushManager.subscribe */
   | { type: 'push-config'; vapidPublicKey: string }
   /** history 命令的应答：baseIndex 之前拼接的一页消息，手机按绝对 index 合并 */

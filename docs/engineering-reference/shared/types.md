@@ -84,6 +84,24 @@ typecheck 全绿、单测全绿，**唯独白名单没加**，运行时什么都
 对端看到才发起；这样旧桌面永远收不到它不认识的上行帧。上行新帧要同时登记 `PHONE_COMMAND_TYPES`
 与 `pairPolicy.ts` 的字段校验（长度上限），并在 `pairPolicy.test.ts` 补往返用例。
 
+### PWA 缓存与断线续传
+
+- `packages/phone/src/sessionCache.ts` 的 IndexedDB 只保存可丢弃的展示投影，worker / jsonl 仍是权威源。
+  按 `pairId` 隔离，正文与 `{epoch, seq}` 游标必须同事务保存；只有游标没有正文不能续传。
+  缓存有版本、过期和容量限制，不可用时退回联网加载；解绑先停写再清缓存。
+- `subscribe.sync` 的 `requestId` 对应一次订阅；`session-sync` 回包必须匹配当前请求。
+  `mode: replay` 按事件序号补齐，空增量也完成同步；失配或日志淘汰走 `mode: snapshot`。
+  消息下标不是版本，同一下标流式重写、截断、审批和运行状态都必须计入事件序列。
+- 新 epoch 的快照不能混入旧历史前缀；截断早于本地尾窗时须重新取快照，不能把剩余历史当空。
+  加解密串行化不保证中继与直连之间的到达顺序；同步在途观察到更高游标时，应答后仍须补齐。
+- 桌面自发 snapshot 不重发已完成请求的正文：事件日志已覆盖的只读快照保持 epoch；
+  只有快照含未入日志的变更才轮换 epoch，并下发带新 cursor 的 `session-invalidated`。
+  缓存 `updatedAt` 管正文新鲜期，`accessedAt` 只用于 LRU，离线反复读取不能续命。
+- 旧端不带 `sync` 或忽略此可选字段，继续使用原快照协议。手机刚 spawn、尚无首次基线的会话
+  先沿用实时订阅，避免因为快照暂不存在而吞掉首轮事件。
+
+回归防线：`client.test.ts`、`sessionCache.test.ts`、`pairReplay.test.ts`、`sessionSync.test.ts`。
+
 ### 给既有事件加可选字段：parser 必须校验形状，不能只放行
 
 `turn-completed.digest?: TurnDigest` 是先例：字段可选，但**存在时形状非法要让整条事件判 null**

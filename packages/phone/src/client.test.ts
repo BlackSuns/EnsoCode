@@ -1,0 +1,470 @@
+import { openFrame, type PairedDevice, type PhoneToHost } from '@enso/pair';
+import { emptyGuestView } from '@shared/pair/guestProjection';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { type ClientEvents, PairClient } from './client';
+import type { PhoneCacheData, PhoneCacheStore } from './sessionCache';
+
+vi.mock('./theme', () => ({ setHostTheme: vi.fn() }));
+vi.mock('./stubs/settings-store', () => ({
+  setCompactReadOnlyTools: vi.fn(),
+  setExpandLiveEdits: vi.fn(),
+  setTerminalAppearance: vi.fn(),
+}));
+vi.mock('@enso/pair', async (original) => ({
+  ...(await original<typeof import('@enso/pair')>()),
+  sealFrame: async (_key: unknown, payload: unknown) =>
+    new TextEncoder().encode(JSON.stringify(payload)),
+  openFrame: vi.fn(async (_key: unknown, frame: Uint8Array) =>
+    JSON.parse(new TextDecoder().decode(frame))
+  ),
+  attachHeartbeat: () => ({ stop() {}, probe() {} }),
+}));
+
+class Socket {
+  static all: Socket[] = [];
+  readyState = 0;
+  binaryType = '';
+  onopen?: () => void;
+  onclose?: (event: { code: number }) => void;
+  onmessage?: (event: { data: ArrayBuffer | string }) => void;
+  sent: PhoneToHost[] = [];
+  constructor() {
+    Socket.all.push(this);
+  }
+  open() {
+    this.readyState = 1;
+    this.onopen?.();
+  }
+  send(frame: ArrayBuffer) {
+    this.sent.push(JSON.parse(new TextDecoder().decode(frame)));
+  }
+  receive(payload: unknown) {
+    this.onmessage?.({ data: new TextEncoder().encode(JSON.stringify(payload)).buffer });
+  }
+  close(code = 1000) {
+    this.readyState = 3;
+    this.onclose?.({ code });
+  }
+}
+
+const device: PairedDevice = {
+  pairId: 'desktop-a',
+  token: 'token',
+  contentKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+  relayUrl: 'https://relay.test',
+  deviceName: 'Desktop',
+  pairedAt: 1,
+};
+const text = (value: string) => ({
+  role: 'user' as const,
+  content: [{ type: 'text' as const, text: value }],
+});
+const cursor = { epoch: 'epoch-a', seq: 0 };
+function cached(): PhoneCacheData {
+  return {
+    catalog: [{ id: 's', title: 'Cached', projectId: 'p', projectName: 'Project', status: 'idle' }],
+    pinnedOrder: ['s'],
+    projects: [{ id: 'p', name: 'Project', path: '/project' }],
+    projectGroups: [],
+    providers: [],
+    sessions: [
+      { id: 's', view: { ...emptyGuestView(), messages: new Map([[0, text('old')]]) }, cursor },
+    ],
+  };
+}
+
+async function settle() {
+  for (let i = 0; i < 80; i++) await Promise.resolve();
+}
+
+describe('PairClient 缓存与续传', () => {
+  let client: PairClient;
+  let cache: PhoneCacheStore;
+  let events: ClientEvents;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    Socket.all = [];
+    vi.stubGlobal('WebSocket', Socket);
+    const storage = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+    });
+    cache = {
+      load: vi.fn(async () => cached()),
+      save: vi.fn(async () => {}),
+      clear: vi.fn(async () => {}),
+    };
+    events = {
+      onState: vi.fn(),
+      onCatalog: vi.fn(),
+      onProjects: vi.fn(),
+      onProviders: vi.fn(),
+      onSession: vi.fn(),
+      onSync: vi.fn(),
+      onGhostSession: vi.fn(),
+    };
+    client = new PairClient(device, events, null, cache);
+  });
+  afterEach(() => {
+    client.close();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function start() {
+    client.connect();
+    client.subscribe('s');
+    await settle();
+    const socket = Socket.all[0];
+    socket.open();
+    await settle();
+    return socket;
+  }
+  function subscription(socket: Socket) {
+    const command = socket.sent.filter((item) => item.type === 'subscribe').at(-1);
+    expect(command?.type).toBe('subscribe');
+    if (command?.type !== 'subscribe') throw new Error('Missing subscription');
+    return command;
+  }
+  function replay(socket: Socket, seq = 0, replayEvents: unknown[] = []) {
+    socket.receive({
+      type: 'session-sync',
+      sessionId: 's',
+      requestId: subscription(socket).sync?.requestId,
+      mode: 'replay',
+      fromSeq: 0,
+      cursor: { ...cursor, seq },
+      events: replayEvents,
+    });
+  }
+
+  it('网络未恢复也先显示缓存目录和正文，正文与游标一起续传', async () => {
+    const socket = await start();
+    expect(events.onCatalog).toHaveBeenCalledWith(cached().catalog, ['s']);
+    expect(client.getSession('s')?.messages.get(0)).toEqual(text('old'));
+    expect(subscription(socket).sync?.cursor).toEqual(cursor);
+    expect(events.onSync).toHaveBeenLastCalledWith('syncing');
+  });
+
+  it('零增量即完成同步，不再等待或请求快照', async () => {
+    const socket = await start();
+    const count = socket.sent.length;
+    replay(socket);
+    await settle();
+    expect(events.onSync).toHaveBeenLastCalledWith('synced');
+    expect(socket.sent).toHaveLength(count);
+    expect(client.getSession('s')?.messages.get(0)).toEqual(text('old'));
+  });
+
+  it('同一消息下标的更新和截断按事件序号补齐，并原子保存新游标', async () => {
+    const socket = await start();
+    replay(socket, 3, [
+      { type: 'message-upsert', sessionId: 's', index: 0, message: text('updated') },
+      { type: 'message-upsert', sessionId: 's', index: 1, message: text('removed') },
+      { type: 'messages-truncated', sessionId: 's', length: 1 },
+    ]);
+    await settle();
+    expect([...(client.getSession('s')?.messages ?? [])]).toEqual([[0, text('updated')]]);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(cache.save).toHaveBeenCalledWith(
+      device.pairId,
+      expect.objectContaining({
+        sessions: [
+          expect.objectContaining({
+            id: 's',
+            cursor: { ...cursor, seq: 3 },
+            view: expect.objectContaining({ messages: new Map([[0, text('updated')]]) }),
+          }),
+        ],
+      })
+    );
+  });
+
+  it('丢弃重复live事件，序号断档只重订阅一次且保留旧内容', async () => {
+    const socket = await start();
+    replay(socket);
+    await settle();
+    const event = {
+      type: 'agent-event',
+      cursor: { ...cursor, seq: 1 },
+      event: {
+        type: 'ask-request',
+        sessionId: 's',
+        ask: { requestId: 'ask', question: 'Continue?' },
+      },
+    };
+    socket.receive(event);
+    socket.receive(event);
+    await settle();
+    expect(client.getSession('s')?.asks).toHaveLength(1);
+    const before = socket.sent.filter((item) => item.type === 'subscribe').length;
+    socket.receive({ ...event, cursor: { ...cursor, seq: 3 } });
+    socket.receive({ ...event, cursor: { ...cursor, seq: 4 } });
+    await settle();
+    expect(socket.sent.filter((item) => item.type === 'subscribe')).toHaveLength(before + 1);
+    expect(subscription(socket).sync?.cursor).toEqual({ ...cursor, seq: 1 });
+    expect(client.getSession('s')?.messages.get(0)).toEqual(text('old'));
+  });
+
+  it('切会话后旧同步应答不得覆盖新订阅或解除同步中', async () => {
+    const socket = await start();
+    const oldId = subscription(socket).sync?.requestId;
+    client.subscribe('other');
+    await settle();
+    socket.receive({
+      type: 'session-sync',
+      sessionId: 's',
+      requestId: oldId,
+      mode: 'replay',
+      fromSeq: 0,
+      cursor,
+      events: [],
+    });
+    await settle();
+    expect(events.onSync).toHaveBeenLastCalledWith('syncing');
+  });
+
+  it('只有旧localStorage消息游标而没有正文时，不能假装可续传', async () => {
+    vi.mocked(cache.load).mockResolvedValue(null);
+    localStorage.setItem(`enso-phone-cursors:${device.pairId}`, JSON.stringify({ s: 900 }));
+    const socket = await start();
+    expect(subscription(socket).sinceIndex).toBeUndefined();
+    expect(subscription(socket).sync?.cursor).toBeUndefined();
+    socket.receive({
+      type: 'agent-event',
+      event: {
+        type: 'snapshot',
+        sessions: [{ sessionId: 's', baseIndex: 0, messages: [text('legacy')] }],
+      },
+    });
+    await settle();
+    expect(client.getSession('s')?.messages.get(0)).toEqual(text('legacy'));
+    expect(events.onSync).toHaveBeenLastCalledWith('synced');
+  });
+
+  it('缓存加载中关闭客户端，迟到的缓存不能上墙或重建连接', async () => {
+    let resolve!: (value: PhoneCacheData) => void;
+    vi.mocked(cache.load).mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      })
+    );
+    client.connect();
+    client.close();
+    resolve(cached());
+    await settle();
+    expect(events.onSession).not.toHaveBeenCalled();
+    expect(Socket.all).toHaveLength(0);
+  });
+
+  it('桌面撤销配对会删除缓存并阻止节流写入复活数据', async () => {
+    const socket = await start();
+    replay(socket);
+    await settle();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'revoked' }) });
+    await settle();
+    const saves = vi.mocked(cache.save).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(cache.clear).toHaveBeenCalledWith(device.pairId);
+    expect(cache.save).toHaveBeenCalledTimes(saves);
+    expect(events.onState).toHaveBeenLastCalledWith('unauthorized');
+  });
+
+  it('新epoch快照替换旧缓存，不能混入上一代的历史前缀', async () => {
+    const socket = await start();
+    socket.receive({
+      type: 'session-sync',
+      sessionId: 's',
+      requestId: subscription(socket).sync?.requestId,
+      mode: 'snapshot',
+      cursor: { epoch: 'new-epoch', seq: 0 },
+      snapshot: {
+        type: 'snapshot',
+        sessions: [{ sessionId: 's', baseIndex: 1, messages: [text('new branch')] }],
+      },
+    });
+    await settle();
+    expect([...(client.getSession('s')?.messages ?? [])]).toEqual([[1, text('new branch')]]);
+    expect(events.onSync).toHaveBeenLastCalledWith('synced');
+  });
+
+  it('异步解密串行归并，较快的后帧不能越过前帧触发假断档', async () => {
+    const socket = await start();
+    replay(socket);
+    await settle();
+    let release!: (event: unknown) => void;
+    vi.mocked(openFrame).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        })
+    );
+    const first = {
+      type: 'agent-event',
+      cursor: { ...cursor, seq: 1 },
+      event: { type: 'message-upsert', sessionId: 's', index: 0, message: text('first') },
+    };
+    socket.receive(first);
+    socket.receive({
+      type: 'agent-event',
+      cursor: { ...cursor, seq: 2 },
+      event: { type: 'message-upsert', sessionId: 's', index: 0, message: text('last') },
+    });
+    await settle();
+    release(first);
+    await settle();
+    expect(client.getSession('s')?.messages.get(0)).toEqual(text('last'));
+    expect(events.onSync).toHaveBeenLastCalledWith('synced');
+  });
+
+  it('权威目录删除会话，同时删除缓存正文而不保留幽灵会话', async () => {
+    const socket = await start();
+    socket.receive({ type: 'catalog', entries: [] });
+    await settle();
+    expect(client.getSession('s')).toBeUndefined();
+    expect(events.onGhostSession).toHaveBeenCalledWith('s');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(cache.save).toHaveBeenLastCalledWith(
+      device.pairId,
+      expect.objectContaining({ sessions: [] })
+    );
+  });
+
+  it('缓存不可用仍建立连接，以无游标快照恢复', async () => {
+    vi.mocked(cache.load).mockRejectedValue(new Error('storage denied'));
+    const socket = await start();
+    expect(subscription(socket).sync).toEqual({ requestId: expect.any(String) });
+  });
+
+  it('截断早于缓存尾窗时回退快照，不能把剩余历史误显示为空', async () => {
+    const data = cached();
+    data.sessions[0].view.messages = new Map([[100, text('tail')]]);
+    vi.mocked(cache.load).mockResolvedValue(data);
+    const socket = await start();
+    replay(socket, 1, [{ type: 'messages-truncated', sessionId: 's', length: 80 }]);
+    await settle();
+    expect(subscription(socket).sync?.cursor).toBeUndefined();
+    expect(events.onSync).toHaveBeenLastCalledWith('syncing');
+    expect(client.getSession('s')?.messages.get(100)).toEqual(text('tail'));
+  });
+
+  it('手机刚新建的会话沿用实时订阅，不因尚无快照而吞掉首轮事件', async () => {
+    const socket = await start();
+    client.subscribe('fresh', { fresh: true });
+    await settle();
+    expect(subscription(socket).sync).toBeUndefined();
+    client.subscribe('fresh');
+    await settle();
+    expect(subscription(socket).sync).toBeUndefined();
+    socket.receive({
+      type: 'agent-event',
+      event: { type: 'message-upsert', sessionId: 'fresh', index: 0, message: text('first turn') },
+    });
+    await settle();
+    expect(events.onSync).toHaveBeenLastCalledWith('synced');
+    expect(client.getSession('fresh')?.messages.get(0)).toEqual(text('first turn'));
+  });
+
+  it('新建会话收到带 cursor 的事件时升级为同步协议，而不是空转重订阅', async () => {
+    const socket = await start();
+    client.subscribe('fresh', { fresh: true });
+    await settle();
+    const before = socket.sent.filter((item) => item.type === 'subscribe').length;
+    const live = {
+      type: 'agent-event',
+      cursor: { epoch: 'fresh-epoch', seq: 1 },
+      event: { type: 'message-upsert', sessionId: 'fresh', index: 0, message: text('first turn') },
+    };
+    socket.receive(live);
+    socket.receive(live);
+    await settle();
+    expect(socket.sent.filter((item) => item.type === 'subscribe')).toHaveLength(before + 1);
+    expect(subscription(socket).sync).toEqual({ requestId: expect.any(String) });
+  });
+
+  it('会话失效通知用新 epoch 触发一次重订阅，并带上旧游标', async () => {
+    const socket = await start();
+    replay(socket);
+    await settle();
+    const before = socket.sent.filter((item) => item.type === 'subscribe').length;
+    socket.receive({
+      type: 'agent-event',
+      cursor: { epoch: 'epoch-b', seq: 0 },
+      event: { type: 'session-invalidated', sessionId: 's' },
+    });
+    await settle();
+    expect(socket.sent.filter((item) => item.type === 'subscribe')).toHaveLength(before + 1);
+    expect(subscription(socket).sync?.cursor).toEqual(cursor);
+  });
+
+  it('切换传输通道时live抢在同步应答前到达，补拉未被应答覆盖的末条事件', async () => {
+    const socket = await start();
+    const requestId = subscription(socket).sync?.requestId;
+    socket.receive({
+      type: 'agent-event',
+      cursor: { ...cursor, seq: 1 },
+      event: { type: 'message-upsert', sessionId: 's', index: 0, message: text('raced') },
+    });
+    replay(socket);
+    await settle();
+    expect(subscription(socket).sync?.requestId).not.toBe(requestId);
+    expect(subscription(socket).sync?.cursor).toEqual(cursor);
+    expect(events.onSync).toHaveBeenLastCalledWith('syncing');
+    replay(socket, 1, [
+      { type: 'message-upsert', sessionId: 's', index: 0, message: text('raced') },
+    ]);
+    await settle();
+    expect(client.getSession('s')?.messages.get(0)).toEqual(text('raced'));
+    expect(events.onSync).toHaveBeenLastCalledWith('synced');
+  });
+
+  it('同步应答已覆盖提前到达的live事件，不重复订阅形成追赶循环', async () => {
+    const socket = await start();
+    const requestId = subscription(socket).sync?.requestId;
+    const event = { type: 'message-upsert', sessionId: 's', index: 0, message: text('covered') };
+    socket.receive({ type: 'agent-event', cursor: { ...cursor, seq: 1 }, event });
+    replay(socket, 1, [event]);
+    await settle();
+    expect(subscription(socket).sync?.requestId).toBe(requestId);
+    expect(client.getSession('s')?.messages.get(0)).toEqual(text('covered'));
+    expect(events.onSync).toHaveBeenLastCalledWith('synced');
+  });
+
+  it('同步应答丢失时以同一requestId重试，成功后停止重试', async () => {
+    const socket = await start();
+    const command = subscription(socket);
+    const count = socket.sent.filter((item) => item.type === 'subscribe').length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(socket.sent.filter((item) => item.type === 'subscribe')).toHaveLength(count + 1);
+    expect(subscription(socket)).toEqual(command);
+    replay(socket);
+    await settle();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(socket.sent.filter((item) => item.type === 'subscribe')).toHaveLength(count + 1);
+    expect(events.onSync).toHaveBeenLastCalledWith('synced');
+  });
+
+  it('仅展示旧缓存不重复写盘；前后台重复flush不刷新过期时间', async () => {
+    await start();
+    client.flushCache();
+    client.flushCache();
+    await settle();
+    expect(cache.save).not.toHaveBeenCalled();
+  });
+
+  it('幽灵会话的残留live帧不能重新订阅已删除会话', async () => {
+    const socket = await start();
+    socket.receive({ type: 'catalog', entries: [] });
+    await settle();
+    socket.receive({
+      type: 'agent-event',
+      cursor: { ...cursor, seq: 1 },
+      event: { type: 'status', sessionId: 's', status: 'idle' },
+    });
+    await settle();
+    expect(subscription(socket).sessionId).toBeNull();
+    expect(client.getSession('s')).toBeUndefined();
+  });
+});

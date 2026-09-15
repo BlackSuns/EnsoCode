@@ -1,4 +1,4 @@
-import { DIRECT_SIGNAL_MAX_CHARS, type PhoneToHost } from '@enso/pair';
+import { DIRECT_SIGNAL_MAX_CHARS, isPairSyncCursor, type PhoneToHost } from '@enso/pair';
 import { takeSnapshotTail } from '@shared/snapshotTail';
 import { THINKING_LEVELS } from '@shared/types/agent';
 
@@ -13,6 +13,8 @@ const isThinkingLevel = (v: unknown): boolean =>
 const isGen = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
 const isSignal = (v: unknown): v is string =>
   typeof v === 'string' && v.length > 0 && v.length <= DIRECT_SIGNAL_MAX_CHARS;
+const isSafeIndex = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isSafeInteger(v) && v >= -1;
 
 /** spawn 需要的白名单上下文：手机只能在这些集合内选，cwd 由 main 反查，不接受手机传路径 */
 export interface SpawnWhitelist {
@@ -110,8 +112,30 @@ export function parsePhoneCommand(value: unknown): CommandCheck {
       if (v.sessionId !== null && !isStr(v.sessionId)) {
         return { ok: false, error: 'invalid sessionId' };
       }
-      if (v.sinceIndex !== undefined && typeof v.sinceIndex !== 'number') {
+      if (v.sinceIndex !== undefined && !isSafeIndex(v.sinceIndex)) {
         return { ok: false, error: 'invalid sinceIndex' };
+      }
+      if (v.sync !== undefined) {
+        if (
+          v.sessionId === null ||
+          v.sessionId.length > 512 ||
+          typeof v.sync !== 'object' ||
+          v.sync === null
+        ) {
+          return { ok: false, error: 'invalid sync' };
+        }
+        const sync = v.sync as Record<string, unknown>;
+        const keys = Object.keys(sync);
+        if (
+          (keys.length !== 1 && keys.length !== 2) ||
+          !keys.every((key) => key === 'requestId' || key === 'cursor') ||
+          typeof sync.requestId !== 'string' ||
+          sync.requestId.length === 0 ||
+          sync.requestId.length > 512 ||
+          ('cursor' in sync && !isPairSyncCursor(sync.cursor))
+        ) {
+          return { ok: false, error: 'invalid sync' };
+        }
       }
       return { ok: true, command: value as PhoneToHost };
     case 'spawn':
@@ -257,6 +281,23 @@ interface SnapshotSession {
   commands?: unknown;
 }
 
+const PAIR_SNAPSHOT_MAX_JSON_BYTES = 850_000;
+
+function fitSnapshotMessages<T extends SnapshotSession & { baseIndex: number }>(session: T): T {
+  if (!Array.isArray(session.messages)) return { ...session, messages: [] };
+  const messages = [...session.messages];
+  let baseIndex = session.baseIndex;
+  while (
+    messages.length > 0 &&
+    Buffer.byteLength(JSON.stringify({ type: 'snapshot', sessions: [{ ...session, messages }] })) >=
+      PAIR_SNAPSHOT_MAX_JSON_BYTES
+  ) {
+    messages.shift();
+    baseIndex++;
+  }
+  return { ...session, messages, baseIndex };
+}
+
 /** worker 事件的会话归属：新格式在 identity.sessionId，旧格式在顶层 sessionId */
 function sessionIdOf(value: {
   sessionId?: string;
@@ -278,9 +319,9 @@ export function narrowSnapshot(
       // commands（skills 描述）手机不用，原样展开会把尾窗帧撑到几十 KB
       const { commands: _commands, ...rest } = s;
       const base = { ...rest, sessionId: subscribedId };
-      if (!Array.isArray(s.messages)) return { ...base, baseIndex: 0 };
+      if (!Array.isArray(s.messages)) return { ...base, messages: [], baseIndex: 0 };
       const tail = takeSnapshotTail(s.messages, s.messages.length);
-      return { ...base, messages: tail.messages, baseIndex: tail.baseIndex };
+      return fitSnapshotMessages({ ...base, messages: tail.messages, baseIndex: tail.baseIndex });
     });
   return sessions.length > 0 ? { type: 'snapshot', sessions } : null;
 }

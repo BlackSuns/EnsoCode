@@ -212,6 +212,7 @@ export function App() {
         client.send({ type: 'presence', visible: true });
       } else {
         client.send({ type: 'presence', visible: false });
+        client.flushCache();
       }
     };
     const onOnline = () => {
@@ -229,15 +230,18 @@ export function App() {
     const onFocus = () => {
       if (document.visibilityState === 'visible') client.nudge('visibility');
     };
+    const onPageHide = () => client.flushCache();
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('online', onOnline);
     window.addEventListener('pageshow', onPageShow);
     window.addEventListener('focus', onFocus);
+    window.addEventListener('pagehide', onPageHide);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('pagehide', onPageHide);
       client.close();
       clientRef.current = null;
     };
@@ -348,6 +352,7 @@ export function App() {
   /** 切到另一台时清空上一台的目录/视图，等新桌面下发 */
   const resetHostState = (nextActiveId: string | null) => {
     setCatalog([]);
+    setPinnedOrder([]);
     setProjects([]);
     setProjectGroups([]);
     setProviders([]);
@@ -381,6 +386,8 @@ export function App() {
     const target = devices.find((d) => d.pairId === pairId);
     // 手机侧持 deviceToken，可一并清掉中继房间（桌面重连即被拒）；已被对端解绑时失败无妄
     if (target) void revokePairing(target.relayUrl, target.pairId, target.token).catch(() => {});
+    // 先停旧 client 的缓存写入，再删缓存；不能等 React effect 清理时重新写回。
+    if (pairId === device?.pairId) clientRef.current?.close();
     clearDeviceData(pairId);
     const next = removeDevice(devices, pairId);
     setDevices(next);
