@@ -1,10 +1,27 @@
 import type { BackgroundTaskInfo, SubagentActivity, SubagentInfo } from '@shared/types/agent';
-import { Bot, ChevronDown, Circle, Square, X } from 'lucide-react';
+import {
+  Ban,
+  Bot,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  CircleAlert,
+  FileText,
+  LoaderCircle,
+  Search,
+  Square,
+  Terminal,
+  Wrench,
+  X,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/i18n';
+import { stripAnsi } from '@/lib/terminalText';
 import { cn } from '@/lib/utils';
 import { formatDuration } from '@/stores/sessions/stats';
 import { Markdown } from './Markdown';
+import { summarizeSubagentToolArgs } from './subagentToolSummary';
 import { shouldFollowTaskBarOutput } from './taskBarScroll';
 
 interface TaskBarProps {
@@ -245,8 +262,9 @@ function AgentDetails({ agent }: { agent: SubagentInfo }) {
   );
 }
 
-function AgentActivityView({ activity }: { activity: SubagentActivity }) {
+export function AgentActivityView({ activity }: { activity: SubagentActivity }) {
   const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
   if (activity.type === 'assistant') {
     return (
       <section className="rounded-md bg-muted/30 px-2.5 py-2">
@@ -257,24 +275,103 @@ function AgentActivityView({ activity }: { activity: SubagentActivity }) {
       </section>
     );
   }
+  const summary = summarizeSubagentToolArgs(activity.toolName, activity.argumentsText);
+  const contentId = `subagent-tool-${activity.id.replace(/[^A-Za-z0-9_-]/g, '-')}`;
   return (
-    <section className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
-      <div className="flex items-center justify-between gap-2 font-mono text-xs">
-        <span className="truncate">→ {activity.toolName}</span>
-        <span
+    <section className="border-b border-border/40 last:border-b-0">
+      <button
+        type="button"
+        aria-controls={contentId}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-muted/50"
+      >
+        <SubagentToolIcon toolName={activity.toolName} />
+        <span className="shrink-0 font-medium text-foreground/80">{activity.toolName}</span>
+        {summary && (
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground"
+            title={summary}
+          >
+            {summary}
+          </span>
+        )}
+        {!summary && <span className="min-w-0 flex-1" />}
+        <SubagentToolStatus status={activity.status} label={t(activity.status)} />
+        <ChevronRight
+          aria-hidden="true"
           className={cn(
-            'shrink-0 text-[10px]',
-            activity.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'
+            'h-3 w-3 shrink-0 text-muted-foreground transition-transform',
+            expanded && 'rotate-90'
           )}
-        >
-          {t(activity.status)}
-        </span>
-      </div>
-      <div className="mt-1.5 space-y-1.5">
-        <FoldedContent text={activity.argumentsText} label={t('Arguments')} />
-        {activity.outputText && <FoldedContent text={activity.outputText} label={t('Result')} />}
-      </div>
+        />
+      </button>
+      {expanded && (
+        <div id={contentId} className="ml-5 border-border/50 border-l pb-2 pl-2.5">
+          <div className="text-[10px] text-muted-foreground/70">{t('Arguments')}</div>
+          <pre className="max-h-28 overflow-auto font-mono text-[10px] leading-relaxed whitespace-pre-wrap text-muted-foreground/80">
+            {stripAnsi(activity.argumentsText)}
+          </pre>
+          {activity.outputText && (
+            <div className="mt-1.5 border-border/40 border-t pt-1.5">
+              <div className="mb-0.5 text-[10px] text-muted-foreground">{t('Result')}</div>
+              <pre className="overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-foreground/80">
+                {stripAnsi(activity.outputText)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
     </section>
+  );
+}
+
+function SubagentToolIcon({ toolName }: { toolName: string }) {
+  const name = toolName.toLowerCase();
+  const className = 'h-3.5 w-3.5 shrink-0 text-muted-foreground';
+  if (name.includes('search') || name.includes('grep') || name === 'find') {
+    return <Search aria-hidden="true" className={className} />;
+  }
+  if (
+    name === 'read' ||
+    name === 'write' ||
+    name === 'edit' ||
+    name === 'apply_patch' ||
+    name.endsWith('_read')
+  ) {
+    return <FileText aria-hidden="true" className={className} />;
+  }
+  if (name === 'bash' || name === 'exec' || name.includes('shell') || name.includes('terminal')) {
+    return <Terminal aria-hidden="true" className={className} />;
+  }
+  return <Wrench aria-hidden="true" className={className} />;
+}
+
+function SubagentToolStatus({
+  status,
+  label,
+}: {
+  status: Extract<SubagentActivity, { type: 'tool' }>['status'];
+  label: string;
+}) {
+  const className = 'h-3.5 w-3.5';
+  return (
+    <span
+      role="status"
+      aria-label={label}
+      title={label}
+      className={cn('shrink-0', status === 'failed' ? 'text-destructive' : 'text-muted-foreground')}
+    >
+      {status === 'running' ? (
+        <LoaderCircle aria-hidden="true" className={cn(className, 'animate-spin')} />
+      ) : status === 'done' ? (
+        <Check aria-hidden="true" className={className} />
+      ) : status === 'failed' ? (
+        <CircleAlert aria-hidden="true" className={className} />
+      ) : (
+        <Ban aria-hidden="true" className={className} />
+      )}
+    </span>
   );
 }
 
@@ -293,7 +390,7 @@ function FoldedContent({
     <Markdown text={text} />
   ) : (
     <pre className="overflow-x-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
-      {text}
+      {stripAnsi(text)}
     </pre>
   );
   if (!long) {
@@ -363,7 +460,7 @@ function TailView({ tail }: { tail: string }) {
       ref={ref}
       className="max-h-56 overflow-auto border-t border-border/60 px-2.5 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground"
     >
-      {tail || t('(no output yet)')}
+      {stripAnsi(tail) || t('(no output yet)')}
     </pre>
   );
 }
