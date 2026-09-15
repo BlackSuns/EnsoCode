@@ -35,6 +35,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover';
 import { type TFunction, useI18n } from '@/i18n';
 import { diffCacheKey } from '@/lib/diffCacheKey';
 import { addSidePanelChanges } from '@/lib/sidePanelDock';
+import { stripAnsi } from '@/lib/terminalText';
 import { cn } from '@/lib/utils';
 import { useSessionsStore } from '@/stores/sessions';
 import {
@@ -992,7 +993,7 @@ function TaskNoteRow({ item }: { item: Extract<TimelineItem, { kind: 'task-note'
             {logPath
               ? log === undefined
                 ? t('Loading…')
-                : (log ?? t('(log unavailable)'))
+                : stripAnsi(log ?? t('(log unavailable)'))
               : t('(no log available)')}
           </pre>
         </div>
@@ -1288,7 +1289,7 @@ function SandboxOutput({
           <CodeBlock code={value} language="json" />
         ) : (
           <pre className="font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
-            {value}
+            {stripAnsi(value)}
           </pre>
         )
       ) : null}
@@ -1440,7 +1441,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
       {expanded && shouldShowToolOutputAfterFileChanges(item) && (
         <ToolContentScroller follow={false} className="t-acc-reveal border-t border-border/60">
           <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
-            {item.output}
+            {stripAnsi(item.output ?? '')}
           </pre>
         </ToolContentScroller>
       )}
@@ -1473,7 +1474,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
             </div>
           ) : (
             <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
-              {item.output}
+              {stripAnsi(item.output ?? '')}
             </pre>
           )}
         </ToolContentScroller>
@@ -1599,4 +1600,4 @@ function ToolStateIcon({ state }: { state: 'running' | 'reviewing' | 'ok' | 'err
   }
 }
 
-const firstLine = (text: string): string => text.split('\n', 1)[0] ?? '';
+const firstLine = (text: string): string => stripAnsi(text.split('\n', 1)[0] ?? '');
