@@ -54,6 +54,15 @@ describe('apply_patch 引擎', () => {
     await expect(text('delete.txt')).rejects.toThrow();
   });
 
+  it('Update 中只有上下文的定位 hunk 被忽略，实质改动仍写入', async () => {
+    await writeFile(path.join(cwd, 'update.txt'), 'one\ntwo\nthree\n');
+    await executeApplyPatch(
+      cwd,
+      patch('*** Update File: update.txt', '@@', ' one', '@@', '-two', '+changed', '@@', ' three')
+    );
+    expect(await text('update.txt')).toBe('one\nchanged\nthree\n');
+  });
+
   it('move 先独占写目标再删除源，并按两个物理路径报告', async () => {
     await writeFile(path.join(cwd, 'old.txt'), 'old\n');
     const result = await executeApplyPatch(

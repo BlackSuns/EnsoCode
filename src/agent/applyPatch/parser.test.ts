@@ -102,4 +102,65 @@ describe('apply_patch 参数和语法', () => {
       parseApplyPatch(envelope('*** Update File: a.txt\n@@\n-old\n+new\n*** End of File\n+late'))
     ).toThrow();
   });
+
+  it('跳过只有上下文的定位 hunk，保留真正的改动', () => {
+    const [operation] = parseApplyPatch(
+      envelope(
+        [
+          '*** Update File: a.txt',
+          '@@',
+          ' it("existing") {',
+          '@@',
+          '   expect(tail);',
+          ' }',
+          '+',
+          '+it("new") {',
+          '+}',
+        ].join('\n')
+      )
+    );
+    expect(operation).toMatchObject({
+      type: 'update',
+      path: 'a.txt',
+      chunks: [
+        {
+          oldLines: ['  expect(tail);', '}'],
+          newLines: ['  expect(tail);', '}', '', 'it("new") {', '}'],
+        },
+      ],
+    });
+  });
+
+  it('前后都有定位 hunk 时只保留中间的实质改动', () => {
+    const [operation] = parseApplyPatch(
+      envelope(
+        [
+          '*** Update File: a.txt',
+          '@@ leading',
+          ' keep',
+          '@@',
+          '-old',
+          '+new',
+          '@@',
+          ' trailing',
+        ].join('\n')
+      )
+    );
+    expect(operation).toMatchObject({
+      type: 'update',
+      chunks: [{ oldLines: ['old'], newLines: ['new'] }],
+    });
+  });
+
+  it('只有定位 hunk 的 Update 仍拒绝；有 -/+ 但内容相同也拒绝', () => {
+    expect(() => parseApplyPatch(envelope('*** Update File: a.txt\n@@\n same'))).toThrow(
+      /No-op update chunk at line 3/
+    );
+    expect(() => parseApplyPatch(envelope('*** Update File: a.txt\n@@\n-same\n+same'))).toThrow(
+      /No-op update chunk at line 3/
+    );
+    expect(() =>
+      parseApplyPatch(envelope('*** Update File: a.txt\n@@\n-same\n+same\n@@\n-old\n+new'))
+    ).toThrow(/No-op update chunk at line 3/);
+  });
 });

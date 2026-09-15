@@ -21,6 +21,7 @@ describe('apply_patch tool 与 SSH IO', () => {
     expect(tool.description).toContain('*** Add File: path');
     expect(tool.description).toContain('*** Delete File: path');
     expect(tool.description).toContain('never use unified-diff line-number ranges');
+    expect(tool.description).toContain("put the locator on '@@ ...'");
     expect(tool.description).toContain('never add a BOM or NUL');
     expect(tool.description).toMatch(/explicit absolute paths/i);
     expect(tool.description).toMatch(/relative paths.*workspace/i);

@@ -26,7 +26,19 @@ function parsePath(line: string, marker: string, lineNumber: number): string {
   return value;
 }
 
-function parseChunk(lines: string[], start: number): { chunk: ApplyPatchChunk; next: number } {
+const NOOP_CHUNK =
+  "hunk changes nothing. Put the locator on '@@ ...' and the edit in the same hunk.";
+
+function isIdentity(oldLines: readonly string[], newLines: readonly string[]): boolean {
+  return (
+    oldLines.length === newLines.length && oldLines.every((line, index) => line === newLines[index])
+  );
+}
+
+function parseChunk(
+  lines: string[],
+  start: number
+): { chunk?: ApplyPatchChunk; locator?: true; next: number } {
   let cursor = start;
   let changeContext: string | undefined;
   const marker = changeMarker(lines[cursor]);
@@ -67,11 +79,9 @@ function parseChunk(lines: string[], start: number): { chunk: ApplyPatchChunk; n
     cursor += 1;
   }
   if (!consumed) throw new Error(`Empty update chunk at line ${start + 1}`);
-  if (
-    oldLines.length === newLines.length &&
-    oldLines.every((line, index) => line === newLines[index])
-  ) {
-    throw new Error(`No-op update chunk at line ${start + 1}`);
+  if (isIdentity(oldLines, newLines)) {
+    if (contextLineIndices.length === oldLines.length) return { locator: true, next: cursor };
+    throw new Error(`No-op update chunk at line ${start + 1}: ${NOOP_CHUNK}`);
   }
   return {
     chunk: {
@@ -156,12 +166,23 @@ export function parseApplyPatch(input: string): ApplyPatchOperation[] {
         cursor += 1;
       }
       const chunks: ApplyPatchChunk[] = [];
+      let firstLocatorLine: number | undefined;
       while (cursor < lines.length - 1 && !isFileMarker(lines[cursor])) {
-        const parsed = parseChunk(lines, cursor);
-        chunks.push(parsed.chunk);
+        const hunkStart = cursor;
+        const parsed = parseChunk(lines, hunkStart);
+        if (parsed.locator) {
+          firstLocatorLine ??= hunkStart + 1;
+        } else if (parsed.chunk) {
+          chunks.push(parsed.chunk);
+        }
         cursor = parsed.next;
       }
-      if (chunks.length === 0 && !movePath) throw new Error(`Update file '${target}' is empty`);
+      if (chunks.length === 0 && !movePath) {
+        if (firstLocatorLine !== undefined) {
+          throw new Error(`No-op update chunk at line ${firstLocatorLine}: ${NOOP_CHUNK}`);
+        }
+        throw new Error(`Update file '${target}' is empty`);
+      }
       operations.push({
         type: 'update',
         path: target,
