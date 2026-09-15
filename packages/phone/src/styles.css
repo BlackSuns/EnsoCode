@@ -181,6 +181,15 @@
   }
 }
 
+/* iOS 独立 PWA 从顶部固定实色层取状态栏背景，避免模糊覆盖标题。 */
+@media (display-mode: standalone) {
+  .phone-chat-root {
+    position: fixed;
+    inset: 0;
+    background-color: var(--background);
+  }
+}
+
 /* 安全区（刘海屏 / 底部 home 条）；底部留一点最小间距，不贴死屏幕边缘 */
 @utility pt-safe {
   padding-top: env(safe-area-inset-top);

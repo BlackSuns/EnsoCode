@@ -205,8 +205,8 @@ export function ChatScreen(props: Props) {
 
   return (
     <ChatHostContext.Provider value={host}>
-      <div className="flex h-full min-h-0 flex-col">
-        <header className="flex shrink-0 items-center gap-1 border-b px-2 py-2 pt-safe">
+      <div className="phone-chat-root flex h-full min-h-0 flex-col">
+        <header className="flex shrink-0 items-center gap-1 border-b bg-background px-2 py-2 pt-safe">
           <button
             type="button"
             onClick={props.onOpenDrawer}
