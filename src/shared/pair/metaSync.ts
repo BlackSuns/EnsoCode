@@ -34,6 +34,33 @@ export function pairJsonFingerprint(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/** providers 通道只按 id 去重；名称/标签/数组顺序变化不重打 14kB 模型表。 */
+export function providersSyncFingerprint(
+  list: readonly { id: string; models?: readonly { id: string }[] }[]
+): string {
+  return pairJsonFingerprint(
+    [...list]
+      .map((p) => ({
+        id: p.id,
+        models: [...(p.models ?? [])].map((m) => m.id).sort(),
+      }))
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  );
+}
+
+/** 进房连打 / oauth 短抖动：同一连接 1.5s 内 providers 只出一帧。 */
+export function shouldEmitProviders(
+  lastFp: string | undefined,
+  lastAt: number | undefined,
+  nextFp: string,
+  now: number,
+  windowMs = 1500
+): boolean {
+  if (lastFp === nextFp) return false;
+  if (lastAt !== undefined && now - lastAt < windowMs) return false;
+  return true;
+}
+
 /** 列表会话剥掉聊天专用字段；当前订阅保留 cwd/排队/模型 */
 const CATALOG_CHAT_KEYS = [
   'cwd',
@@ -100,9 +127,45 @@ export function withholdRendererMeta(
 }
 
 /**
- * guest 显式 snapshot（桌面 renderer 重载 / 手机进房）必须整包重发：
- * 指纹去重只对 host 自发的流式 upsert 有效。连接常驻时 renderer 还没挂上
- * IPC 监听，目录帧会丢；若 snapshot 再被当成「已发过」节点就会一直转圈。
+ * 进房/snapshot 只作废 catalog：订阅裁剪会变，列表必须重拉。
+ * providers/projects/appearance 变更极低频，清掉指纹会让每次前后台都打 14kB 模型表。
+ */
+export function forgetGuestSyncMeta(
+  last: PairMetaFingerprints | undefined
+): PairMetaFingerprints | undefined {
+  if (!last) return undefined;
+  const { catalog: _catalog, ...stable } = last;
+  return stable;
+}
+
+/** pair 进程内低频通道指纹，避免进房时 conn.sentMeta 被清掉后重打 providers。 */
+export function mergeStableMeta(
+  stable: PairMetaFingerprints | undefined,
+  sent: PairMetaFingerprints | undefined
+): PairMetaFingerprints | undefined {
+  if (!stable && !sent) return undefined;
+  const merged = { ...stable, ...sent };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/** 低频通道在 await send 之前入账，避免 peer-joined / 直连 resync 并行各打一遍 providers。 */
+export function rememberStableMeta(
+  stored: PairMetaFingerprints | undefined,
+  allowed: Iterable<PairMetaChannel>,
+  next: PairMetaFingerprints
+): PairMetaFingerprints | undefined {
+  const extra: PairMetaFingerprints = {};
+  for (const key of allowed) {
+    if (key === 'catalog') continue;
+    const fp = next[key];
+    if (fp !== undefined) extra[key] = fp;
+  }
+  return mergeStableMeta(stored, extra);
+}
+
+/**
+ * guest 显式 snapshot 默认只强制 catalog（见 forgetGuestSyncMeta）。
+ * force=true 仍整包重发，留给 renderer 尚未推过目录之外的抢救路径。
  */
 export function channelsForMetaPush(
   last: PairMetaFingerprints | undefined,

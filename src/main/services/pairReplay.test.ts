@@ -78,6 +78,7 @@ vi.mock('./pushNotifier', () => ({
 }));
 
 import { forwardAgentEvent, setPairResumeListener, startPairHost, stopPairHost } from './pairHost';
+import { requestPairMeta } from './pairMetaFlush';
 
 function epochs(): () => string {
   let next = 0;
@@ -414,9 +415,11 @@ describe('pairHost session-sync 接线', () => {
   });
 
   it('重复 subscribe 只用最新 requestId，snapshot 帧先于后续 live 帧', async () => {
+    const metaCalls = vi.mocked(requestPairMeta).mock.calls.length;
     await receive({ type: 'subscribe', sessionId: 's1', sync: { requestId: 'old' } });
     await receive({ type: 'subscribe', sessionId: 's1', sync: { requestId: 'latest' } });
-    await vi.waitFor(() => expect(hostMocks.requestSnapshot).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(requestPairMeta).toHaveBeenCalledTimes(metaCalls + 2));
+    expect(hostMocks.requestSnapshot).toHaveBeenCalledTimes(1);
 
     forwardAgentEvent(snapshotEvent());
     forwardAgentEvent({
@@ -517,5 +520,27 @@ describe('pairHost session-sync 接线', () => {
     });
     await vi.waitFor(() => expect(hostMocks.socket?.send).toHaveBeenCalledTimes(1));
     expect((await sentPayloads())[0]).not.toHaveProperty('cursor');
+  });
+
+  it('已同步后 history 只下发切片，不再推尾窗快照', async () => {
+    await receive({ type: 'subscribe', sessionId: 's1', sync: { requestId: 'initial' } });
+    await vi.waitFor(() => expect(hostMocks.requestSnapshot).toHaveBeenCalledTimes(1));
+    forwardAgentEvent(snapshotEvent());
+    await vi.waitFor(() => expect(hostMocks.socket?.send).toHaveBeenCalledTimes(1));
+    hostMocks.socket?.send.mockClear();
+    hostMocks.requestSnapshot.mockClear();
+
+    await receive({ type: 'history', sessionId: 's1', beforeIndex: 2 });
+    await vi.waitFor(() => expect(hostMocks.requestSnapshot).toHaveBeenCalledTimes(1));
+    const page = snapshotEvent();
+    if (page.type === 'snapshot') {
+      page.sessions[0].messages = [
+        { role: 'user', content: [{ type: 'text', text: 'old' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'tail' }] },
+      ];
+    }
+    forwardAgentEvent(page);
+    await vi.waitFor(() => expect(hostMocks.socket?.send).toHaveBeenCalledTimes(1));
+    expect((await sentPayloads())[0]).toMatchObject({ type: 'history', sessionId: 's1' });
   });
 });

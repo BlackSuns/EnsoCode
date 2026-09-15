@@ -4,7 +4,13 @@ import {
   catalogSyncFingerprint,
   changedMetaChannels,
   channelsForMetaPush,
+  forgetGuestSyncMeta,
+  mergeStableMeta,
+  PAIR_META_CHANNELS,
   pairJsonFingerprint,
+  providersSyncFingerprint,
+  rememberStableMeta,
+  shouldEmitProviders,
   shouldRelayPairSnapshot,
   slimCatalogForPhone,
   slimProjectsForPhone,
@@ -81,6 +87,52 @@ describe('pairJsonFingerprint', () => {
   it('同结构同指纹', () => {
     expect(pairJsonFingerprint({ a: 1 })).toBe(pairJsonFingerprint({ a: 1 }));
     expect(pairJsonFingerprint({ a: 1 })).not.toBe(pairJsonFingerprint({ a: 2 }));
+  });
+});
+
+describe('providersSyncFingerprint', () => {
+  it('忽略名称/标签/顺序，只按 provider 与模型 id', () => {
+    const a = [
+      {
+        id: 'g',
+        name: 'Grok',
+        models: [
+          { id: 'b', label: 'B' },
+          { id: 'a', label: 'A' },
+        ],
+      },
+      { id: 'o', name: 'Other', models: [{ id: 'm' }] },
+    ];
+    const b = [
+      { id: 'o', name: 'Other 2', models: [{ id: 'm', label: 'M' }] },
+      { id: 'g', name: 'Grok 2', models: [{ id: 'a' }, { id: 'b' }] },
+    ];
+    expect(providersSyncFingerprint(a)).toBe(providersSyncFingerprint(b));
+  });
+
+  it('模型集合变化则指纹变', () => {
+    const base = [{ id: 'g', models: [{ id: 'a' }] }];
+    expect(providersSyncFingerprint(base)).not.toBe(
+      providersSyncFingerprint([{ id: 'g', models: [{ id: 'a' }, { id: 'b' }] }])
+    );
+  });
+});
+
+describe('shouldEmitProviders', () => {
+  it('相同指纹不重发', () => {
+    expect(shouldEmitProviders('a', 0, 'a', 1000)).toBe(false);
+  });
+
+  it('窗口内即使指纹变也不重发', () => {
+    expect(shouldEmitProviders('a', 1000, 'b', 1500, 1500)).toBe(false);
+  });
+
+  it('窗口外指纹变则发', () => {
+    expect(shouldEmitProviders('a', 1000, 'b', 3000, 1500)).toBe(true);
+  });
+
+  it('从未发过则发', () => {
+    expect(shouldEmitProviders(undefined, undefined, 'a', 1)).toBe(true);
   });
 });
 
@@ -172,6 +224,43 @@ describe('channelsForMetaPush', () => {
       'pushConfig',
       'hostInfo',
     ]);
+  });
+});
+
+describe('forgetGuestSyncMeta', () => {
+  const fps = {
+    catalog: 'c',
+    projects: 'p',
+    providers: 'pr',
+    appearance: 'a',
+    pushConfig: 'push',
+    hostInfo: 'host',
+  } as const;
+
+  it('进房只作废 catalog 指纹，providers 等低频通道下次按指纹跳过', () => {
+    expect(forgetGuestSyncMeta(fps)).toEqual({
+      projects: 'p',
+      providers: 'pr',
+      appearance: 'a',
+      pushConfig: 'push',
+      hostInfo: 'host',
+    });
+    expect(changedMetaChannels(forgetGuestSyncMeta(fps), fps)).toEqual(['catalog']);
+  });
+
+  it('无历史指纹时仍是全新连接，不凭空造指纹', () => {
+    expect(forgetGuestSyncMeta(undefined)).toBeUndefined();
+  });
+
+  it('进房竞态只提交了 catalog 时，合并 pair 级指纹仍跳过 providers', () => {
+    const stable = forgetGuestSyncMeta(fps);
+    const sent = forgetGuestSyncMeta({ catalog: 'c-old' });
+    expect(changedMetaChannels(mergeStableMeta(stable, sent), fps)).toEqual(['catalog']);
+  });
+
+  it('发出前先锁 providers 指纹，并发 flush 只补 catalog', () => {
+    const stored = rememberStableMeta(undefined, PAIR_META_CHANNELS, fps);
+    expect(changedMetaChannels(mergeStableMeta(stored, undefined), fps)).toEqual(['catalog']);
   });
 });
 
