@@ -126,11 +126,12 @@ export function App() {
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState<PushFailureReason | null>(null);
   const clientRef = useRef<PairClient | null>(null);
-  const activeIdRef = useRef<string | null>(null);
+  const activeIdRef = useRef<string | null>(activeId);
   const catalogRef = useRef(catalog);
   const viewRef = useRef(view);
   catalogRef.current = catalog;
   viewRef.current = view;
+  activeIdRef.current = activeId;
   /** VAPID 公钥（桌面下发）；用 ref 避免重建连接 effect */
   const vapidKeyRef = useRef<string | null>(null);
 

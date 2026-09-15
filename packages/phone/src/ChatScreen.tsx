@@ -2,7 +2,7 @@ import type { CatalogEntry } from '@enso/pair';
 import { localCompactionNoticeIndex } from '@shared/pair/guestProjection';
 import type { AttachedImage, ProjectedMessage, SlashCommand } from '@shared/types/agent';
 import { Bot, ChevronDown, Loader2, PanelLeft, SquarePen } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { ApprovalBar } from '@/components/chat/ApprovalBar';
 import { AskBar } from '@/components/chat/AskBar';
 import { Composer } from '@/components/chat/Composer';
@@ -166,12 +166,12 @@ export function ChatScreen(props: Props) {
    */
   const minIndex = view?.messages.size ? Math.min(...view.messages.keys()) : null;
   const anchorRef = useRef<{ height: number; top: number } | null>(null);
-  const loadOlder = () => {
+  const loadOlder = useCallback(() => {
     if (!props.hasOlder || !props.onLoadOlder) return;
     const el = timelineRef.current?.getScroller();
     anchorRef.current = el ? { height: el.scrollHeight, top: el.scrollTop } : null;
     props.onLoadOlder();
-  };
+  }, [props.hasOlder, props.onLoadOlder]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: minIndex 变小 = 旧页已渲染，此时才补偿
   useLayoutEffect(() => {
     const el = timelineRef.current?.getScroller();
@@ -309,8 +309,8 @@ export function ChatScreen(props: Props) {
             key={sessionId}
             ref={timelineRef}
             items={timeline}
-            // view 为 null = 快照尚未到达，交给时间线显示加载态而非空态
-            busy={running || view === null}
+            // 本地已有正文就不要盖「正在读取历史」；无正文且同步中才是加载态
+            busy={view === null ? Boolean(props.syncing) : running}
             running={running}
             error={undefined}
             emptyTitle={props.projectName || 'EnsoCode'}
@@ -318,6 +318,7 @@ export function ChatScreen(props: Props) {
             virtualize={false}
             historyLoading={props.historyLoading}
             hasOlder={props.hasOlder}
+            firstItemIndex={minIndex ?? 0}
             onStartReached={props.hasOlder ? loadOlder : undefined}
           />
         )}

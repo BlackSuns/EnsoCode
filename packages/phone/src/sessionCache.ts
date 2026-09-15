@@ -11,8 +11,8 @@ import type { ProjectedMessage, ProjectedPart } from '@shared/types/agent';
 const CACHE_SCHEMA = 1;
 const DB_NAME = 'enso-phone-session-cache';
 const STORE_NAME = 'pairs';
-const DB_VERSION = 1;
-const DEFAULT_OPEN_TIMEOUT_MS = 1_500;
+const DB_VERSION = 2;
+const DEFAULT_OPEN_TIMEOUT_MS = 8_000;
 
 const DEFAULT_LIMITS: PhoneCacheLimits = {
   ttlMs: 7 * 24 * 60 * 60 * 1_000,
@@ -118,6 +118,27 @@ function parseArray<T>(value: unknown, parse: (item: unknown) => T | null): T[] 
   return out;
 }
 
+function parseArrayKeep<T>(value: unknown, parse: (item: unknown) => T | null): T[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: T[] = [];
+  for (const item of value) {
+    const parsed = parse(item);
+    if (parsed) out.push(parsed);
+  }
+  return out;
+}
+
+function keepUniqueById<T extends { id: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    out.push(item);
+  }
+  return out;
+}
+
 function unique(items: readonly string[]): boolean {
   return new Set(items).size === items.length;
 }
@@ -127,9 +148,9 @@ function parseCatalogEntry(value: unknown): CatalogEntry | null {
     !isRecord(value) ||
     !isString(value.id) ||
     !isString(value.title) ||
-    !isString(value.projectName) ||
     !isString(value.projectId) ||
     !isString(value.status) ||
+    !optional(value, 'projectName', isString) ||
     !optional(value, 'cwd', isString) ||
     !optional(value, 'unread', isBoolean) ||
     !optional(value, 'pendingAskCount', isUint) ||
@@ -143,16 +164,10 @@ function parseCatalogEntry(value: unknown): CatalogEntry | null {
   ) {
     return null;
   }
-  if (
-    value.thinkingLevel !== undefined &&
-    !['minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(String(value.thinkingLevel))
-  ) {
-    return null;
-  }
   const queued =
     value.queued === undefined
       ? undefined
-      : parseArray(value.queued, (item): NonNullable<CatalogEntry['queued']>[number] | null => {
+      : parseArrayKeep(value.queued, (item): NonNullable<CatalogEntry['queued']>[number] | null => {
           if (
             !isRecord(item) ||
             !isString(item.id) ||
@@ -167,7 +182,6 @@ function parseCatalogEntry(value: unknown): CatalogEntry | null {
             ...(typeof item.hasImages === 'boolean' ? { hasImages: item.hasImages } : {}),
           };
         });
-  if (value.queued !== undefined && queued === null) return null;
 
   let goal: CatalogEntry['goal'];
   if (value.goal !== undefined) {
@@ -199,19 +213,18 @@ function parseCatalogEntry(value: unknown): CatalogEntry | null {
   const slashCommands =
     value.slashCommands === undefined
       ? undefined
-      : parseArray(
+      : parseArrayKeep(
           value.slashCommands,
           (item): NonNullable<CatalogEntry['slashCommands']>[number] | null =>
             isRecord(item) && isString(item.name) && isString(item.description)
               ? { name: item.name, description: item.description }
               : null
         );
-  if (value.slashCommands !== undefined && slashCommands === null) return null;
 
   const out: CatalogEntry = {
     id: value.id,
     title: value.title,
-    projectName: value.projectName,
+    projectName: isString(value.projectName) ? value.projectName : '',
     projectId: value.projectId,
     status: value.status,
   };
@@ -246,7 +259,8 @@ function parseProject(value: unknown): ProjectEntry | null {
     !isRecord(value) ||
     !isString(value.id) ||
     !isString(value.name) ||
-    !isString(value.path) ||
+    !optional(value, 'path', isString) ||
+    !optional(value, 'alias', isString) ||
     !optional(value, 'sshConnectionName', isString) ||
     !optional(value, 'sshHost', isString) ||
     !optional(value, 'groupId', isString) ||
@@ -258,7 +272,8 @@ function parseProject(value: unknown): ProjectEntry | null {
   return {
     id: value.id,
     name: value.name,
-    path: value.path,
+    path: isString(value.path) ? value.path : '',
+    ...(typeof value.alias === 'string' ? { alias: value.alias } : {}),
     ...(value.kind === 'local' || value.kind === 'ssh' ? { kind: value.kind } : {}),
     ...(typeof value.sshConnectionName === 'string'
       ? { sshConnectionName: value.sshConnectionName }
@@ -291,15 +306,15 @@ function parseProjectGroup(value: unknown): ProjectGroupEntry | null {
 
 function parseProvider(value: unknown): ProviderEntry | null {
   if (!isRecord(value) || !isString(value.id) || !isString(value.name)) return null;
-  const models = parseArray(value.models, (model): ProviderEntry['models'][number] | null => {
+  const models = parseArrayKeep(value.models, (model): ProviderEntry['models'][number] | null => {
     if (!isRecord(model) || !isString(model.id) || !optional(model, 'label', isString)) return null;
     return {
       id: model.id,
       ...(typeof model.label === 'string' ? { label: model.label } : {}),
     };
   });
-  if (!models || !unique(models.map((model) => model.id))) return null;
-  return { id: value.id, name: value.name, models };
+  if (!models) return null;
+  return { id: value.id, name: value.name, models: keepUniqueById(models) };
 }
 
 interface JsonState {
@@ -806,7 +821,7 @@ function encodeSession(value: unknown, maxMessages: number): EncodedSession | nu
   const messages: Array<[number, ProjectedMessage]> = [];
   for (const [index, message] of tail) {
     const parsed = parseMessage(message);
-    if (!parsed) return null;
+    if (!parsed) continue;
     messages.push([index, parsed]);
   }
   const parsedView = parseView(value.view, new Map(messages));
@@ -831,7 +846,7 @@ function decodeSession(
   let previous: number | undefined;
   for (const entry of rawMessages) {
     if (!Array.isArray(entry) || entry.length !== 2 || !isUint(entry[0])) return null;
-    if (previous !== undefined && entry[0] !== previous + 1) return null;
+    if (previous !== undefined && entry[0] <= previous) return null;
     const message = parseMessage(entry[1]);
     if (!message || messages.has(entry[0])) return null;
     messages.set(entry[0], message);
@@ -846,22 +861,20 @@ function decodeSession(
 
 function parseMetadata(value: unknown): Omit<PhoneCacheData, 'sessions'> | null {
   if (!isRecord(value)) return null;
-  const catalog = parseArray(value.catalog, parseCatalogEntry);
-  const pinnedOrder = parseArray(value.pinnedOrder, (item) => (isString(item) ? item : null));
-  const projects = parseArray(value.projects, parseProject);
-  const projectGroups = parseArray(value.projectGroups, parseProjectGroup);
-  const providers = parseArray(value.providers, parseProvider);
-  if (!catalog || !pinnedOrder || !projects || !projectGroups || !providers) return null;
-  if (
-    !unique(catalog.map((item) => item.id)) ||
-    !unique(pinnedOrder) ||
-    !unique(projects.map((item) => item.id)) ||
-    !unique(projectGroups.map((item) => item.id)) ||
-    !unique(providers.map((item) => item.id))
-  ) {
-    return null;
-  }
-  return { catalog, pinnedOrder, projects, projectGroups, providers };
+  const catalog = parseArrayKeep(value.catalog, parseCatalogEntry) ?? [];
+  const pinnedOrder =
+    parseArrayKeep(value.pinnedOrder, (item) => (isString(item) ? item : null)) ?? [];
+  const projects = parseArrayKeep(value.projects, parseProject) ?? [];
+  const projectGroups = parseArrayKeep(value.projectGroups, parseProjectGroup) ?? [];
+  const providers = parseArrayKeep(value.providers, parseProvider) ?? [];
+  const pinned = [...new Set(pinnedOrder)];
+  return {
+    catalog: keepUniqueById(catalog),
+    pinnedOrder: pinned,
+    projects: keepUniqueById(projects),
+    projectGroups: keepUniqueById(projectGroups),
+    providers: keepUniqueById(providers),
+  };
 }
 
 function jsonBytes(value: unknown): number | null {
@@ -874,8 +887,17 @@ function jsonBytes(value: unknown): number | null {
 }
 
 function encodeData(value: unknown, limits: PhoneCacheLimits): EncodedData | null {
-  const metadata = parseMetadata(value);
-  if (!metadata || !isRecord(value) || !Array.isArray(value.sessions)) return null;
+  if (!isRecord(value) || !Array.isArray(value.sessions)) {
+    console.warn('[pair] cache encode skipped');
+    return null;
+  }
+  const metadata = parseMetadata(value) ?? {
+    catalog: [],
+    pinnedOrder: [],
+    projects: [],
+    projectGroups: [],
+    providers: [],
+  };
   const sessions: EncodedSession[] = [];
   const recent = limits.maxSessions === 0 ? [] : value.sessions.slice(-limits.maxSessions);
   for (const session of recent) {
@@ -1090,7 +1112,7 @@ class IndexedDbBackend implements PhoneCacheBackend {
         finish(request.result);
       };
       request.onerror = () => finish(null, request.error);
-      request.onblocked = () => finish(null, new Error('IndexedDB open blocked'));
+      request.onblocked = () => {};
     });
   }
 
@@ -1318,9 +1340,6 @@ export function createPhoneCacheStore(options: PhoneCacheOptions = {}): PhoneCac
             })
           : null;
         if (!data || !isUint(updatedAt)) {
-          try {
-            await backend.remove(pairId);
-          } catch {}
           return;
         }
         const bytes = jsonBytes(data);
@@ -1333,7 +1352,11 @@ export function createPhoneCacheStore(options: PhoneCacheOptions = {}): PhoneCac
           bytes,
           data,
         };
-        await backend.write(pairId, record, (entries) => pruneRecords(entries, limits, pairId));
+        try {
+          await backend.write(pairId, record, (entries) => pruneRecords(entries, limits, pairId));
+        } catch (error) {
+          console.warn('[pair] cache write failed', error);
+        }
       });
     },
     clear(pairId) {

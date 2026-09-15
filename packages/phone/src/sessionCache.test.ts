@@ -380,4 +380,80 @@ describe('phone session cache', () => {
     const blocked = createPhoneCacheStore({ indexedDB: blockedFactory, openTimeoutMs: 50 });
     await expect(blocked.load('pair-a')).resolves.toBeNull();
   });
+
+  it('单条脏消息不丢掉整段可解析正文', async () => {
+    const backend = new MemoryBackend();
+    const cache = createPhoneCacheStore({ backend });
+    const mixed = data('session-1', [
+      [8, projected('hello')],
+      [9, { role: 'assistant', content: [{ type: 'text', text: 42 }] } as never],
+    ]);
+    await cache.save('pair-a', mixed);
+    const loaded = await cache.load('pair-a');
+    expect(loaded?.sessions[0]?.view.messages.get(8)?.content[0]).toEqual({
+      type: 'text',
+      text: 'hello',
+    });
+    expect(loaded?.sessions[0]?.view.messages.has(9)).toBe(false);
+  });
+
+  it('目录里个别脏条目仍保存其余会话和游标', async () => {
+    const backend = new MemoryBackend();
+    const cache = createPhoneCacheStore({ backend });
+    const mixed = data();
+    mixed.catalog = [...mixed.catalog, { id: 1 } as never];
+    await cache.save('pair-a', mixed);
+    const loaded = await cache.load('pair-a');
+    expect(loaded?.catalog.map((entry) => entry.id)).toEqual(['session-1']);
+    expect(loaded?.sessions[0]?.cursor).toEqual({ epoch: 'epoch-1', seq: 9 });
+  });
+
+  it('编码失败时保留旧缓存，不能把已有正文删成打开后再读历史', async () => {
+    const backend = new MemoryBackend();
+    const cache = createPhoneCacheStore({ backend });
+    await cache.save('pair-a', data());
+    await cache.save('pair-a', {
+      ...data(),
+      sessions: undefined as unknown as PhoneCacheData['sessions'],
+    });
+    const loaded = await cache.load('pair-a');
+    expect(loaded?.sessions[0]?.view.messages.get(8)?.content[0]).toEqual({
+      type: 'text',
+      text: 'hello',
+    });
+  });
+
+  it('手机瘦身帧（项目无 path、非订阅无 projectName）仍保存目录、项目和游标', async () => {
+    const backend = new MemoryBackend();
+    const cache = createPhoneCacheStore({ backend });
+    const slim = data();
+    delete (slim.projects[0] as { path?: string }).path;
+    slim.catalog.push({
+      id: 'other',
+      title: 'Other',
+      projectId: 'project-1',
+      status: 'idle',
+    } as PhoneCacheData['catalog'][number]);
+    await cache.save('pair-a', slim);
+    const loaded = await cache.load('pair-a');
+    expect(loaded?.sessions[0]?.cursor).toEqual({ epoch: 'epoch-1', seq: 9 });
+    expect(loaded?.projects[0]).toMatchObject({ id: 'project-1', name: 'Enso' });
+    expect(loaded?.catalog.map((entry) => entry.id).sort()).toEqual(['other', 'session-1']);
+  });
+
+  it('元数据数组全部不可解析时仍保存会话游标', async () => {
+    const backend = new MemoryBackend();
+    const cache = createPhoneCacheStore({ backend });
+    await cache.save('pair-a', {
+      ...data(),
+      catalog: [{ id: 1 }] as unknown as PhoneCacheData['catalog'],
+      projects: [{ id: 1 }] as unknown as PhoneCacheData['projects'],
+      projectGroups: [{ id: 1 }] as unknown as PhoneCacheData['projectGroups'],
+      providers: [{ id: 1 }] as unknown as PhoneCacheData['providers'],
+    });
+    const loaded = await cache.load('pair-a');
+    expect(loaded?.sessions[0]?.cursor).toEqual({ epoch: 'epoch-1', seq: 9 });
+    expect(loaded?.catalog).toEqual([]);
+    expect(loaded?.projects).toEqual([]);
+  });
 });

@@ -108,6 +108,8 @@ export class PairClient {
   private cacheLoading = false;
   private cacheTimer: ReturnType<typeof setTimeout> | null = null;
   private cacheDirty = false;
+  /** 当前这条 WS 已经发过进房 snapshot/subscribe；host-online 立刻再来时不再打第二遍 */
+  private roomPrimed = false;
   private metadata: Omit<PhoneCacheData, 'sessions'> = {
     catalog: [],
     pinnedOrder: [],
@@ -137,8 +139,8 @@ export class PairClient {
       },
       // 切通道瞬间旧通道在途帧可能丢：按重连同一套语义补（目录 + 游标增量）
       onResync: () => {
-        this.send({ type: 'snapshot' });
-        if (this.subscribedId) this.subscribe(this.subscribedId);
+        this.roomPrimed = false;
+        this.primeRoom();
       },
       onDiagnostic: (line) => console.info(`[pair] ${line}`),
     });
@@ -170,7 +172,7 @@ export class PairClient {
             this.sessions.set(id, view);
             this.baselines.add(id);
             if (cursor) this.cursors.set(id, cursor);
-            this.events.onSession(id, view);
+            this.events.onSession(id, { ...view, messages: new Map(view.messages) });
           }
         })
         .catch(() => {})
@@ -193,6 +195,7 @@ export class PairClient {
     }
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
+    this.roomPrimed = false;
 
     // 半开死链的 close 事件可能永不到达：心跳判死后直接走关闭路径，幂等防双跑
     let settled = false;
@@ -205,6 +208,7 @@ export class PairClient {
       this.heartbeat?.stop();
       this.heartbeat = null;
       this.ws = null;
+      this.roomPrimed = false;
       // 1008 = 中继明确告知凭据已失效（解绑时下发，或带失效凭据重连时下发）
       if (code === 1008 || this.revoked) {
         this.revoke();
@@ -234,9 +238,7 @@ export class PairClient {
       if (this.closed || this.revoked || this.ws !== ws) return;
       clearTimeout(connectTimer);
       this.attempt = 0;
-      // 进房后立即要目录；有订阅则带游标续传
-      this.send({ type: 'snapshot' });
-      if (this.subscribedId) this.subscribe(this.subscribedId);
+      this.primeRoom();
     };
 
     ws.onmessage = (event) => {
@@ -247,11 +249,11 @@ export class PairClient {
           if (control.type === 'host-online') {
             this.events.onState('online');
             this.direct.peerOnline(true);
-            this.send({ type: 'snapshot' });
-            if (this.subscribedId) this.subscribe(this.subscribedId);
+            this.primeRoom();
           } else if (control.type === 'host-offline') {
             this.events.onState('host-offline');
             this.direct.peerOnline(false);
+            this.roomPrimed = false;
           } else if (control.type === 'revoked') {
             // 桌面端解除了配对：立即停手，别再重连
             this.revoke();
@@ -423,6 +425,7 @@ export class PairClient {
           ? this.sessions
           : new Map<string, SessionView>();
       view = applyGuestSnapshot(sessions, response.snapshot as { sessions?: unknown[] })[0]?.view;
+      if (view) view = this.keepCachedMessages(id, view);
     } else {
       const current = this.cursors.get(id);
       if (!view || current?.epoch !== response.cursor.epoch || current.seq !== response.fromSeq) {
@@ -506,6 +509,14 @@ export class PairClient {
     );
   }
 
+  /** resume 空尾窗尚未就绪：保留本地正文，避免时间线被打成「正在读取历史」。 */
+  private keepCachedMessages(id: string, view: SessionView): SessionView {
+    if (view.messages.size > 0) return view;
+    const local = this.sessions.get(id);
+    if (!local || local.messages.size === 0) return view;
+    return { ...view, messages: new Map(local.messages) };
+  }
+
   /** 把 agent 事件投影进本地会话视图（纯函数在 @shared/pair/guestProjection） */
   private applyAgentEvent(event: Record<string, unknown>): void {
     const sessionId = event.sessionId as string | undefined;
@@ -531,14 +542,15 @@ export class PairClient {
         this.sessions,
         event as { sessions?: unknown[] }
       )) {
+        const next = this.keepCachedMessages(id, view);
         this.cursors.delete(id);
         this.baselines.add(id);
         if (id === this.pendingSync?.sessionId) {
           this.pendingSync = null;
           this.stopSyncRetry();
         }
-        this.sessions.set(id, view);
-        this.events.onSession(id, { ...view, messages: new Map(view.messages) });
+        this.sessions.set(id, next);
+        this.events.onSession(id, { ...next, messages: new Map(next.messages) });
       }
       return;
     }
@@ -592,6 +604,15 @@ export class PairClient {
     if (changed) this.events.onSync?.(next.state);
   }
 
+  /** onopen 与紧随其后的 host-online 只进房一次；host 掉线后再上线才重拉。 */
+  private primeRoom(): void {
+    if (this.closed || this.revoked || this.roomPrimed) return;
+    if (this.ws?.readyState !== 1) return;
+    this.roomPrimed = true;
+    this.send({ type: 'snapshot' });
+    if (this.subscribedId) this.subscribe(this.subscribedId);
+  }
+
   /** 订阅会话：带上本地游标，只补断线期间的增量。fresh = 手机刚 spawn 的全新会话，不进 syncing */
   subscribe(sessionId: string | null, opts?: { fresh?: boolean }): void {
     if (this.closed || this.revoked) return;
@@ -600,6 +621,8 @@ export class PairClient {
     if (opts?.fresh) this.freshSessionId = sessionId;
     else if (sessionId !== this.freshSessionId || (sessionId && this.baselines.has(sessionId)))
       this.freshSessionId = null;
+    // 缓存未上墙前不要进 syncing：否则时间线会先盖「正在读取历史」。
+    if (!this.cacheReady) return;
     // spawn 在途可能根本没有快照；拿到首次基线之前沿用旧实时订阅，不能门控首轮事件。
     const fresh = sessionId !== null && sessionId === this.freshSessionId;
     this.pendingSync = sessionId && !fresh ? { sessionId, requestId: crypto.randomUUID() } : null;
@@ -701,7 +724,14 @@ export class PairClient {
 
   /** 上滑加载上一页；无更早内容或已在途时静默忽略 */
   requestHistory(sessionId: string): void {
-    if (this.pendingSync || this.historyPending.has(sessionId) || !this.hasOlder(sessionId)) return;
+    if (
+      this.pendingSync ||
+      this.subscribedId !== sessionId ||
+      this.historyPending.has(sessionId) ||
+      !this.hasOlder(sessionId)
+    ) {
+      return;
+    }
     const view = this.sessions.get(sessionId);
     if (!view) return;
     this.historyPending.add(sessionId);

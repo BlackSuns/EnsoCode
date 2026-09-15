@@ -1197,6 +1197,7 @@ export const zhTranslations: Record<string, string> = {
   'No conversations yet': '暂无对话',
   'Preparing session…': '正在读取历史…',
   'Loading earlier messages…': '加载更早的消息…',
+  'Load earlier messages': '加载更早的消息',
   'Beginning of conversation': '已到对话开头',
   'Retry resume': '重新恢复',
   Todos: '任务清单',

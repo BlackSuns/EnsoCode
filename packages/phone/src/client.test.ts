@@ -146,6 +146,10 @@ describe('PairClient 缓存与续传', () => {
     expect(client.getSession('s')?.messages.get(0)).toEqual(text('old'));
     expect(subscription(socket).sync?.cursor).toEqual(cursor);
     expect(events.onSync).toHaveBeenLastCalledWith('syncing');
+    expect(events.onSession).toHaveBeenCalledWith(
+      's',
+      expect.objectContaining({ messages: expect.any(Map) })
+    );
   });
 
   it('零增量即完成同步，不再等待或请求快照', async () => {
@@ -288,6 +292,44 @@ describe('PairClient 缓存与续传', () => {
     await settle();
     expect([...(client.getSession('s')?.messages ?? [])]).toEqual([[1, text('new branch')]]);
     expect(events.onSync).toHaveBeenLastCalledWith('synced');
+  });
+
+  it('resume 空快照不能清掉缓存正文，避免打开 PWA 只剩正在读取历史', async () => {
+    const socket = await start();
+    const requestId = subscription(socket).sync?.requestId;
+    socket.receive({
+      type: 'session-sync',
+      sessionId: 's',
+      requestId,
+      mode: 'snapshot',
+      cursor: { epoch: 'resume-epoch', seq: 0 },
+      snapshot: {
+        type: 'snapshot',
+        sessions: [{ sessionId: 's', baseIndex: 0, messages: [], status: 'running' }],
+      },
+    });
+    await settle();
+    expect(client.getSession('s')?.messages.get(0)).toEqual(text('old'));
+    expect(client.getSession('s')?.status).toBe('running');
+    expect(events.onSession).toHaveBeenCalledWith(
+      's',
+      expect.objectContaining({ messages: expect.any(Map) })
+    );
+  });
+
+  it('旧端空 snapshot 事件也不能把已上墙的缓存清成加载态', async () => {
+    const socket = await start();
+    replay(socket);
+    await settle();
+    socket.receive({
+      type: 'agent-event',
+      event: {
+        type: 'snapshot',
+        sessions: [{ sessionId: 's', baseIndex: 0, messages: [], status: 'running' }],
+      },
+    });
+    await settle();
+    expect(client.getSession('s')?.messages.get(0)).toEqual(text('old'));
   });
 
   it('异步解密串行归并，较快的后帧不能越过前帧触发假断档', async () => {
@@ -466,5 +508,26 @@ describe('PairClient 缓存与续传', () => {
     await settle();
     expect(subscription(socket).sessionId).toBeNull();
     expect(client.getSession('s')).toBeUndefined();
+  });
+
+  it('onopen 已进房后 host-online 不再重复 snapshot/subscribe', async () => {
+    const socket = await start();
+    const before = socket.sent.map((item) => item.type);
+    expect(before.filter((type) => type === 'snapshot')).toHaveLength(1);
+    expect(before.filter((type) => type === 'subscribe')).toHaveLength(1);
+    socket.onmessage?.({ data: JSON.stringify({ type: 'host-online' }) });
+    await settle();
+    expect(socket.sent.filter((item) => item.type === 'snapshot')).toHaveLength(1);
+    expect(socket.sent.filter((item) => item.type === 'subscribe')).toHaveLength(1);
+  });
+
+  it('host 掉线后再上线才重新 snapshot/subscribe', async () => {
+    const socket = await start();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'host-offline' }) });
+    await settle();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'host-online' }) });
+    await settle();
+    expect(socket.sent.filter((item) => item.type === 'snapshot')).toHaveLength(2);
+    expect(socket.sent.filter((item) => item.type === 'subscribe')).toHaveLength(2);
   });
 });

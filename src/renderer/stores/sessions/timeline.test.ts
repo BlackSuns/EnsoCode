@@ -9,6 +9,7 @@ import {
   parseSandboxOutput,
   patchStreamingTimeline,
   shouldAutoExpandAppliedFileChanges,
+  shouldPrefetchOlderHistory,
   shouldShowToolOutputAfterFileChanges,
   type TimelineItem,
   terminalErrorText,
@@ -33,6 +34,22 @@ describe('historyPageChrome', () => {
     expect(historyPageChrome(true, false, false, true)).toBe('start');
     expect(historyPageChrome(true, false, true)).toBe('none');
     expect(historyPageChrome(true, false, undefined)).toBe('none');
+  });
+});
+
+describe('shouldPrefetchOlderHistory', () => {
+  it('工具组收拢后撑不满视口时给出加载入口，不在进会话时自动拉一页', () => {
+    expect(shouldPrefetchOlderHistory(true, false, 400, 700)).toBe(true);
+    expect(shouldPrefetchOlderHistory(true, false, 700, 700)).toBe(true);
+    expect(shouldPrefetchOlderHistory(true, false, 780, 700)).toBe(true);
+    expect(historyPageChrome(true, false, true, false, true)).toBe('more');
+    expect(historyPageChrome(true, false, true)).toBe('none');
+  });
+
+  it('内容已经超出视口、正在加载、或没有更早历史时不预取', () => {
+    expect(shouldPrefetchOlderHistory(true, false, 1200, 700)).toBe(false);
+    expect(shouldPrefetchOlderHistory(true, true, 400, 700)).toBe(false);
+    expect(shouldPrefetchOlderHistory(false, false, 400, 700)).toBe(false);
   });
 });
 

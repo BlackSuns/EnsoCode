@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -18,6 +19,7 @@ import {
   foldTimeline,
   type HistoryPageChrome,
   historyPageChrome,
+  shouldPrefetchOlderHistory,
   type TimelineItem,
 } from '@/stores/sessions/timeline';
 import { useSettingsStore } from '@/stores/settings';
@@ -117,6 +119,7 @@ export function MessageTimeline({
   const { t } = useI18n();
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [atBottom, setAtBottom] = useState(true);
+  const [fitsViewport, setFitsViewport] = useState(false);
   // ref 镜像：imperative handle 里读，避免闭包拿到旧值
   const atBottomRef = useRef(true);
   const scrollerRef = useRef<HTMLElement | null>(null);
@@ -356,9 +359,40 @@ export function MessageTimeline({
     items.length > 0,
     historyLoading,
     hasOlder,
-    everHadOlderRef.current
+    everHadOlderRef.current,
+    !virtualize && fitsViewport
   );
-  const renderHeader = () => <HistoryPageHeader chrome={pageChrome} />;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: firstItemIndex / 行数只作「内容变了」信号，effect 内重测 scroller
+  useLayoutEffect(() => {
+    if (virtualize) {
+      setFitsViewport(false);
+      return;
+    }
+    const el = scrollerRef.current;
+    setFitsViewport(
+      !!el &&
+        shouldPrefetchOlderHistory(
+          hasOlder === true,
+          historyLoading,
+          el.scrollHeight,
+          el.clientHeight
+        )
+    );
+  }, [virtualize, hasOlder, historyLoading, firstItemIndex, folded.length, items.length]);
+  const renderHeader = () => (
+    <HistoryPageHeader
+      chrome={pageChrome}
+      onLoadMore={
+        pageChrome === 'more'
+          ? () => {
+              if (!onStartReached || startReachedLatch.current) return;
+              startReachedLatch.current = true;
+              onStartReached();
+            }
+          : undefined
+      }
+    />
+  );
   const renderFooter = () => (
     <div className={cn(CHAT_COL, 'pb-6 [overflow-wrap:anywhere]')}>
       {busy && (
@@ -553,7 +587,13 @@ function groupContainsKey(
   );
 }
 
-function HistoryPageHeader({ chrome }: { chrome: HistoryPageChrome }) {
+function HistoryPageHeader({
+  chrome,
+  onLoadMore,
+}: {
+  chrome: HistoryPageChrome;
+  onLoadMore?: () => void;
+}) {
   const { t } = useI18n();
   if (chrome === 'none') return <div className="h-6" />;
   return (
@@ -563,6 +603,14 @@ function HistoryPageHeader({ chrome }: { chrome: HistoryPageChrome }) {
           <LoaderCircle className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
           <p className="text-xs text-muted-foreground">{t('Loading earlier messages…')}</p>
         </>
+      ) : chrome === 'more' ? (
+        <button
+          type="button"
+          className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          onClick={onLoadMore}
+        >
+          {t('Load earlier messages')}
+        </button>
       ) : (
         <p className="text-xs text-muted-foreground">{t('Beginning of conversation')}</p>
       )}

@@ -203,19 +203,35 @@ function summarizeArgs(args: unknown, cwd?: string): string {
 }
 
 /** 时间线顶部：翻页在途 / 已到第 0 条 / 不占文案 */
-export type HistoryPageChrome = 'none' | 'loading' | 'start';
+export type HistoryPageChrome = 'none' | 'loading' | 'start' | 'more';
 
 /** 到头提示只给「曾经有更早、现已翻完」的会话；刚开场 / 一页就完的短会话不显示 */
 export function historyPageChrome(
   hasItems: boolean,
   loading: boolean,
   hasOlder: boolean | undefined,
-  everHadOlder = false
+  everHadOlder = false,
+  offerLoadMore = false
 ): HistoryPageChrome {
   if (!hasItems) return 'none';
   if (loading) return 'loading';
+  if (hasOlder && offerLoadMore) return 'more';
   if (hasOlder === false && everHadOlder) return 'start';
   return 'none';
+}
+
+/**
+ * 非虚拟化时间线（PWA）：探索组收拢后内容往往撑不满一屏，
+ * 用户滚不到顶。撑不满时只展示可点的加载入口，避免一进会话就拉一整页历史。
+ */
+export function shouldPrefetchOlderHistory(
+  hasOlder: boolean,
+  loading: boolean,
+  scrollHeight: number,
+  clientHeight: number,
+  slack = 80
+): boolean {
+  return hasOlder && !loading && scrollHeight <= clientHeight + slack;
 }
 
 export function execSourceFromArgs(args: unknown): string | null {
