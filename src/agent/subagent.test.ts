@@ -200,6 +200,14 @@ describe('subagent tool model 参数', () => {
     expect(text).toMatch(/availability.*does not.*delegat|do not delegate.*availability/is);
   });
 
+  it('单次评审用 subagent；同一角色多轮复评交给 coworker，不要每轮新开', () => {
+    const tool = createSubagentTool(makeDeps());
+    const text = `${tool.description}\n${tool.promptSnippet}`;
+    expect(text).toMatch(/single review/is);
+    expect(text).toMatch(/same role across/is);
+    expect(text).toMatch(/do not start a new subagent each round/is);
+  });
+
   it('当 agent_type 锁定模型（allowModelOverride === false）时，主 agent 传 model 报错拒绝', async () => {
     const deps = makeDeps({
       agentTypes: [

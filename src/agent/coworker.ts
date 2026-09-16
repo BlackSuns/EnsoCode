@@ -106,8 +106,9 @@ export function createCoworkerTool(deps: CoworkerToolDeps): ToolDefinition {
     description:
       'Before hiring, decide whether delegation has clear value. Handle short tasks directly when their context is already known. ' +
       'Delegate only when the user explicitly requests it, or when parallel execution, isolated context, or independent review offers a clear benefit. ' +
-      'After deciding delegation is worthwhile, use a coworker only when sustained collaboration and context reuse are explicitly useful. ' +
-      'For one-shot work, use `subagent` if available. Tool availability does not itself justify delegation. ' +
+      'After deciding delegation is worthwhile, use a coworker for sustained collaboration and context reuse: the same role across multiple rounds (review-then-fix, re-review the same files). Spawn once, then send. ' +
+      'Do not start a new subagent each round to re-paste background. ' +
+      'For one-shot work (including a single review) or unrelated parallel probes, use `subagent` if available. Tool availability does not itself justify delegation. ' +
       'A persistent coworker keeps its own context across multiple send calls. ' +
       'Unlike a one-shot subagent, a coworker stays alive: ' +
       'spawn it once with a role and initial task, then send follow-ups that build on everything it has seen. ' +
@@ -124,7 +125,7 @@ export function createCoworkerTool(deps: CoworkerToolDeps): ToolDefinition {
     promptSnippet:
       'coworker: first decide whether delegation adds clear value; handle short tasks directly when their context is already known. ' +
       'Delegate only on user request or a clear parallel, context-isolation, or independent-review benefit. ' +
-      'After deciding delegation is worthwhile, use coworker only for sustained collaboration and context reuse; use subagent if available for one-shot work. ' +
+      'After deciding delegation is worthwhile, use coworker only for sustained collaboration and context reuse (same role across rounds: spawn once, then send); use subagent if available for one-shot work including a single review. ' +
       'Tool availability does not itself justify delegation. A coworker is persistent (own tab and accumulating context). ' +
       'spawn/send are async by default — you get notified on completion; when idle use wait {name} ' +
       'instead of sleep/poll, and report {name} for the untruncated last result. ' +
@@ -137,7 +138,7 @@ export function createCoworkerTool(deps: CoworkerToolDeps): ToolDefinition {
     promptGuidelines: [
       'Delegate only when the user requests delegation or parallel execution, isolated context, or independent review offers a clear benefit. ' +
         'Handle short tasks directly when their context is already known. After deciding delegation is worthwhile, ' +
-        'hire a coworker only for sustained collaboration and context reuse; use subagent if available for one-shot work. ' +
+        'hire a coworker only for sustained collaboration and context reuse (same role across rounds); use subagent if available for one-shot work including a single review. ' +
         'Availability alone does not justify delegation',
       'Give a coworker its role and first step in spawn, and reuse the same name for that role across rounds. ' +
         'When a round finishes, first assess the report against the goal. Send only when there is a concrete gap, correction, or needed follow-up. ' +

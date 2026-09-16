@@ -146,6 +146,16 @@ describe('coworker tool model 参数', () => {
     );
   });
 
+  it('同一角色多轮复评用 coworker：spawn 一次再 send，不要每轮新开 subagent', () => {
+    const tool = createCoworkerTool(makeDeps({ agentTypes: [] }));
+    const text = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join(
+      '\n'
+    );
+    expect(text).toMatch(/same role across/is);
+    expect(text).toMatch(/do not start a new subagent each round/is);
+    expect(text).toMatch(/single review/is);
+  });
+
   it('存在必须自选的 agent_type 时，guidelines 提前要求 spawn 带 model', () => {
     const text =
       createCoworkerTool(

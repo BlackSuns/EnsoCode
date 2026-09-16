@@ -203,8 +203,8 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
     description:
       'Before delegating, decide whether delegation has clear value. Handle short tasks directly when their context is already known. ' +
       'Delegate only when the user explicitly requests it, or when parallel execution, isolated context, or independent review offers a clear benefit. ' +
-      'After deciding delegation is worthwhile, use a subagent for self-contained one-shot work; ' +
-      'use coworker if available only when sustained collaboration and context reuse are explicitly useful. ' +
+      'After deciding delegation is worthwhile, use a subagent for self-contained one-shot work (including a single review); ' +
+      'use coworker if available only for sustained collaboration and context reuse: the same role across rounds. Spawn once, then send. Do not start a new subagent each round to re-paste background. ' +
       'Tool availability does not itself justify delegation. A subagent runs in an isolated context with its own tools ' +
       '(read/bash/edit/write/MCP). Returns the subagent final report as the tool result. ' +
       'multiple subagent calls in one message run in parallel. ' +
@@ -215,7 +215,7 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
     promptSnippet:
       'subagent: first decide whether delegation adds clear value; handle short tasks directly when their context is already known. ' +
       'Delegate only on user request or a clear parallel, context-isolation, or independent-review benefit. ' +
-      'After deciding delegation is worthwhile, use a subagent for self-contained one-shot work; use coworker if available only for sustained collaboration and context reuse. ' +
+      'After deciding delegation is worthwhile, use a subagent for self-contained one-shot work including a single review; use coworker if available only for sustained collaboration and context reuse (same role across rounds: spawn once, then send). Do not start a new subagent each round to re-paste background. ' +
       'Tool availability does not itself justify delegation. Give the subagent a complete prompt and get a final report back; ' +
       'multiple subagent calls in one message run in parallel' +
       (deps.agentTypes.length > 0
@@ -229,7 +229,7 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
     promptGuidelines: [
       'Delegate only when the user requests delegation or parallel execution, isolated context, or independent review offers a clear benefit. ' +
         'Handle short tasks directly when their context is already known. When parallel execution has a clear benefit, dispatch independent one-shot tasks ' +
-        'as subagent calls in the same message. Select subagent for one-shot work and coworker, if available, only for sustained collaboration and context reuse',
+        'as subagent calls in the same message. Select subagent for one-shot work including a single review and coworker, if available, only for sustained collaboration and context reuse',
       ...(roleHints.length > 0 ? [`Pick agent_type by role: ${roleHints.join('; ')}`] : []),
       ...(requiredPickTypes.length > 0 && modelNames.length > 0
         ? [
