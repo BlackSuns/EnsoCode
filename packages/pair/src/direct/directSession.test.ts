@@ -229,7 +229,65 @@ describe('主机端直连会话', () => {
     const state = { ...initialDirectState('host'), gen: 2 };
 
     expect(reduceDirect(state, { type: 'offer', gen: 2 })).toEqual({ state, actions: [] });
+    expect(reduceDirect(state, { type: 'offer', gen: 0 })).toEqual({ state, actions: [] });
+  });
+
+  it('协商中重复的 gen=1 提议仍忽略', () => {
+    const state = {
+      ...initialDirectState('host'),
+      phase: 'negotiating' as const,
+      gen: 1,
+    };
+
     expect(reduceDirect(state, { type: 'offer', gen: 1 })).toEqual({ state, actions: [] });
+  });
+
+  it('已连接的 gen=1 被访客重启的 gen=1 顶掉', () => {
+    const state = {
+      ...initialDirectState('host'),
+      phase: 'connected' as const,
+      gen: 1,
+      peerOnline: true,
+    };
+
+    expect(reduceDirect(state, { type: 'offer', gen: 1 })).toEqual({
+      state: { ...state, phase: 'negotiating', gen: 1 },
+      actions: [
+        { type: 'destroy-peer' },
+        { type: 'switch', transport: 'relay' },
+        { type: 'resync' },
+        { type: 'accept-offer', gen: 1 },
+        { type: 'start-timeout', gen: 1 },
+      ],
+    });
+  });
+
+  it('访客重启后的 gen=1 提议顶掉主机保留的更高代次', () => {
+    const connected = {
+      ...initialDirectState('host'),
+      phase: 'connected' as const,
+      gen: 2,
+      peerOnline: true,
+    };
+    expect(reduceDirect(connected, { type: 'offer', gen: 1 })).toEqual({
+      state: { ...connected, phase: 'negotiating', gen: 1 },
+      actions: [
+        { type: 'destroy-peer' },
+        { type: 'switch', transport: 'relay' },
+        { type: 'resync' },
+        { type: 'accept-offer', gen: 1 },
+        { type: 'start-timeout', gen: 1 },
+      ],
+    });
+
+    const idle = { ...initialDirectState('host'), phase: 'idle' as const, gen: 4 };
+    expect(reduceDirect(idle, { type: 'offer', gen: 1 })).toEqual({
+      state: { ...idle, phase: 'negotiating', gen: 1 },
+      actions: [
+        { type: 'accept-offer', gen: 1 },
+        { type: 'start-timeout', gen: 1 },
+      ],
+    });
   });
 
   it('收到较新代次提议时替换已连接对端', () => {

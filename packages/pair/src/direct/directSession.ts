@@ -1,6 +1,7 @@
 /**
  * 直连协商状态机（纯 reducer，三端共用）。guest 发起并驱动重试，host 只应答；
  * `gen` 每轮递增，不等于当前代的信令/事件一律丢弃，防网络切换后迟到的候选污染新一轮。
+ * 例外：访客进程重启从 gen=1 再发 offer，主机即使当前代更高也接受（杀 PWA 后不必空等 15s）。
  * 中继侧断开（peer-online false / ws close）不拆直连：直连生死只看自身与本机网络变化。
  */
 
@@ -184,7 +185,12 @@ function reduceHost(state: DirectState, event: DirectEvent): DirectStep {
     case 'peer-online':
       return noop({ ...state, peerOnline: event.online });
     case 'offer': {
-      if (event.gen <= state.gen) return noop(state);
+      // 杀 PWA / 刷新会新建 DirectLink，访客从 gen=1 再发。主机代次不复位，
+      // 旧规则丢掉首轮 offer，直连要等 15s 超时后 gen=2 才接上。
+      const duplicateGen1 =
+        event.gen === 1 && state.gen === 1 && state.phase === 'negotiating';
+      const guestRestart = event.gen === 1 && state.gen >= 1 && !duplicateGen1;
+      if (!guestRestart && event.gen <= state.gen) return noop(state);
       return {
         state: { ...state, phase: 'negotiating', gen: event.gen },
         actions: [

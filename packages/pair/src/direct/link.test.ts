@@ -410,6 +410,22 @@ describe('DirectLink host', () => {
     expect(h.link.transport()).toBe('direct');
   });
 
+  it('已连接后访客重启的 gen=1 提议立刻顶掉旧通道', async () => {
+    const h = harness('host');
+    h.link.handleSignal({ type: 'direct-offer', gen: 1, sdp: 'a' });
+    await flush();
+    h.peers[0].fire.open();
+    expect(h.link.transport()).toBe('direct');
+
+    h.link.handleSignal({ type: 'direct-offer', gen: 1, sdp: 'b' });
+    await flush();
+    expect(h.peers[0].isClosed()).toBe(true);
+    expect(h.peers[1].calls).toEqual(['acceptOffer:b']);
+    expect(h.link.transport()).toBe('relay');
+    h.peers[1].fire.open();
+    expect(h.link.transport()).toBe('direct');
+  });
+
   it('更新的 offer 顶掉旧代；direct-close 释放', async () => {
     const h = harness('host');
     h.link.handleSignal({ type: 'direct-offer', gen: 1, sdp: 'a' });
