@@ -14,9 +14,12 @@
 
 `node-datachannel` 这类「没有也能跑」的模块不要顶层 `import`：用 `await import()` 包在 try 里预加载（`preloadDirectPeer()`），
 失败只 `console.warn` 一次并让工厂返回 `null`，上层自动退回无该能力的路径（直连 → 中继）。
-它的二进制在嵌套 optional 依赖 `@node-datachannel/<platform>` 里，无 install 脚本，不进 `onlyBuiltDependencies`；
-electron-builder 会自动把 `.node` 放到 `app.asar.unpacked`，各 OS 的 CI 各自安装自己平台的二进制（与 `@mariozechner/clipboard` 同模式）。
-验证打包产物时用 `ELECTRON_RUN_AS_NODE=1 <App>/Contents/MacOS/<App> script.cjs` 从 `app.asar` require，而不是系统 node（ABI 不同）。
+它的二进制在嵌套 optional 依赖 `@node-datachannel/<platform>` 里，无 install 脚本，不进 `onlyBuiltDependencies`。
+pnpm 把平台包放在 `node-datachannel` 的兄弟目录，electron-builder 收集器只打 JS；必须在 `electron-builder.yml` 把
+`node_modules/.pnpm/node-datachannel@<ver>/node_modules/@node-datachannel` 拷到 `node_modules/@node-datachannel`，
+并 `asarUnpack` 对应 `.node`。各 OS 的 CI 各自安装自己平台的二进制。漏拷的表现是启动 warn
+`node-datachannel unavailable, direct link disabled` / `Cannot find module '@node-datachannel/<platform>'`，配对退回中继。
+验证打包产物时用 `ELECTRON_RUN_AS_NODE=1` 跑应用可执行文件从 `app.asar` `import('node-datachannel')`，不要用系统 node（ABI 不同）。
 
 `node-llama-cpp` 的平台预编译（CPU / Metal / CUDA / Vulkan / cuda-ext）都不要打进安装包。首次 `loadLlama` 时 `ensureGpuBackend` 按当前平台和 GPU 从 npm 拉一份到 `userData/llama-gpu-backends`；cuda-ext 仍不下载。排除 glob 以 `electron-builder.yml` 与 `ELECTRON_BUILDER_GPU_EXCLUDES` 为准。读它的版本必须走已解析入口旁的 `package.json` 文件，不要 `require('node-llama-cpp/package.json')`：该包 `exports` 不含这个子路径，打包后首次下载会整段中断，随后 `getLlama({ build: 'never' })` 抛 `NoBinaryFoundError`。
 

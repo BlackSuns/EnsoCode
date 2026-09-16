@@ -15,6 +15,10 @@ files:
     to: node_modules/@bufbuild/protobuf
   - from: node_modules/quickjs-wasi
     to: node_modules/quickjs-wasi
+  # node-datachannel 平台包是 optional 兄弟目录，收集器只打 JS；不显式拷贝则
+  # require('@node-datachannel/<platform>') 在安装包里找不到（Windows 直连会降级中继）
+  - from: node_modules/.pnpm/node-datachannel@0.33.2/node_modules/@node-datachannel
+    to: node_modules/@node-datachannel
   # node-llama-cpp 平台预编译全部按需下载（含 CPU / Metal / CUDA / Vulkan）
   - '!node_modules/@node-llama-cpp/**'
   - '!node_modules/.pnpm/@node-llama-cpp+*/**'
@@ -24,6 +28,8 @@ asarUnpack:
   # onnxruntime-node 的 .node 绑定与 bin/ 下的 ORT 动态库同样不能从 asar 内加载（onnx.ts 动态 require）
   - node_modules/onnxruntime-node/**/*.node
   - node_modules/onnxruntime-node/bin/**
+  # node-datachannel 平台预编译；asar 内 dlopen 失败
+  - node_modules/@node-datachannel/**/*.node
 mac:
   category: public.app-category.developer-tools
   target:
