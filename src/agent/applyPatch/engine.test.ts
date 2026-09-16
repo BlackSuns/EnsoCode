@@ -28,6 +28,12 @@ async function text(relative: string): Promise<string> {
 }
 
 describe('apply_patch 引擎', () => {
+  it('空 envelope 在执行期拒绝且零写', async () => {
+    await expect(
+      executeApplyPatch(cwd, { input: '*** Begin Patch\n*** End Patch' })
+    ).rejects.toThrow('No files were modified.');
+  });
+
   it('一次预检后执行多文件 add/update/delete', async () => {
     await writeFile(path.join(cwd, 'update.txt'), 'one\ntwo\n');
     await writeFile(path.join(cwd, 'delete.txt'), 'gone\n');
@@ -198,7 +204,7 @@ describe('apply_patch 引擎', () => {
       const target = path.join(outside, 'target.txt');
       const result = await executeApplyPatch(
         cwd,
-        patch('*** Update File: source.txt', `*** Move to: ${target}`)
+        patch('*** Update File: source.txt', `*** Move to: ${target}`, '@@', ' source')
       );
       expect(result.details.applied).toEqual([target, 'source.txt']);
       expect(await readFile(target, 'utf8')).toBe('source\n');
@@ -217,7 +223,7 @@ describe('apply_patch 引擎', () => {
       await writeFile(source, 'source\n');
       const result = await executeApplyPatch(
         cwd,
-        patch(`*** Update File: ${source}`, '*** Move to: moved/target.txt')
+        patch(`*** Update File: ${source}`, '*** Move to: moved/target.txt', '@@', ' source')
       );
       expect(result.details.applied).toEqual(['moved/target.txt', source]);
       expect(await text('moved/target.txt')).toBe('source\n');
@@ -287,7 +293,10 @@ describe('apply_patch 引擎', () => {
     const absolute = path.join(cwd, 'move-alias.txt');
     await writeFile(absolute, 'keep\n');
     await expect(
-      executeApplyPatch(cwd, patch('*** Update File: move-alias.txt', `*** Move to: ${absolute}`))
+      executeApplyPatch(
+        cwd,
+        patch('*** Update File: move-alias.txt', `*** Move to: ${absolute}`, '@@', ' keep')
+      )
     ).rejects.toThrow(/same target|alias/i);
     expect(await text('move-alias.txt')).toBe('keep\n');
   });
@@ -411,38 +420,41 @@ describe('apply_patch 引擎', () => {
     await expect(
       executeApplyPatch(
         cwd,
-        patch('*** Update File: a.txt', '*** Move to: dir/../b.txt', '*** Add File: b.txt', '+b')
+        patch(
+          '*** Update File: a.txt',
+          '*** Move to: dir/../b.txt',
+          '@@',
+          ' a',
+          '*** Add File: b.txt',
+          '+b'
+        )
       )
     ).rejects.toThrow();
     expect(await text('a.txt')).toBe('a\n');
   });
 
-  it('exact 和 trimEnd 每级都要求唯一，EOF 必须命中结尾', async () => {
+  it('重复上下文按 Codex first-match，EOF 只从文件尾窗口搜索', async () => {
     await writeFile(path.join(cwd, 'a.txt'), 'same\nsame\ntail\n');
-    await expect(
-      executeApplyPatch(cwd, patch('*** Update File: a.txt', '@@', '-same', '+changed'))
-    ).rejects.toThrow(/ambiguous/i);
-    await expect(
-      executeApplyPatch(
-        cwd,
-        patch('*** Update File: a.txt', '@@', '-same', '+changed', '*** End of File')
-      )
-    ).rejects.toThrow();
-    expect(await text('a.txt')).toBe('same\nsame\ntail\n');
+    await executeApplyPatch(cwd, patch('*** Update File: a.txt', '@@', '-same', '+changed'));
+    expect(await text('a.txt')).toBe('changed\nsame\ntail\n');
+    await writeFile(path.join(cwd, 'eof.txt'), 'same\nsame\n');
+    await executeApplyPatch(
+      cwd,
+      patch('*** Update File: eof.txt', '@@', '-same', '+changed', '*** End of File')
+    );
+    expect(await text('eof.txt')).toBe('same\nchanged\n');
   });
 
-  it('非空 anchor 尾空白不归一，避免命中错误代码块', async () => {
+  it('@@ anchor 按 trim_end 后 first-match', async () => {
     await writeFile(path.join(cwd, 'anchor-space.txt'), 'anchor  \nsame\nanchor\nsame\n');
-    await expect(
-      executeApplyPatch(
-        cwd,
-        patch('*** Update File: anchor-space.txt', '@@ anchor  ', '-same', '+changed')
-      )
-    ).rejects.toThrow(/ambiguous/i);
-    expect(await text('anchor-space.txt')).toBe('anchor  \nsame\nanchor\nsame\n');
+    await executeApplyPatch(
+      cwd,
+      patch('*** Update File: anchor-space.txt', '@@ anchor  ', '-same', '+changed')
+    );
+    expect(await text('anchor-space.txt')).toBe('anchor  \nsame\nanchor\nchanged\n');
   });
 
-  it('anchor 与 EOF 必须同时满足，不能越过 anchor 向前匹配', async () => {
+  it('EOF 模式不能越过当前匹配位置回头搜', async () => {
     await writeFile(path.join(cwd, 'anchor-eof.txt'), 'a\nanchor\n');
     await expect(
       executeApplyPatch(
@@ -456,42 +468,29 @@ describe('apply_patch 引擎', () => {
           '*** End of File'
         )
       )
-    ).rejects.toThrow();
-    await expect(
-      executeApplyPatch(
-        cwd,
-        patch('*** Update File: anchor-eof.txt', '@@ a', '+x', '*** End of File')
-      )
-    ).rejects.toThrow();
+    ).rejects.toThrow(/Failed to find expected lines/);
     expect(await text('anchor-eof.txt')).toBe('a\nanchor\n');
   });
 
-  it('EOF chunk 只匹配原文件结尾并保留无最终换行状态', async () => {
+  it('EOF chunk 匹配文件结尾，并按 Codex 为最后一行补上惯用换行', async () => {
     await writeFile(path.join(cwd, 'eof.txt'), 'head\nold');
     await executeApplyPatch(
       cwd,
       patch('*** Update File: eof.txt', '@@', '-old', '+new', '*** End of File')
     );
-    expect(await text('eof.txt')).toBe('head\nnew');
+    expect(await text('eof.txt')).toBe('head\nnew\n');
   });
 
-  it('纯新增只允许空文件、anchor 后或显式 EOF，不猜中间位置', async () => {
+  it('纯新增追加到文件末尾，空文件也会得到终止换行', async () => {
     await writeFile(path.join(cwd, 'nonempty.txt'), 'head\n');
-    await expect(
-      executeApplyPatch(cwd, patch('*** Update File: nonempty.txt', '@@', '+guess'))
-    ).rejects.toThrow();
-    const eof = await executeApplyPatch(
-      cwd,
-      patch('*** Update File: nonempty.txt', '@@', '+tail', '*** End of File')
-    );
-    expect(eof.details.status).toBe('success');
-    expect(await text('nonempty.txt')).toBe('head\ntail\n');
+    await executeApplyPatch(cwd, patch('*** Update File: nonempty.txt', '@@', '+guess'));
+    expect(await text('nonempty.txt')).toBe('head\nguess\n');
     await writeFile(path.join(cwd, 'empty.txt'), '');
     await executeApplyPatch(cwd, patch('*** Update File: empty.txt', '@@', '+only'));
-    expect(await text('empty.txt')).toBe('only');
+    expect(await text('empty.txt')).toBe('only\n');
   });
 
-  it('多 chunk 都按原文件坐标定位，允许上下文重叠但修改区间不重叠', async () => {
+  it('多 chunk 从上次匹配之后向后 first-match', async () => {
     await writeFile(path.join(cwd, 'chunks.txt'), 'a\nold1\nshared\nold2\nz\n');
     await executeApplyPatch(
       cwd,
@@ -501,25 +500,23 @@ describe('apply_patch 引擎', () => {
         ' a',
         '-old1',
         '+new1',
-        ' shared',
         '@@',
         ' shared',
         '-old2',
-        '+new2',
-        ' z'
+        '+new2'
       )
     );
     expect(await text('chunks.txt')).toBe('a\nnew1\nshared\nnew2\nz\n');
   });
 
-  it('保留 BOM、未变行尾空白、混合 EOL 和无最终换行状态', async () => {
+  it('保留 BOM、未变行尾空白、混合 EOL，并为最后一行补上惯用 ending', async () => {
     await writeFile(path.join(cwd, 'mixed.txt'), Buffer.from('\uFEFFkeep  \r\nold\nlast', 'utf8'));
     await executeApplyPatch(
       cwd,
       patch('*** Update File: mixed.txt', '@@', ' keep', '-old', '+new', ' last')
     );
     expect(await readFile(path.join(cwd, 'mixed.txt'))).toEqual(
-      Buffer.from('\uFEFFkeep  \r\nnew\r\nlast', 'utf8')
+      Buffer.from('\uFEFFkeep  \r\nnew\r\nlast\r\n', 'utf8')
     );
   });
 
@@ -535,7 +532,7 @@ describe('apply_patch 引擎', () => {
     };
     const result = await executeApplyPatch(
       cwd,
-      patch('*** Update File: old.txt', '*** Move to: new.txt'),
+      patch('*** Update File: old.txt', '*** Move to: new.txt', '@@', ' old'),
       { io }
     );
     expect(result.details).toMatchObject({
@@ -612,7 +609,7 @@ describe('apply_patch 引擎', () => {
     };
     const result = await executeApplyPatch(
       cwd,
-      patch('*** Update File: source.txt', '*** Move to: target.txt'),
+      patch('*** Update File: source.txt', '*** Move to: target.txt', '@@', ' source'),
       { io }
     );
     expect(result.details).toMatchObject({

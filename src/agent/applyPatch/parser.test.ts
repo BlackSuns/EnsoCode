@@ -46,22 +46,81 @@ describe('apply_patch 参数和语法', () => {
     ]);
   });
 
+  it('信封首尾空白可 trim，错误文案与 Codex 一致', () => {
+    expect(parseApplyPatch(`  \n${envelope('*** Add File: a.txt\n+hi')}  \n`)).toEqual([
+      { type: 'add', path: 'a.txt', content: 'hi\n' },
+    ]);
+    expect(() => parseApplyPatch('bad')).toThrow(
+      "invalid patch: The first line of the patch must be '*** Begin Patch'"
+    );
+    expect(() => parseApplyPatch('*** Begin Patch\nbad')).toThrow(
+      "invalid patch: The last line of the patch must be '*** End Patch'"
+    );
+  });
+
+  it('空 envelope 解析为空操作；空 Update 与 rename-only 拒绝', () => {
+    expect(parseApplyPatch('*** Begin Patch\n*** End Patch')).toEqual([]);
+    expect(() => parseApplyPatch(envelope('*** Update File: a.txt'))).toThrow(
+      /Update file hunk for path 'a.txt' is empty/
+    );
+    expect(() => parseApplyPatch(envelope('*** Update File: a.txt\n*** Move to: b.txt'))).toThrow(
+      /Update file hunk for path 'a.txt' is empty/
+    );
+    expect(() => parseApplyPatch(envelope('*** Update File: a.txt\n@@'))).toThrow(
+      /Update hunk does not contain any lines/
+    );
+  });
+
   it.each([
     ['', 'envelope'],
-    [envelope(''), 'empty patch'],
-    [envelope('*** Update File: a.txt\n@@'), 'empty update'],
-    [envelope('*** Update File: a.txt\n@@\n same'), 'noop'],
     [envelope('*** Delete File: a.txt\n+bad'), 'syntax'],
     [envelope('*** Add File: a.txt\nvalue'), 'syntax'],
     [`prefix\n${envelope('*** Add File: a.txt\n+a')}`, 'envelope'],
-    [envelope('*** Add File: a.txt\r+a'), 'lone CR'],
-  ])('拒绝非法或无效果 patch：%s', (patch) => {
+  ])('拒绝非法 patch：%s', (patch) => {
     expect(() => parseApplyPatch(patch)).toThrow();
   });
 
-  it('只标准化 patch 的 CRLF，不接受 shell 包装或 lone CR', () => {
+  it('接受 heredoc 包装，拒绝引号不匹配的 heredoc', () => {
+    const inner = envelope('*** Add File: a.txt\n+hi');
+    expect(parseApplyPatch(`<<EOF\n${inner}\nEOF\n`)).toEqual([
+      { type: 'add', path: 'a.txt', content: 'hi\n' },
+    ]);
+    expect(parseApplyPatch(`<<'EOF'\n${inner}\nEOF`)).toEqual([
+      { type: 'add', path: 'a.txt', content: 'hi\n' },
+    ]);
+    expect(parseApplyPatch(`<<"EOF"\n${inner}\nEOF`)).toEqual([
+      { type: 'add', path: 'a.txt', content: 'hi\n' },
+    ]);
+    expect(() => parseApplyPatch(`<<"EOF'\n${inner}\nEOF`)).toThrow(/Begin Patch/);
+  });
+
+  it('接受 Environment ID 且拒绝空或重复', () => {
+    expect(
+      parseApplyPatch(
+        '*** Begin Patch\n*** Environment ID: remote\n*** Add File: a.txt\n+hi\n*** End Patch'
+      )
+    ).toEqual([{ type: 'add', path: 'a.txt', content: 'hi\n' }]);
+    expect(() =>
+      parseApplyPatch(
+        '*** Begin Patch\n*** Environment ID:   \n*** Add File: a.txt\n+hi\n*** End Patch'
+      )
+    ).toThrow(/environment_id cannot be empty/);
+    expect(() =>
+      parseApplyPatch(
+        '*** Begin Patch\n*** Environment ID: a\n*** Environment ID: b\n*** Add File: a.txt\n+hi\n*** End Patch'
+      )
+    ).toThrow(/more than once/);
+  });
+
+  it('CRLF 与 End Patch 后的空白行可解析；EOF 后不得再跟改动行', () => {
     const crlf = envelope('*** Add File: a.txt\n+x').replaceAll('\n', '\r\n');
     expect(parseApplyPatch(crlf)).toEqual([{ type: 'add', path: 'a.txt', content: 'x\n' }]);
+    expect(parseApplyPatch(`${envelope('*** Add File: a.txt\n+x')}\n \t\n`)).toEqual([
+      { type: 'add', path: 'a.txt', content: 'x\n' },
+    ]);
+    expect(() =>
+      parseApplyPatch(envelope('*** Update File: a.txt\n@@\n-old\n+new\n*** End of File\n+late'))
+    ).toThrow(/@@ context marker/);
   });
 
   it('Add 区分空文件与空白行，非空内容固定生成 LF 终止换行', () => {
@@ -86,52 +145,40 @@ describe('apply_patch 参数和语法', () => {
     expect(operation.chunks[0]).not.toHaveProperty('changeContext');
   });
 
-  it('非空 @@ anchor 的尾空白保持原样', () => {
+  it('非空 @@ anchor 按 Codex trim_end，尾空白不保留', () => {
     const [operation] = parseApplyPatch(
       envelope('*** Update File: a.txt\n@@ function name  \t\n-old\n+new')
     );
     if (operation.type !== 'update') throw new Error('expected update');
-    expect(operation.chunks[0].changeContext).toBe('function name  \t');
+    expect(operation.chunks[0].changeContext).toBe('function name');
   });
 
-  it('允许仅 rename 的 Update，但 EOF 标记只能位于 chunk 末尾', () => {
-    expect(parseApplyPatch(envelope('*** Update File: a.txt\n*** Move to: b.txt'))).toMatchObject([
-      { type: 'update', path: 'a.txt', movePath: 'b.txt', chunks: [] },
-    ]);
-    expect(() =>
-      parseApplyPatch(envelope('*** Update File: a.txt\n@@\n-old\n+new\n*** End of File\n+late'))
-    ).toThrow();
-  });
-
-  it('跳过只有上下文的定位 hunk，保留真正的改动', () => {
+  it('Update 中无前缀空行当作空 context，不跳过 identity chunk', () => {
     const [operation] = parseApplyPatch(
       envelope(
-        [
-          '*** Update File: a.txt',
-          '@@',
-          ' it("existing") {',
-          '@@',
-          '   expect(tail);',
-          ' }',
-          '+',
-          '+it("new") {',
-          '+}',
-        ].join('\n')
+        ['*** Update File: file.txt', '@@', ' context before', '', ' context after'].join('\n')
       )
     );
     expect(operation).toMatchObject({
       type: 'update',
-      path: 'a.txt',
       chunks: [
         {
-          oldLines: ['  expect(tail);', '}'],
-          newLines: ['  expect(tail);', '}', '', 'it("new") {', '}'],
+          oldLines: ['context before', '', 'context after'],
+          newLines: ['context before', '', 'context after'],
+          contextLineIndices: [
+            [0, 0],
+            [1, 1],
+            [2, 2],
+          ],
         },
       ],
     });
+    expect(parseApplyPatch(envelope('*** Update File: a.txt\n@@\n-same\n+same'))).toMatchObject([
+      { type: 'update', chunks: [{ oldLines: ['same'], newLines: ['same'] }] },
+    ]);
   });
 
-  it('前后都有定位 hunk 时只保留中间的实质改动', () => {
+  it('保留只有上下文的定位 hunk，不把后续改动合并掉', () => {
     const [operation] = parseApplyPatch(
       envelope(
         [
@@ -148,19 +195,11 @@ describe('apply_patch 参数和语法', () => {
     );
     expect(operation).toMatchObject({
       type: 'update',
-      chunks: [{ oldLines: ['old'], newLines: ['new'] }],
+      chunks: [
+        { changeContext: 'leading', oldLines: ['keep'], newLines: ['keep'] },
+        { oldLines: ['old'], newLines: ['new'] },
+        { oldLines: ['trailing'], newLines: ['trailing'] },
+      ],
     });
-  });
-
-  it('只有定位 hunk 的 Update 仍拒绝；有 -/+ 但内容相同也拒绝', () => {
-    expect(() => parseApplyPatch(envelope('*** Update File: a.txt\n@@\n same'))).toThrow(
-      /Update file 'a.txt' has no '-'\/'\+' edits/
-    );
-    expect(() => parseApplyPatch(envelope('*** Update File: a.txt\n@@\n-same\n+same'))).toThrow(
-      /No-op update chunk at line 3: '-' and '\+' lines are identical/
-    );
-    expect(() =>
-      parseApplyPatch(envelope('*** Update File: a.txt\n@@\n-same\n+same\n@@\n-old\n+new'))
-    ).toThrow(/No-op update chunk at line 3: '-' and '\+' lines are identical/);
   });
 });

@@ -125,6 +125,7 @@ async function buildPlan(
     parseApplyPatch(input),
     io.normalizePath ?? normalizePatchPath
   );
+  if (operations.length === 0) throw new Error('No files were modified.');
   const chunks = operations.reduce(
     (count, operation) => count + (operation.type === 'update' ? operation.chunks.length : 0),
     0

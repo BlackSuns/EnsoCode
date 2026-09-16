@@ -8,21 +8,78 @@ export interface CreateApplyPatchToolOptions {
   io?: PatchIo;
 }
 
+export const APPLY_PATCH_PROMPT_SNIPPET = 'The `apply_patch` tool can be used to edit files.';
+
+const APPLY_PATCH_LARK_GRAMMAR = `start: begin_patch hunk+ end_patch
+begin_patch: "*** Begin Patch" LF
+end_patch: "*** End Patch" LF?
+
+hunk: add_hunk | delete_hunk | update_hunk
+add_hunk: "*** Add File: " filename LF add_line+
+delete_hunk: "*** Delete File: " filename LF
+update_hunk: "*** Update File: " filename LF change_move? change?
+
+filename: /(.+)/
+add_line: "+" /(.*)/ LF -> line
+
+change_move: "*** Move to: " filename LF
+change: (change_context | change_line)+ eof_line?
+change_context: ("@@" | "@@ " /(.+)/) LF
+change_line: ("+" | "-" | " ") /(.*)/ LF
+eof_line: "*** End of File" LF
+
+%import common.LF`;
+
+export const APPLY_PATCH_TOOL_DESCRIPTION = `${APPLY_PATCH_PROMPT_SNIPPET}
+
+Use the \`apply_patch\` tool to edit files. Your patch language is a stripped\u2011down, file\u2011oriented diff format designed to be easy to parse and safe to apply. You can think of it as a high-level envelope:
+
+*** Begin Patch
+[ one or more file sections ]
+*** End Patch
+
+Within that envelope, you get a sequence of file operations.
+You MUST include a header to specify the action you are taking.
+Each operation starts with one of three headers:
+
+*** Add File: <path> - create a new file. Every following line is a + line (the initial contents).
+*** Delete File: <path> - remove an existing file. Nothing follows.
+*** Update File: <path> - patch an existing file in place (optionally with a rename).
+
+Example patch:
+
+\`\`\`
+*** Begin Patch
+*** Add File: hello.txt
++Hello world
+*** Update File: src/app.py
+*** Move to: src/main.py
+@@ def greet():
+-print("Hi")
++print("Hello, world!")
+*** Delete File: obsolete.txt
+*** End Patch
+\`\`\`
+
+It is important to remember:
+
+- You must include a header with your intended action (Add/Delete/Update)
+- You must prefix new lines with \`+\` even when creating a new file
+
+${APPLY_PATCH_LARK_GRAMMAR}`;
+
 export function createApplyPatchTool(options: CreateApplyPatchToolOptions): ToolDefinition {
   return {
     name: 'apply_patch',
     label: 'Apply patch',
-    description:
-      "Apply a strict Codex-style patch. Workspace-relative paths and explicit absolute paths are supported; relative paths must stay inside the workspace. Use exactly one Begin/End pair per call; put all file hunks inside it; never concatenate patches. Complete multi-file example:\n*** Begin Patch\n*** Update File: example/config.txt\n@@\n-old setting\n+new setting\n*** Add File: example/new-note.txt\n+new note\n*** Delete File: example/old-note.txt\n*** End Patch\nUse `*** Add File: path` followed by `+` on every content line; use `*** Delete File: path` with no body. Update may include `*** Move to: path`. A context line starts with one space, a deletion with `-`, and an addition with `+`. Never put an unprefixed blank separator inside Update; blank context must start with one space. `@@` must be bare or `@@ context anchor`; never use unified-diff line-number ranges such as `@@ -1,2 +1,2 @@`. Do not insert extra @@ hunks that only contain context; put the locator on '@@ ...' and '-'/'+' edits in the same hunk. An Update that only copies existing lines is rejected. Context matches exact text first, then trimEnd; the selected level must match uniquely. BOM is preserved automatically: never add a BOM or NUL to patch content. Shell/heredoc wrappers are not accepted. Non-empty added files use LF and end with a newline; an empty Add hunk creates an empty file. Updates preserve existing BOM, unchanged line endings, and final-newline state.",
-    promptSnippet:
-      "apply_patch: each Update needs at least one '-' or '+' line; pass only {input:string}",
+    description: APPLY_PATCH_TOOL_DESCRIPTION,
+    promptSnippet: APPLY_PATCH_PROMPT_SNIPPET,
     parameters: {
       type: 'object',
       properties: {
         input: {
           type: 'string',
-          description:
-            "Complete strict Codex Begin/End patch text. Every Update must include at least one '-' or '+' line.",
+          description: 'Complete apply_patch document starting with *** Begin Patch',
         },
       },
       required: ['input'],

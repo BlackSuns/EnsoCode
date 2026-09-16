@@ -31,7 +31,6 @@ function parseSource(
   bom: string;
   lines: SourceLine[];
   preferredEnding: string;
-  terminated: boolean;
   text: string;
 } {
   const text = decode(raw, path);
@@ -56,41 +55,80 @@ function parseSource(
     start = cursor + 1;
   }
   if (start < body.length) lines.push({ text: body.slice(start) });
-  return {
-    bom,
-    lines,
-    preferredEnding,
-    terminated: body.length > 0 && start === body.length,
-    text,
-  };
+  return { bom, lines, preferredEnding, text };
 }
 
-function findUnique(
+function normalizePunctuation(value: string): string {
+  return [...value.trim()]
+    .map((char) => {
+      switch (char) {
+        case '\u2010':
+        case '\u2011':
+        case '\u2012':
+        case '\u2013':
+        case '\u2014':
+        case '\u2015':
+        case '\u2212':
+          return '-';
+        case '\u2018':
+        case '\u2019':
+        case '\u201A':
+        case '\u201B':
+          return "'";
+        case '\u201C':
+        case '\u201D':
+        case '\u201E':
+        case '\u201F':
+          return '"';
+        case '\u00A0':
+        case '\u2002':
+        case '\u2003':
+        case '\u2004':
+        case '\u2005':
+        case '\u2006':
+        case '\u2007':
+        case '\u2008':
+        case '\u2009':
+        case '\u200A':
+        case '\u202F':
+        case '\u205F':
+        case '\u3000':
+          return ' ';
+        default:
+          return char;
+      }
+    })
+    .join('');
+}
+
+function seekSequence(
   lines: readonly string[],
   pattern: readonly string[],
   start: number,
   eof: boolean,
-  label: string,
   budget: MatchBudget
-): number {
-  const normalizers = [(value: string) => value, (value: string) => value.trimEnd()];
-  for (const normalize of normalizers) {
-    const matches: number[] = [];
-    const last = lines.length - pattern.length;
-    const first = eof ? Math.max(start, last) : start;
-    for (let index = Math.max(0, first); index <= last; index += 1) {
-      budget.remaining -= pattern.length;
-      if (budget.remaining < 0) throw new Error('apply_patch comparison limit exceeded');
-      if (pattern.every((line, offset) => normalize(lines[index + offset]) === normalize(line))) {
-        matches.push(index);
-      }
-      if (eof) break;
+): number | undefined {
+  if (pattern.length === 0) return start;
+  if (pattern.length > lines.length) return undefined;
+  const last = lines.length - pattern.length;
+  const searchStart = eof ? Math.max(start, last) : start;
+  const matchAt = (index: number, equal: (left: string, right: string) => boolean): boolean => {
+    budget.remaining -= pattern.length;
+    if (budget.remaining < 0) throw new Error('apply_patch comparison limit exceeded');
+    return pattern.every((line, offset) => equal(lines[index + offset], line));
+  };
+  const find = (equal: (left: string, right: string) => boolean): number | undefined => {
+    for (let index = searchStart; index <= last; index += 1) {
+      if (matchAt(index, equal)) return index;
     }
-    if (matches.length > 1)
-      throw new Error(`Ambiguous ${label}: matched ${matches.length} locations`);
-    if (matches.length === 1) return matches[0];
-  }
-  throw new Error(`Failed to find ${label}`);
+    return undefined;
+  };
+  return (
+    find((left, right) => left === right) ??
+    find((left, right) => left.trimEnd() === right.trimEnd()) ??
+    find((left, right) => left.trim() === right.trim()) ??
+    find((left, right) => normalizePunctuation(left) === normalizePunctuation(right))
+  );
 }
 
 function computeReplacements(
@@ -101,92 +139,55 @@ function computeReplacements(
 ): Replacement[] {
   const lines = sourceLines.map((line) => line.text);
   const replacements: Replacement[] = [];
-  let modifiedCursor = 0;
-  const insertionPoints = new Set<number>();
+  let lineIndex = 0;
   let order = 0;
   for (const chunk of chunks) {
-    let anchorAfter = 0;
     if (chunk.changeContext !== undefined) {
-      anchorAfter =
-        findUnique(
-          lines,
-          [chunk.changeContext],
-          0,
-          false,
-          `context '${chunk.changeContext}' in ${path}`,
-          budget
-        ) + 1;
-    }
-    let leadingContext = 0;
-    for (const [oldIndex, newIndex] of chunk.contextLineIndices) {
-      if (oldIndex !== leadingContext || newIndex !== leadingContext) break;
-      leadingContext += 1;
-    }
-    const searchStart = Math.max(anchorAfter, modifiedCursor - leadingContext);
-    const replacementStart = replacements.length;
-    if (chunk.oldLines.length === 0) {
-      let index: number;
-      if (chunk.changeContext !== undefined && chunk.endOfFile) {
-        if (anchorAfter !== lines.length) {
-          throw new Error(`Context anchor does not reach End of File in ${path}`);
-        }
-        index = lines.length;
-      } else if (chunk.changeContext !== undefined) index = anchorAfter;
-      else if (chunk.endOfFile) index = lines.length;
-      else if (lines.length === 0) index = 0;
-      else throw new Error(`Pure addition in ${path} needs an anchor or End of File`);
-      if (index < modifiedCursor || insertionPoints.has(index)) {
-        throw new Error(`Overlapping update chunks in ${path}`);
+      const found = seekSequence(lines, [chunk.changeContext], lineIndex, false, budget);
+      if (found === undefined) {
+        throw new Error(`Failed to find context '${chunk.changeContext}' in ${path}`);
       }
-      replacements.push({ index, count: 0, lines: chunk.newLines, order: order++ });
-      insertionPoints.add(index);
-      modifiedCursor = index;
+      lineIndex = found + 1;
+    }
+    if (chunk.oldLines.length === 0) {
+      replacements.push({ index: lines.length, count: 0, lines: chunk.newLines, order: order++ });
       continue;
     }
-    const found = findUnique(
-      lines,
-      chunk.oldLines,
-      searchStart,
-      chunk.endOfFile,
-      `expected lines in ${path}`,
-      budget
-    );
+    let pattern: readonly string[] = chunk.oldLines;
+    let nextLines: readonly string[] = chunk.newLines;
+    let found = seekSequence(lines, pattern, lineIndex, chunk.endOfFile, budget);
+    if (found === undefined && pattern.at(-1) === '') {
+      pattern = pattern.slice(0, -1);
+      if (nextLines.at(-1) === '') nextLines = nextLines.slice(0, -1);
+      found = seekSequence(lines, pattern, lineIndex, chunk.endOfFile, budget);
+    }
+    if (found === undefined) {
+      throw new Error(`Failed to find expected lines in ${path}:\n${chunk.oldLines.join('\n')}`);
+    }
     let oldStart = 0;
     let newStart = 0;
     for (const [oldContext, newContext] of chunk.contextLineIndices) {
+      if (oldContext >= pattern.length || newContext >= nextLines.length) break;
       if (oldStart !== oldContext || newStart !== newContext) {
         replacements.push({
           index: found + oldStart,
           count: oldContext - oldStart,
-          lines: chunk.newLines.slice(newStart, newContext),
+          lines: nextLines.slice(newStart, newContext).slice(),
           order: order++,
         });
       }
       oldStart = oldContext + 1;
       newStart = newContext + 1;
     }
-    if (oldStart !== chunk.oldLines.length || newStart !== chunk.newLines.length) {
+    if (oldStart !== pattern.length || newStart !== nextLines.length) {
       replacements.push({
         index: found + oldStart,
-        count: chunk.oldLines.length - oldStart,
-        lines: chunk.newLines.slice(newStart),
+        count: pattern.length - oldStart,
+        lines: nextLines.slice(newStart).slice(),
         order: order++,
       });
     }
-    for (const replacement of replacements.slice(replacementStart)) {
-      const overlapsInsertion = [...insertionPoints].some(
-        (point) =>
-          point === replacement.index ||
-          (replacement.count > 0 &&
-            point > replacement.index &&
-            point < replacement.index + replacement.count)
-      );
-      if (replacement.index < modifiedCursor || overlapsInsertion) {
-        throw new Error(`Overlapping update chunks in ${path}`);
-      }
-      if (replacement.count === 0) insertionPoints.add(replacement.index);
-      modifiedCursor = Math.max(modifiedCursor, replacement.index + replacement.count);
-    }
+    lineIndex = found + pattern.length;
   }
   return replacements.sort((left, right) => left.index - right.index || left.order - right.order);
 }
@@ -215,11 +216,7 @@ export function applyUpdateChunks(
   for (let index = sourceIndex; index < source.lines.length; index += 1) {
     result.push(source.lines[index]);
   }
-  for (let index = 0; index < result.length; index += 1) {
-    if (index < result.length - 1 || source.terminated) {
-      result[index].ending ??= source.preferredEnding;
-    } else result[index].ending = undefined;
-  }
+  for (const line of result) line.ending ??= source.preferredEnding;
   const body = result.map((line) => `${line.text}${line.ending ?? ''}`).join('');
   return Buffer.from(source.bom + body, 'utf8');
 }

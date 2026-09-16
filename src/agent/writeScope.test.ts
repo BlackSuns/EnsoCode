@@ -44,6 +44,8 @@ describe('extractWriteTargetPaths', () => {
       '*** Begin Patch',
       '*** Update File: src/old.test.ts',
       '*** Move to: src/new.test.ts',
+      '@@',
+      ' keep',
       '*** End Patch',
     ].join('\n');
     expect(extractWriteTargetPaths('apply_patch', { input })).toEqual([
@@ -319,6 +321,8 @@ describe('withWriteScope', () => {
       '+a',
       '*** Update File: allowed/old.ts',
       '*** Move to: outside/new.ts',
+      '@@',
+      ' keep',
       '*** End Patch',
     ].join('\n');
 
@@ -378,6 +382,8 @@ describe('withWriteScope', () => {
       '+a',
       '*** Update File: allowed/old.ts',
       '*** Move to: allowed/new.ts',
+      '@@',
+      ' keep',
       '*** End Patch',
     ].join('\n');
     const pending = wrapped.execute('patch', { input }, undefined, undefined, {} as never);
