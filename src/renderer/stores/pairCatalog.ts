@@ -65,6 +65,9 @@ function buildPayload(): PairCatalogPayload {
     ...(c.thinkingLevel ? { thinkingLevel: c.thinkingLevel } : {}),
     ...(c.unread === true ? { unread: true } : {}),
     ...(c.pendingAsks && c.pendingAsks.length > 0 ? { pendingAskCount: c.pendingAsks.length } : {}),
+    ...(c.pendingApprovals && c.pendingApprovals.length > 0
+      ? { pendingApprovalCount: c.pendingApprovals.length }
+      : {}),
     // 排队消息：手机队列区展示与操作；图片不下发正文，只给个标记
     ...(c.queuedMessages?.length
       ? {

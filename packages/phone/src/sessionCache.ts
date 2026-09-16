@@ -154,6 +154,7 @@ function parseCatalogEntry(value: unknown): CatalogEntry | null {
     !optional(value, 'cwd', isString) ||
     !optional(value, 'unread', isBoolean) ||
     !optional(value, 'pendingAskCount', isUint) ||
+    !optional(value, 'pendingApprovalCount', isUint) ||
     !optional(value, 'parentId', isString) ||
     !optional(value, 'updatedAt', isUint) ||
     !optional(value, 'pinned', isBoolean) ||
@@ -231,6 +232,8 @@ function parseCatalogEntry(value: unknown): CatalogEntry | null {
   if (typeof value.cwd === 'string') out.cwd = value.cwd;
   if (typeof value.unread === 'boolean') out.unread = value.unread;
   if (typeof value.pendingAskCount === 'number') out.pendingAskCount = value.pendingAskCount;
+  if (typeof value.pendingApprovalCount === 'number')
+    out.pendingApprovalCount = value.pendingApprovalCount;
   if (typeof value.parentId === 'string') out.parentId = value.parentId;
   if (typeof value.updatedAt === 'number') out.updatedAt = value.updatedAt;
   if (typeof value.pinned === 'boolean') out.pinned = value.pinned;

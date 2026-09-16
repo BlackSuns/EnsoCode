@@ -10,9 +10,11 @@ import { parseCompactCommand } from '@shared/compactCommand';
 import { Smartphone } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { applyAppBadge, attentionBadgeCount } from './attentionBadge';
 import { ChatScreen } from './ChatScreen';
 import { type ConnState, PairClient, type SessionView } from './client';
 import { pickActive, removeDevice, renameDevice, upsertDevice } from './deviceList';
+import { parseSessionFromSearch, parseSessionId, takeStashedSessionId } from './launchSession';
 import { NewSessionSheet } from './NewSessionSheet';
 import { PairScreen } from './PairScreen';
 import {
@@ -43,6 +45,7 @@ import {
 } from './storage';
 import { setPhoneAgentActions } from './stubs/electron-api';
 import { setQueueActions } from './stubs/sessions-store';
+import { shouldHoldWakeLock, syncWakeLock } from './wakeLock';
 
 /**
  * 扫码直达：桌面二维码是 https 链接，系统相机可直接打开本页并带上 #relay=…&pk=…。
@@ -68,9 +71,9 @@ const PUSH_ENABLED_KEY = 'enso-phone-push';
 
 /** 通知点击冷启动时带的 ?session=：取出即抹掉，优先于上次会话 */
 function takeSessionFromUrl(): string | null {
-  const params = new URLSearchParams(window.location.search);
-  const sessionId = params.get('session');
+  const sessionId = parseSessionFromSearch(window.location.search);
   if (!sessionId) return null;
+  const params = new URLSearchParams(window.location.search);
   params.delete('session');
   const query = params.toString();
   history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : ''));
@@ -101,9 +104,10 @@ export function App() {
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
   const [projectGroups, setProjectGroups] = useState<ProjectGroupEntry[]>([]);
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
+  const [urlSession] = useState(takeSessionFromUrl);
   const [activeId, setActiveId] = useState<string | null>(() => {
     const initial = pickActive(loadDevices(), loadActiveDeviceId());
-    return takeSessionFromUrl() ?? (initial ? loadLastSession(initial.pairId) : null);
+    return urlSession ?? (initial ? loadLastSession(initial.pairId) : null);
   });
   const [view, setView] = useState<SessionView | null>(null);
   /** 订阅会话同步中（subscribe 已发、snapshot 未回）：此时时间线可能是陈旧的 */
@@ -141,11 +145,46 @@ export function App() {
     if (!('serviceWorker' in navigator)) return;
     const onMessage = (event: MessageEvent) => {
       const data = event.data as { type?: string; sessionId?: string };
-      if (data?.type === 'open-session' && data.sessionId) setActiveId(data.sessionId);
+      if (data?.type !== 'open-session') return;
+      const sessionId = parseSessionId(data.sessionId);
+      if (!sessionId) return;
+      setActiveId(sessionId);
+      setDrawerOpen(false);
     };
     navigator.serviceWorker.addEventListener('message', onMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
   }, []);
+  useEffect(() => {
+    applyAppBadge(attentionBadgeCount(catalog));
+  }, [catalog]);
+
+  useEffect(() => {
+    const sync = () => {
+      void syncWakeLock(
+        shouldHoldWakeLock(document.visibilityState === 'visible' && state === 'online', catalog)
+      );
+    };
+    sync();
+    document.addEventListener('visibilitychange', sync);
+    document.addEventListener('pointerdown', sync, { passive: true });
+    return () => {
+      document.removeEventListener('visibilitychange', sync);
+      document.removeEventListener('pointerdown', sync);
+      void syncWakeLock(false);
+    };
+  }, [catalog, state]);
+
+  useEffect(() => {
+    if (urlSession) {
+      void takeStashedSessionId();
+      return;
+    }
+    void takeStashedSessionId().then((id) => {
+      if (!id) return;
+      setActiveId(id);
+      setDrawerOpen(false);
+    });
+  }, [urlSession]);
 
   // 已配对状态下扫桌面二维码（地址栏带 #pk=）：进入添加流程，不再覆盖旧配对
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在挂载时判一次
