@@ -65,6 +65,31 @@ describe('readSkillsRoot', () => {
   it('目录不存在时返回空数组', () => {
     expect(readSkillsRoot(path.join(tmp, 'nope'), 'x')).toEqual([]);
   });
+
+  it('跟随指向技能目录的符号链接', () => {
+    const real = writeSkill(path.join(tmp, 'origin'), 'surge', 'name: Surge\ndescription: surge-cli');
+    const root = path.join(tmp, 'skills');
+    fs.mkdirSync(root);
+    const linked = path.join(root, 'surge');
+    fs.symlinkSync(real, linked);
+    expect(readSkillsRoot(root, 'Claude Code')).toEqual([
+      {
+        name: 'Surge',
+        description: 'surge-cli',
+        path: linked,
+        groupName: 'Claude Code',
+      },
+    ]);
+  });
+
+  it('跳过悬空符号链接和指向文件的符号链接', () => {
+    const root = path.join(tmp, 'skills');
+    fs.mkdirSync(root);
+    fs.symlinkSync(path.join(tmp, 'missing'), path.join(root, 'dangling'));
+    fs.writeFileSync(path.join(tmp, 'plain.txt'), 'not a skill');
+    fs.symlinkSync(path.join(tmp, 'plain.txt'), path.join(root, 'filelink'));
+    expect(readSkillsRoot(root, 'x')).toEqual([]);
+  });
 });
 
 describe('readPluginSkills', () => {

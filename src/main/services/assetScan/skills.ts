@@ -43,7 +43,8 @@ export function readSkillsRoot(root: string, groupName: string): DiscoveredSkill
   const skills: DiscoveredSkill[] = [];
 
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+    // Dirent.isDirectory() 不跟随 symlink；应用包技能常以链接装进 ~/.claude/skills
+    if (!(entry.isDirectory() || entry.isSymbolicLink())) continue;
     const skillDir = path.join(root, entry.name);
     const skillFile = path.join(skillDir, 'SKILL.md');
     if (!fs.existsSync(skillFile)) continue;
