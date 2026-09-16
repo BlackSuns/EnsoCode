@@ -24,6 +24,7 @@ import {
   ArchiveRestore,
   ChevronRight,
   CircleAlert,
+  Ellipsis,
   Eraser,
   FileText,
   FolderGit2,
@@ -83,7 +84,16 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { Input } from '@/components/ui/input';
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  MenuTrigger,
+} from '@/components/ui/menu';
 import { addToast } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
@@ -1061,10 +1071,12 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                     </span>
                                   </button>
                                   {projectPinned && (
-                                    <Pin
-                                      className="h-3 w-3 shrink-0 text-muted-foreground/70 group-hover:hidden"
+                                    <span
+                                      className="flex shrink-0 items-center justify-center rounded p-1 group-hover:hidden"
                                       aria-hidden
-                                    />
+                                    >
+                                      <Pin className="h-3.5 w-3.5 text-muted-foreground/70" />
+                                    </span>
                                   )}
                                   <button
                                     type="button"
@@ -1078,7 +1090,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                       <Pin className="h-3.5 w-3.5" />
                                     )}
                                   </button>
-                                  {/* 只留高频的新建会话;其余操作全部走右键菜单 */}
+                                  {/* 高频新建会话常驻;其余走三点菜单,右键仍可用 */}
                                   <button
                                     type="button"
                                     onClick={() => void newConversation(project.id)}
@@ -1087,6 +1099,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                   >
                                     <MessageSquarePlus className="h-3.5 w-3.5" />
                                   </button>
+                                  <ProjectOverflowMenu actions={projectActions} />
                                 </div>
                                 <AnimatePresence initial={false}>
                                   {!folded && (
@@ -2411,10 +2424,32 @@ type ProjectAction =
     };
 
 /** 菜单项渲染:submenu 递归展开,让动态分组列表不把主菜单撑长 */
-function renderProjectActions(actions: ProjectAction[]): React.ReactNode {
+function renderProjectActions(
+  actions: ProjectAction[],
+  surface: 'context' | 'menu' = 'context'
+): React.ReactNode {
   return actions.map((action) => {
-    if (action.kind === 'separator') return <ContextMenuSeparator key={action.key} />;
+    if (action.kind === 'separator') {
+      return surface === 'menu' ? (
+        <MenuSeparator key={action.key} />
+      ) : (
+        <ContextMenuSeparator key={action.key} />
+      );
+    }
     if (action.kind === 'submenu') {
+      if (surface === 'menu') {
+        return (
+          <MenuSub key={action.key}>
+            <MenuSubTrigger>
+              {action.icon}
+              {action.label}
+            </MenuSubTrigger>
+            <MenuSubPopup className="min-w-40">
+              {renderProjectActions(action.items, 'menu')}
+            </MenuSubPopup>
+          </MenuSub>
+        );
+      }
       return (
         <ContextMenuSub key={action.key}>
           <ContextMenuSubTrigger>
@@ -2425,6 +2460,18 @@ function renderProjectActions(actions: ProjectAction[]): React.ReactNode {
             {renderProjectActions(action.items)}
           </ContextMenuSubPopup>
         </ContextMenuSub>
+      );
+    }
+    if (surface === 'menu') {
+      return (
+        <MenuItem
+          key={action.key}
+          onClick={action.onSelect}
+          variant={action.destructive ? 'destructive' : 'default'}
+        >
+          {action.icon}
+          {action.label}
+        </MenuItem>
       );
     }
     return (
@@ -2438,6 +2485,25 @@ function renderProjectActions(actions: ProjectAction[]): React.ReactNode {
       </ContextMenuItem>
     );
   });
+}
+
+function ProjectOverflowMenu({ actions }: { actions: ProjectAction[] }) {
+  const { t } = useI18n();
+  return (
+    <Menu>
+      <MenuTrigger
+        aria-label={t('More actions')}
+        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground data-popup-open:bg-muted data-popup-open:text-foreground"
+        title={t('More actions')}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <Ellipsis className="h-3.5 w-3.5" />
+      </MenuTrigger>
+      <MenuPopup align="end" className="min-w-40">
+        {renderProjectActions(actions, 'menu')}
+      </MenuPopup>
+    </Menu>
+  );
 }
 
 /** 区块标签:纯文字,不占图标列(对应不可折叠的 Active / Pinned 等分区) */
