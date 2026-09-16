@@ -91,6 +91,7 @@ import {
   applyDispatchEvent,
   applyHistoryPage,
   emptyProjection,
+  isVisibleGenerationOutput,
   type SessionProjection,
   type TimelineMessage,
   truncatedNeedsSnapshotResync,
@@ -129,6 +130,8 @@ let evictTimer: ReturnType<typeof setTimeout> | null = null;
 /** 正文脱节时向 worker 补要 snapshot 的去抖：同一会话一轮重叠的 upsert 不重复要 */
 const snapshotResyncAt: Record<string, number> = {};
 const SNAPSHOT_RESYNC_DEBOUNCE_MS = 2_000;
+/** 冷会话不落正文，只按此节流续 lastOutputAt：每个流式增量都 set 会逐条触发 persist */
+const COLD_HEARTBEAT_INTERVAL_MS = 5_000;
 function resyncSnapshot(sessionId: string): void {
   const now = Date.now();
   if (now - (snapshotResyncAt[sessionId] ?? 0) < SNAPSHOT_RESYNC_DEBOUNCE_MS) return;
@@ -915,7 +918,14 @@ export const useSessionsStore = create<SessionsState>()(
             return { conversations };
           });
           if (event.partial) {
-            for (const session of event.sessions) continueGoal(session.identity.sessionId);
+            for (const session of event.sessions) {
+              const id = session.identity.sessionId;
+              // 补快照可能意味着 turn-completed 已错过（renderer 重载 / 正文脱节），排队消息与
+              // goal 一并泵；用户中断的轮次由 turn-completed 收口，这里不抢跑
+              if (get().conversations[id]?.abortRequested) continue;
+              flushQueue(id);
+              continueGoal(id);
+            }
             if (event.sessionId) {
               const state = get();
               const target = state.conversations[event.sessionId];
@@ -1276,6 +1286,17 @@ export const useSessionsStore = create<SessionsState>()(
             });
             set((state) => patch(state, id, { title: extractedTitle }));
           }
+          // 正文不落地，但可见输出仍要续心跳，否则 watchdog 会把后台仍在跑的会话当卡死。
+          // 没有旧正文可比对，重复快照也算；代价只是最多每 5s 一次写入
+          const now = Date.now();
+          if (
+            event.type === 'message-upsert' &&
+            currentConversation.status === 'running' &&
+            now - (currentConversation.lastOutputAt ?? 0) >= COLD_HEARTBEAT_INTERVAL_MS &&
+            isVisibleGenerationOutput(event.message)
+          ) {
+            set((state) => patch(state, id, { lastOutputAt: now }));
+          }
           // persist 在 set 返回原 state 时也会写，必须在调用 set 之前跳过。
           return;
         }
@@ -1496,17 +1517,15 @@ export const useSessionsStore = create<SessionsState>()(
         ) {
           return;
         }
-        // 无进展守卫:最终 assistant 文本归一化比对,连续 3 次相同/为空即暂停
+        // 无进展守卫:最终 assistant 文本归一化比对,连续 3 次相同/为空即暂停。
+        // 正文被冷缓存清空时回退到 worker 切出的本轮 digest，否则空正文会被当成无进展
         const lastAssistant = [...conversation.messages]
           .reverse()
           .find((message) => message.role === 'assistant');
-        const output = (lastAssistant?.content ?? [])
-          .map((part) => (part.type === 'text' ? part.text : ''))
-          .join('')
-          .normalize('NFKC')
-          .toLowerCase()
-          .replace(/\s+/g, ' ')
-          .trim();
+        const raw = lastAssistant
+          ? lastAssistant.content.map((part) => (part.type === 'text' ? part.text : '')).join('')
+          : (conversation.lastTurnDigest?.assistantText ?? '');
+        const output = raw.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
         const noProgress = output === '' || output === goal.lastOutput;
         const noProgressRuns = noProgress ? goal.noProgressRuns + 1 : 0;
         if (noProgressRuns >= 3) {

@@ -130,6 +130,12 @@ expect(store.getState().conversations.ended.messages).toHaveLength(before);
 
 越界 `message-upsert` 只推 `seq`。把丢弃的权威事件当成心跳，watchdog 会认为模型一直有输出。
 
+冷会话（正文已被 `evictColdMessages` 清空）的 `message-upsert` 在 store 层就被跳过、不进 reducer，
+但可见输出仍要续 `lastOutputAt`（`isVisibleGenerationOutput(message)`，无旧正文可比、按 5s 节流），
+否则只做 LLM 文本 + read/grep 的后台会话零心跳，到点被 watchdog 误 abort。
+同理 `continueGoal` 的无进展守卫在正文为空时回退到 `lastTurnDigest.assistantText`；
+partial `snapshot` 恢复后要和 `turn-completed` 一样先 `flushQueue` 再 `continueGoal`（`abortRequested` 时不抢跑）。
+
 `snapshot` 不是新输出：同代连续 running 保留 `runStartedAt` / `lastOutputAt` 与未完成工具尾巴；
 首次/新代 running 以接收时间建立起点但不伪造输出。同代 idle/failed 结算 activeMs，显式清空时钟。
 **不能只省略时钟字段**：store 浅合并投影会保留旧值。新代/终态清空 toolOutputs，同轮快照清掉已完成工具的旧输出。
