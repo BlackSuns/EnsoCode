@@ -136,6 +136,7 @@ import {
   readSidebarOrder,
   writeSidebarOrder,
 } from '@/stores/settings/sidebarOrderStorage';
+import { SessionTabCounts } from './SessionTabCounts';
 import { WorktreeBadge } from './WorktreeBadge';
 import { WorktreeRenameDialog } from './WorktreeRenameDialog';
 
@@ -2123,7 +2124,7 @@ function ConversationRow({
       data-slot="conversation-row"
       data-pinned={pinned ? 'true' : 'false'}
       className={cn(
-        // 会话行与项目行共用图标/文字基准，worktree 标签独占第二行
+        // 会话行与项目行共用图标/文字基准，worktree 与浏览器/终端计数在第二行
         'group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-0.5 rounded-lg py-1.5 pr-2 pl-2 text-sm transition-colors',
         active
           ? 'bg-muted text-foreground'
@@ -2241,13 +2242,19 @@ function ConversationRow({
             </>
           ))}
       </div>
-      {isolated && worktree && (
+      {isolated && worktree ? (
         <div
           data-slot="conversation-worktree-row"
           className="col-span-2 grid min-w-0 grid-cols-subgrid"
         >
-          <WorktreeBadge worktree={worktree} status={worktreeStatus} />
+          <WorktreeBadge
+            worktree={worktree}
+            status={worktreeStatus}
+            after={<SessionTabCounts conversationId={id} />}
+          />
         </div>
+      ) : (
+        <SessionTabCounts conversationId={id} row />
       )}
     </div>
   );

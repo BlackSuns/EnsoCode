@@ -31,6 +31,7 @@ import {
   renderSnapshot,
 } from '@shared/browser/snapshot';
 import {
+  dropPersistedTabsForSession,
   type PersistedBrowserTab,
   parsePersistedBrowserTabs,
   serializePersistedBrowserTabs,
@@ -520,6 +521,18 @@ export class BrowserHost {
     this.forgetTab(tabId);
     await this.destroyTab(tab);
     for (const listener of this.closeListeners) listener(tab.ownerSessionId, tabId);
+  }
+
+  async closeSession(sessionId: string): Promise<void> {
+    const live = [...this.tabs.values()].filter((tab) => tab.ownerSessionId === sessionId);
+    for (const tab of live) await this.closeTab(tab.id);
+    this.loadPersisted();
+    const next = dropPersistedTabsForSession(this.persisted, sessionId);
+    if (Object.keys(next).length !== Object.keys(this.persisted).length) {
+      this.persisted = next;
+      this.writePersisted();
+    }
+    this.currentBySession.delete(sessionId);
   }
 
   /** 加锁只作用于当前 tab；释放要覆盖会话下全部 tab，否则切过 tab 会留下永远锁死的孤儿。 */

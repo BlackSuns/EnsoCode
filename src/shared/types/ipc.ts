@@ -256,6 +256,7 @@ export const IPC_CHANNELS = {
   BROWSER_RESTORE_TABS: 'browser:restore-tabs',
   BROWSER_LIST_SEARCHABLE_TABS: 'browser:list-searchable-tabs',
   BROWSER_CLOSE_TAB: 'browser:close-tab',
+  BROWSER_CLOSE_SESSION: 'browser:close-session',
   /** renderer → main:开关面板内嵌 DevTools */
   BROWSER_SET_DEVTOOLS: 'browser:set-devtools',
   /** renderer → main:DevTools 洞矩形 */

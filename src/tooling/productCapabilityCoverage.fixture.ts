@@ -516,6 +516,7 @@ export const IPC_PRODUCT_COVERAGE = {
   BROWSER_RESTORE_TABS: excluded('Side panel browser session restore; renderer UI only.'),
   BROWSER_LIST_SEARCHABLE_TABS: excluded('Search Anything tab list; renderer UI only.'),
   BROWSER_CLOSE_TAB: excluded('Side panel browser tab close; renderer UI only.'),
+  BROWSER_CLOSE_SESSION: excluded('Close all browser tabs when a conversation is deleted.'),
   BROWSER_SET_DEVTOOLS: excluded('Side panel browser native DevTools toggle; renderer UI only.'),
   BROWSER_SET_DEVTOOLS_VIEWPORT: excluded(
     'Side panel browser DevTools overlay geometry; renderer UI only.'

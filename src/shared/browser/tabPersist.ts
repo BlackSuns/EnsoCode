@@ -37,3 +37,15 @@ export function parsePersistedBrowserTabs(raw: unknown): Record<string, Persiste
 export function serializePersistedBrowserTabs(tabs: Record<string, PersistedBrowserTab>): string {
   return JSON.stringify(tabs);
 }
+
+export function dropPersistedTabsForSession(
+  tabs: Record<string, PersistedBrowserTab>,
+  sessionId: string
+): Record<string, PersistedBrowserTab> {
+  const next: Record<string, PersistedBrowserTab> = {};
+  for (const [id, tab] of Object.entries(tabs)) {
+    if (tab.conversationId === sessionId || id === sessionId) continue;
+    next[id] = tab;
+  }
+  return next;
+}

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parsePersistedBrowserTabs, serializePersistedBrowserTabs } from './tabPersist';
+import {
+  dropPersistedTabsForSession,
+  parsePersistedBrowserTabs,
+  serializePersistedBrowserTabs,
+} from './tabPersist';
 
 describe('parsePersistedBrowserTabs', () => {
   it('keeps http(s) entries and drops junk', () => {
@@ -26,5 +30,30 @@ describe('parsePersistedBrowserTabs', () => {
     expect(parsePersistedBrowserTabs(JSON.parse(serializePersistedBrowserTabs(data)))).toEqual(
       data
     );
+  });
+});
+
+describe('dropPersistedTabsForSession', () => {
+  it('drops live and hibernated tabs for one session and keeps others', () => {
+    expect(
+      dropPersistedTabsForSession(
+        {
+          'browser:1': {
+            url: 'https://a.test/',
+            title: 'A',
+            conversationId: 'conv-a',
+          },
+          'browser:2': {
+            url: 'https://b.test/',
+            title: 'B',
+            conversationId: 'conv-b',
+          },
+          'conv-a': { url: 'https://legacy.test/', title: 'Legacy', conversationId: 'conv-a' },
+        },
+        'conv-a'
+      )
+    ).toEqual({
+      'browser:2': { url: 'https://b.test/', title: 'B', conversationId: 'conv-b' },
+    });
   });
 });

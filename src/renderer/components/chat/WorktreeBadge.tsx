@@ -1,5 +1,6 @@
 import type { SessionWorktree, WorktreeStatus } from '@shared/types/worktree';
 import { GitBranch } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { type TFunction, useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { worktreeDisplayName } from './worktreeUi';
@@ -24,9 +25,11 @@ export function worktreeHoverText(
 export function WorktreeBadge({
   worktree,
   status,
+  after,
 }: {
   worktree: SessionWorktree;
   status?: WorktreeStatus;
+  after?: ReactNode;
 }) {
   const { t } = useI18n();
   return (
@@ -49,7 +52,10 @@ export function WorktreeBadge({
           )}
         />
       </span>
-      <span className="min-w-0 truncate">{worktreeDisplayName(worktree)}</span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="min-w-0 truncate">{worktreeDisplayName(worktree)}</span>
+        {after}
+      </span>
     </span>
   );
 }

@@ -79,6 +79,9 @@ export function registerBrowserHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.BROWSER_CLOSE_TAB, async (_event, tabId: unknown) => {
     if (isId(tabId)) await browserHost.closeTab(tabId);
   });
+  ipcMain.handle(IPC_CHANNELS.BROWSER_CLOSE_SESSION, async (_event, conversationId: unknown) => {
+    if (isId(conversationId)) await browserHost.closeSession(conversationId);
+  });
   ipcMain.handle(IPC_CHANNELS.BROWSER_CLEAR_DATA, async (_event, kind: unknown) => {
     if (typeof kind !== 'string' || !CLEAR_KINDS.has(kind)) throw new Error('Invalid clear kind');
     await browserHost.clearData(kind as 'cookies' | 'cache' | 'all');

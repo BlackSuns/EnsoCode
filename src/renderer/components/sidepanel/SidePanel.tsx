@@ -29,11 +29,17 @@ import {
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import { useI18n } from '@/i18n';
 import { easeOutLayout, springStandard } from '@/lib/motion';
-import { addSidePanelBrowser, bindSidePanelDock, closeSidePanelBrowser } from '@/lib/sidePanelDock';
+import {
+  addSidePanelBrowser,
+  bindSidePanelDock,
+  closeSidePanelBrowser,
+  disposeConversationResources,
+} from '@/lib/sidePanelDock';
 import { releaseTerminal } from '@/lib/terminalRegistry';
 import { cn } from '@/lib/utils';
 import { useSessionsStore } from '@/stores/sessions';
 import { useSidePanelStore } from '@/stores/sidePanel';
+import { sanitizeSidePanelLayout } from '@/stores/sidePanel/layoutSanitize';
 import { BrowserView } from './BrowserView';
 import { BtwView } from './BtwView';
 import { ChangesView } from './ChangesView';
@@ -478,15 +484,21 @@ function ConversationDock({
       (window as unknown as Record<string, unknown>).__dockviewApi = event.api;
     }
     const saved = useSidePanelStore.getState().layouts[conversationId];
-    if (saved) {
+    const layout = sanitizeSidePanelLayout(saved, new Set(Object.keys(DOCK_COMPONENTS)));
+    let ignoreEmptySave = Boolean(saved) && !layout;
+    if (layout) {
       try {
-        event.api.fromJSON(saved);
+        event.api.fromJSON(layout);
       } catch {
-        // 布局与当前版本不兼容:从空态开始
+        // 布局与当前版本不兼容:从空态开始，且不要把空 dock 写回把旧布局盖掉
+        ignoreEmptySave = true;
       }
     }
     event.api.onDidLayoutChange(() => {
-      useSidePanelStore.getState().saveLayout(conversationId, event.api.toJSON());
+      const json = event.api.toJSON();
+      if (ignoreEmptySave && Object.keys(json.panels ?? {}).length === 0) return;
+      ignoreEmptySave = false;
+      useSidePanelStore.getState().saveLayout(conversationId, json);
     });
     // 只有用户关 tab 才回收;dock 本身不随切会话卸载
     event.api.onDidRemovePanel((panel) => {
@@ -543,6 +555,15 @@ export function SidePanel({ width, resizing = false }: { width: number; resizing
       stopClosed();
     };
   }, []);
+  useEffect(
+    () =>
+      useSessionsStore.subscribe((state, prev) => {
+        for (const id of Object.keys(prev.conversations)) {
+          if (!state.conversations[id]) disposeConversationResources(id);
+        }
+      }),
+    []
+  );
   const conversationId = useSessionsStore((s) => s.activeId);
   const [mountedIds, setMountedIds] = useState<string[]>([]);
   const visibleKey = useSessionsStore((s) =>

@@ -827,6 +827,8 @@ export const zhTranslations: Record<string, string> = {
   'Working tree clean': '工作区干净',
   '{{n}} unmerged commits': '{{n}} 个未合并提交',
   'Isolated worktree · uncommitted changes': '隔离 worktree · 有未提交改动',
+  '{{n}} browsers': '{{n}} 个浏览器',
+  '{{n}} terminals': '{{n}} 个终端',
   'Isolated worktree · {{n}} unmerged commits': '隔离 worktree · {{n}} 个未合并提交',
   'Isolated worktree is missing': '隔离 worktree 已丢失',
   'The worktree of this session was deleted. Rebuild it from branch "{{branch}}" (committed work is preserved), or fall back to the main working tree.':

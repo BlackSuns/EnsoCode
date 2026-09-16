@@ -1,4 +1,5 @@
 import type { DockviewApi } from 'dockview-react';
+import { releaseTerminal } from '@/lib/terminalRegistry';
 import { useSessionsStore } from '@/stores/sessions';
 import { useSidePanelStore } from '@/stores/sidePanel';
 
@@ -126,6 +127,27 @@ export function addSidePanelBtw(opts?: { title?: string }): void {
 
 export function closeSidePanelBrowser(conversationId: string, tabId: string): void {
   docks.get(conversationId)?.getPanel(tabId)?.api.close();
+}
+
+export function disposeConversationResources(conversationId: string): void {
+  const api = docks.get(conversationId);
+  docks.delete(conversationId);
+  filesTabClosers.delete(conversationId);
+  pendingBrowserReveal.splice(
+    0,
+    pendingBrowserReveal.length,
+    ...pendingBrowserReveal.filter((item) => item.conversationId !== conversationId)
+  );
+  if (api) {
+    for (const panel of [...api.panels]) {
+      if (panel.id === 'changes' || panel.id === 'files') continue;
+      if (panel.id === 'browser' || panel.id.startsWith('browser:')) continue;
+      releaseTerminal(panel.id);
+      void window.electronAPI?.terminal?.dispose(panel.id);
+    }
+  }
+  void window.electronAPI?.browser?.closeSession?.(conversationId);
+  useSidePanelStore.getState().forgetConversation(conversationId);
 }
 
 export function closeActiveSidePanelTab(): void {

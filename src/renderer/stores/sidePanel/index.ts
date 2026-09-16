@@ -34,6 +34,7 @@ interface SidePanelState {
   toggleFullscreen: () => void;
   setFullscreen: (fullscreen: boolean) => void;
   saveLayout: (conversationId: string, layout: SerializedDockview) => void;
+  forgetConversation: (conversationId: string) => void;
   setChangesMode: (conversationId: string, mode: ChangesMode) => void;
   saveSnapshots: (conversationId: string, snapshots: SessionChangeSnapshots) => void;
   loadSnapshots: (conversationId: string) => void;
@@ -121,7 +122,18 @@ export const useSidePanelStore = create<SidePanelState>()(
       },
 
       saveLayout: (conversationId, layout) => {
+        if (!useSessionsStore.getState().conversations[conversationId]) return;
         set({ layouts: { ...get().layouts, [conversationId]: layout } });
+      },
+
+      forgetConversation: (conversationId) => {
+        const { [conversationId]: _layout, ...layouts } = get().layouts;
+        const { [conversationId]: _ui, ...uiByConversation } = get().uiByConversation;
+        const { [conversationId]: _mode, ...changesModeByConversation } =
+          get().changesModeByConversation;
+        const { [conversationId]: _snap, ...snapshotsByConversation } =
+          get().snapshotsByConversation;
+        set({ layouts, uiByConversation, changesModeByConversation, snapshotsByConversation });
       },
 
       setChangesMode: (conversationId, mode) => {
