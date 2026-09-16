@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { flattenMentionRoot, type MentionSearchGroups } from '@/hooks/useMentionSearch';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { distinguishingPathLabels } from './mentionPathLabel';
 
 type FolderId = 'agents' | 'chats';
 
@@ -39,6 +40,10 @@ export function MentionPicker({
 }: MentionPickerProps) {
   const { t } = useI18n();
   const items = useMemo(() => flattenMentionRoot(groups, query), [groups, query]);
+  const filePathLabels = useMemo(
+    () => distinguishingPathLabels(groups.files.map((file) => file.relativePath)),
+    [groups.files]
+  );
   const optionRefs = useRef(new Map<number, HTMLButtonElement>());
   const subRefs = useRef(new Map<number, HTMLButtonElement>());
   const nested = items[0]?.type === 'folder';
@@ -84,6 +89,9 @@ export function MentionPicker({
               id={`${id}-option-${index}`}
               candidate={candidate}
               active={index === activeIndex}
+              pathLabel={
+                candidate.kind === 'file' ? filePathLabels.get(candidate.relativePath) : undefined
+              }
               onHover={() => {
                 onActiveIndexChange(index);
                 if (nested) onOpenFolderIdChange(null);
@@ -196,6 +204,7 @@ function MentionOption({
   id,
   candidate,
   active,
+  pathLabel,
   onHover,
   onSelect,
 }: {
@@ -203,6 +212,7 @@ function MentionOption({
   ref: React.Ref<HTMLButtonElement>;
   candidate: MentionCandidate;
   active: boolean;
+  pathLabel?: string;
   onHover: () => void;
   onSelect: () => void;
 }) {
@@ -253,13 +263,16 @@ function MentionOption({
             </Badge>
           )}
         </span>
-        <span className="block truncate text-muted-foreground">
+        <span
+          className="block truncate text-muted-foreground"
+          title={candidate.kind === 'file' ? candidate.relativePath : undefined}
+        >
           {candidate.kind === 'agent-type'
             ? t(candidate.description)
             : candidate.kind === 'chat'
               ? candidate.sessionFile.split('/').at(-1)
               : candidate.kind === 'file'
-                ? candidate.relativePath
+                ? (pathLabel ?? candidate.relativePath)
                 : candidate.path}
         </span>
       </span>
