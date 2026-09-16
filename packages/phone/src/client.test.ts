@@ -530,4 +530,36 @@ describe('PairClient 缓存与续传', () => {
     expect(socket.sent.filter((item) => item.type === 'snapshot')).toHaveLength(2);
     expect(socket.sent.filter((item) => item.type === 'subscribe')).toHaveLength(2);
   });
+
+  it('后台超过阈值回前台立即换 socket，不等 ping', async () => {
+    const socket = await start();
+    client.conceal();
+    await vi.advanceTimersByTimeAsync(2_000);
+    client.nudge('visibility');
+    await settle();
+    expect(socket.readyState).toBe(3);
+    expect(Socket.all).toHaveLength(2);
+  });
+
+  it('短暂切后台只探活，不拆还 OPEN 的 socket', async () => {
+    const socket = await start();
+    client.conceal();
+    await vi.advanceTimersByTimeAsync(200);
+    client.nudge('visibility');
+    await settle();
+    expect(socket.readyState).toBe(1);
+    expect(Socket.all).toHaveLength(1);
+  });
+
+  it('已经 CONNECTING 时回前台不另开一条', async () => {
+    client.connect();
+    await settle();
+    expect(Socket.all).toHaveLength(1);
+    expect(Socket.all[0].readyState).toBe(0);
+    client.conceal();
+    await vi.advanceTimersByTimeAsync(2_000);
+    client.nudge('visibility');
+    await settle();
+    expect(Socket.all).toHaveLength(1);
+  });
 });

@@ -58,7 +58,7 @@ export {
   revokePairing,
   startHostPairing,
 } from './handshake';
-export { attachHeartbeat, type Heartbeat } from './heartbeat';
+export { attachHeartbeat, type Heartbeat, VISIBILITY_PROBE_MS } from './heartbeat';
 export {
   pairProjectDisplayName,
   pairProjectListLabel,
@@ -99,6 +99,7 @@ export {
 export {
   createCachedHostLookup,
   isConnectStuck,
+  isForegroundSocketStale,
   isMagicDnsOnly,
   type NetworkInterfaceSnapshot,
   type NudgeReason,

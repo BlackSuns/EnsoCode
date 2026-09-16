@@ -13,7 +13,8 @@ export function normalizeRelayUrl(relayUrl: string): string {
 
 /** 指数退避 + 抖动：1s → 2s → 4s… 上限 30s，避免 DO 回收后重连风暴 */
 export function backoffDelay(attempt: number): number {
-  const base = Math.min(30_000, 1000 * 2 ** Math.max(0, attempt));
+  if (attempt <= 0) return 0;
+  const base = Math.min(30_000, 1000 * 2 ** (attempt - 1));
   return Math.round(base * (0.7 + Math.random() * 0.6));
 }
 

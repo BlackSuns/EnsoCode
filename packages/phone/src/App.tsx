@@ -212,6 +212,7 @@ export function App() {
         client.nudge('visibility');
         client.send({ type: 'presence', visible: true });
       } else {
+        client.conceal();
         client.send({ type: 'presence', visible: false });
         client.flushCache();
       }
@@ -231,7 +232,10 @@ export function App() {
     const onFocus = () => {
       if (document.visibilityState === 'visible') client.nudge('visibility');
     };
-    const onPageHide = () => client.flushCache();
+    const onPageHide = () => {
+      client.conceal();
+      client.flushCache();
+    };
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('online', onOnline);
     window.addEventListener('pageshow', onPageShow);

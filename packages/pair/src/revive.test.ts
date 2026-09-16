@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createCachedHostLookup,
   isConnectStuck,
+  isForegroundSocketStale,
   isMagicDnsOnly,
   networkFingerprint,
   parseLiteralHost,
@@ -64,6 +65,14 @@ describe('shouldReplaceOnNudge', () => {
     expect(shouldReplaceOnNudge('visibility', true, 3)).toBe(true);
     expect(shouldReplaceOnNudge('visibility', true, 1)).toBe(false);
     expect(shouldReplaceOnNudge('resume', true, 1)).toBe(false);
+  });
+});
+
+describe('isForegroundSocketStale', () => {
+  it('短暂切走不拆链，后台超过阈值才视为半开', () => {
+    expect(isForegroundSocketStale(0)).toBe(false);
+    expect(isForegroundSocketStale(1_999)).toBe(false);
+    expect(isForegroundSocketStale(2_000)).toBe(true);
   });
 });
 

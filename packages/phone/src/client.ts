@@ -10,6 +10,7 @@ import {
   type Heartbeat,
   type HostToPhone,
   isConnectStuck,
+  isForegroundSocketStale,
   isPairSyncCursor,
   type NudgeReason,
   openFrame,
@@ -25,6 +26,7 @@ import {
   sealFrame,
   shouldReplaceOnNudge,
   toWebSocketUrl,
+  VISIBILITY_PROBE_MS,
 } from '@enso/pair';
 import {
   applyGuestEvent,
@@ -110,6 +112,8 @@ export class PairClient {
   private cacheDirty = false;
   /** 当前这条 WS 已经发过进房 snapshot/subscribe；host-online 立刻再来时不再打第二遍 */
   private roomPrimed = false;
+  /** 上次退到后台的时刻；回前台用来判断 TCP 是否多半已被冻死 */
+  private hiddenAt: number | null = null;
   private metadata: Omit<PhoneCacheData, 'sessions'> = {
     catalog: [],
     pinnedOrder: [],
@@ -278,20 +282,25 @@ export class PairClient {
     if (this.closed || this.revoked) return;
     // 网络换了：直连的候选地址已失效，拆掉立即重协商（先落回中继）
     if (reason === 'online' || reason === 'network-change') this.direct.networkChange();
-    if (shouldReplaceOnNudge(reason, this.ws !== null, this.ws?.readyState ?? null)) {
-      if (this.timer) clearTimeout(this.timer);
-      this.timer = null;
-      this.attempt = 0;
-      if (this.ws) {
-        try {
-          this.ws.close();
-        } catch {}
-      } else {
-        this.connect();
-      }
+    // 已经在连：别把刚发起的握手掐掉再开第二条
+    if (this.ws?.readyState === 0) return;
+    const hiddenMs = this.hiddenAt === null ? 0 : Date.now() - this.hiddenAt;
+    this.hiddenAt = null;
+    const stale =
+      (reason === 'visibility' || reason === 'resume') && isForegroundSocketStale(hiddenMs);
+    if (stale) this.direct.networkChange();
+    if (stale || shouldReplaceOnNudge(reason, this.ws !== null, this.ws?.readyState ?? null)) {
+      this.replaceRelay();
       return;
     }
-    this.heartbeat?.probe(reason === 'visibility' || reason === 'resume' ? 3_000 : undefined);
+    this.heartbeat?.probe(
+      reason === 'visibility' || reason === 'resume' ? VISIBILITY_PROBE_MS : undefined
+    );
+  }
+
+  /** 退后台瞬间记下时刻，回前台判断是否该直接换链 */
+  conceal(): void {
+    this.hiddenAt ??= Date.now();
   }
 
   close(): void {
@@ -311,6 +320,24 @@ export class PairClient {
     if (this.closed || this.revoked) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => this.connect(), backoffDelay(this.attempt++));
+  }
+
+  /** 拆掉旧链并立刻重连，不走 onclose 后再退避 */
+  private replaceRelay(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.attempt = 0;
+    const old = this.ws;
+    if (old) {
+      this.heartbeat?.stop();
+      this.heartbeat = null;
+      this.ws = null;
+      this.roomPrimed = false;
+      try {
+        old.close();
+      } catch {}
+    }
+    this.connect();
   }
 
   private enqueueFrame(frame: Uint8Array, socket?: WebSocket): void {

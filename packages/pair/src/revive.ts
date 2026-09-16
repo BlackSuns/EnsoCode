@@ -53,6 +53,16 @@ export function shouldReplaceOnNudge(
   return reason === 'network-change' || reason === 'online';
 }
 
+/** 后台超过这个时长，iOS 多半已冻死 TCP，回前台不必再等 ping。 */
+export const FOREGROUND_STALE_HIDDEN_MS = 2_000;
+
+export function isForegroundSocketStale(
+  hiddenMs: number,
+  thresholdMs = FOREGROUND_STALE_HIDDEN_MS
+): boolean {
+  return hiddenMs >= thresholdMs;
+}
+
 export const RELAY_CONNECT_TIMEOUT_MS = 8_000;
 
 /** CONNECTING 超过超时仍未 OPEN：拆掉走重连，避免手机网卡住一直转圈 */
