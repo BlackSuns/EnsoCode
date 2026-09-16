@@ -108,6 +108,7 @@ import {
 import { createCoworkerTool } from './coworker';
 import { CURSOR_PROVIDER_ID, loadCursorProvider } from './cursor/loadProvider';
 import { attachCursorBridgeToSession, isCursorModel } from './cursor/sessionBridge';
+import { resolveCustomModelCompat, selectCatalogEntryForCompat } from './customModelCompat';
 import { createNormalizedEditTool } from './editTool';
 import { ENSO_SYSTEM_PROMPT } from './ensoPrompt';
 import { EnsoSafeJournal } from './ensoSafeJournal';
@@ -3738,12 +3739,19 @@ export function resolveBaseModel(runtime: ModelRuntime, model: SpawnModelConfig)
     return oauthModel;
   }
   const providerId = providerKeyFor(model);
-  const catalog = findCatalogModelById(runtime.getModels(), model.modelId);
+  const models = runtime.getModels();
+  const catalog = findCatalogModelById(models, model.modelId);
   const resolved = resolveCustomModelCapabilities(catalog, model);
   const contextWindow = resolved.contextWindow ?? 128_000;
   const maxTokens = resolved.maxTokens ?? 32_000;
+  const piBaseUrl = resolvePiProviderBaseUrl(model.api, model.baseUrl);
+  const compat = resolveCustomModelCompat(
+    model.api,
+    piBaseUrl,
+    selectCatalogEntryForCompat(models, model.api, piBaseUrl, model.modelId)
+  );
   runtime.registerProvider(providerId, {
-    baseUrl: resolvePiProviderBaseUrl(model.api, model.baseUrl),
+    baseUrl: piBaseUrl,
     api: model.api,
     apiKey: model.apiKey,
     // 统一伪装为 enso-code 客户端（覆盖 pi 默认的 "pi (darwin ...)"）
@@ -3760,6 +3768,7 @@ export function resolveBaseModel(runtime: ModelRuntime, model: SpawnModelConfig)
         contextWindow,
         // 太小会把 high/max 的思考预算压扁（预算被限制在 maxTokens-1024 内）
         maxTokens,
+        ...(compat ? { compat } : {}),
       },
     ],
   });

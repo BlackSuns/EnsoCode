@@ -12,6 +12,9 @@ type CatalogRow = {
   thinkingLevelMap?: Record<string, string | null | undefined>;
   contextWindow?: number;
   maxTokens?: number;
+  compat?: unknown;
+  api?: string;
+  baseUrl?: string;
 };
 
 function mockRuntime(options: {
@@ -147,6 +150,98 @@ describe('resolveBaseModel apiKey', () => {
     expect(model.reasoning).toBe(false);
     expect(model.thinkingLevelMap).toBeUndefined();
     expect(model.contextWindow).toBe(1_047_576);
+  });
+
+  it('GLM 中转注册时关掉 developer 并带上 zai thinkingFormat', () => {
+    const runtime = mockRuntime({
+      catalog: [
+        {
+          id: 'glm-5.3-flash',
+          reasoning: true,
+          contextWindow: 1_000_000,
+          maxTokens: 131_072,
+          api: 'openai-completions',
+          compat: {
+            supportsStore: false,
+            supportsDeveloperRole: false,
+            supportsReasoningEffort: true,
+            maxTokensField: 'max_tokens',
+            thinkingFormat: 'zai',
+            zaiToolStream: true,
+          },
+        },
+      ],
+    });
+    const model = resolveBaseModel(runtime, {
+      api: 'openai-completions',
+      baseUrl: 'https://new-api.jishu666.com/v1',
+      apiKey: 'sk-gw',
+      modelId: 'glm-5.3-flash',
+      settingsProviderId: 'settings-provider',
+    });
+    expect(model.compat).toEqual({
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: true,
+      maxTokensField: 'max_tokens',
+      thinkingFormat: 'zai',
+      zaiToolStream: true,
+    });
+  });
+
+  it('未知中转模型默认关掉 developer', () => {
+    const runtime = mockRuntime({ catalog: [] });
+    const model = resolveBaseModel(runtime, {
+      api: 'openai-completions',
+      baseUrl: 'https://gw.example/v1',
+      apiKey: 'sk-gw',
+      modelId: 'my-private-gateway-model',
+      settingsProviderId: 'settings-provider',
+    });
+    expect(model.compat).toEqual({ supportsDeveloperRole: false });
+  });
+
+  it('空 baseUrl 的 openai-completions 回落到官方 host，不关 developer', () => {
+    const runtime = mockRuntime({ catalog: [] });
+    const model = resolveBaseModel(runtime, {
+      api: 'openai-completions',
+      baseUrl: '',
+      apiKey: 'sk-test',
+      modelId: 'gpt-4.1',
+      settingsProviderId: 'settings-provider',
+    });
+    expect(model.compat).toBeUndefined();
+  });
+
+  it('同 id 多 provider 冲突的中转不抄 wire compat', () => {
+    const runtime = mockRuntime({
+      catalog: [
+        {
+          id: 'zai-org/GLM-5.2',
+          api: 'openai-completions',
+          baseUrl: 'https://inference.baseten.co/v1',
+          compat: {
+            thinkingFormat: 'baseten',
+            chatTemplateArgs: { enable_thinking: true },
+            supportsDeveloperRole: false,
+          },
+        },
+        {
+          id: 'zai-org/GLM-5.2',
+          api: 'openai-completions',
+          baseUrl: 'https://api.together.xyz/v1',
+          compat: { thinkingFormat: 'together', supportsDeveloperRole: false },
+        },
+      ],
+    });
+    const model = resolveBaseModel(runtime, {
+      api: 'openai-completions',
+      baseUrl: 'https://gw.example/v1',
+      apiKey: 'sk-gw',
+      modelId: 'zai-org/GLM-5.2',
+      settingsProviderId: 'settings-provider',
+    });
+    expect(model.compat).toEqual({ supportsDeveloperRole: false });
   });
 });
 
