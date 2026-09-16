@@ -139,6 +139,7 @@ import {
 } from './sessionEviction';
 import { branchSessionFromPersistedFile, resolveForkLeafId } from './sessionFork';
 import { createSessionCommandTool } from './sessionShell';
+import { isSilentAssistantTurn, SILENT_TURN_NUDGE } from './silentTurn';
 import { providerKeyFor, smartCompactInlineExtension } from './smartCompact';
 import {
   createSshExecutor,
@@ -235,6 +236,10 @@ interface ManagedSession {
   adaptiveDowngraded: boolean;
   /** 最近一次 auto_retry_start 携带的原始错误（取消重试时的终态错误文案） */
   lastRetryError?: string;
+  /** 当前用户轮已做过一次空回复自动续跑 */
+  silentTurnNudgeUsed: boolean;
+  /** 空回复续跑已发出、尚未收到对应 agent_start/结束 */
+  silentTurnRecovering: boolean;
   timings: (MessageTiming | undefined)[];
   toolStartAt: Map<string, number>;
   toolDurations: Map<string, number>;
@@ -2084,6 +2089,8 @@ export class SessionSupervisor {
       ...(opts.ensoApp ? { ensoApp: opts.ensoApp } : {}),
       ...(opts.safeJournal ? { safeJournal: opts.safeJournal } : {}),
       adaptiveDowngraded: false,
+      silentTurnNudgeUsed: false,
+      silentTurnRecovering: false,
       timings: [],
       toolStartAt: new Map(),
       toolDurations: new Map(),
@@ -2663,6 +2670,7 @@ export class SessionSupervisor {
     managed.lastActivityAt = Date.now();
     switch (event.type) {
       case 'agent_start':
+        if (!managed.silentTurnRecovering) managed.silentTurnNudgeUsed = false;
         managed.currentTurnId ??= randomUUID();
         managed.status = 'running';
         managed.checkpoints?.resetTurn();
@@ -2840,6 +2848,7 @@ export class SessionSupervisor {
           this.failTurn(managed, lastAssistant.errorMessage ?? 'Turn failed.');
           return;
         }
+        if (this.trySilentTurnRecovery(managed)) return;
         const turnId = managed.currentTurnId ?? randomUUID();
         managed.currentTurnId = undefined;
         managed.status = 'idle';
@@ -2889,6 +2898,46 @@ export class SessionSupervisor {
       }
     }
     return decorated;
+  }
+
+  private trySilentTurnRecovery(managed: ManagedSession): boolean {
+    if (managed.silentTurnNudgeUsed) return false;
+    if (!isSilentAssistantTurn(managed.messages.at(-1))) return false;
+    const agent = managed.session.agent;
+    if (!agent) return false;
+    const transcript = agent.state.messages;
+    if (transcript.at(-1)?.role !== 'assistant') return false;
+    agent.state.messages = transcript.slice(0, -1);
+    const tail = agent.state.messages.at(-1)?.role;
+    if (tail !== 'user' && tail !== 'toolResult') {
+      agent.state.messages = transcript;
+      return false;
+    }
+    this.reconcileMessages(managed, this.transcript(managed));
+    managed.silentTurnNudgeUsed = true;
+    managed.silentTurnRecovering = true;
+    ensureAssistantUsage(agent.state.messages as unknown[]);
+    const promptBefore = agent.state.systemPrompt;
+    const promptWithNudge = `${promptBefore}\n\n${SILENT_TURN_NUDGE}`;
+    agent.state.systemPrompt = promptWithNudge;
+    const restore = () => {
+      managed.silentTurnRecovering = false;
+      if (agent.state.systemPrompt === promptWithNudge) {
+        agent.state.systemPrompt = promptBefore;
+      }
+    };
+    try {
+      void agent
+        .continue()
+        .catch((error) => {
+          this.failTurn(managed, toErrorMessage(error));
+        })
+        .finally(restore);
+    } catch (error) {
+      restore();
+      this.failTurn(managed, toErrorMessage(error));
+    }
+    return true;
   }
 
   private tryAdaptiveDowngrade(managed: ManagedSession): boolean {
