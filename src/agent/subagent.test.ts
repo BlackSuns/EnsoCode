@@ -208,6 +208,19 @@ describe('subagent tool model 参数', () => {
     expect(text).toMatch(/do not start a new subagent each round/is);
   });
 
+  it('判断型并行派 N 个 subagent；同类 grep 汇总走 exec，且 exec 互斥不写进 description', () => {
+    const tool = createSubagentTool(makeDeps());
+    const alwaysOn = `${tool.promptSnippet}\n${(tool.promptGuidelines ?? []).join('\n')}`;
+    expect(tool.description).toMatch(/isolated judgment/i);
+    expect(tool.description).toMatch(/same message/i);
+    expect(alwaysOn).toMatch(/isolated judgment/i);
+    expect(alwaysOn).toMatch(/do not serial-search/i);
+    expect(alwaysOn).toMatch(/3\+ similar read\/grep\/find/i);
+    expect(alwaysOn).toMatch(/reduced result/i);
+    expect(alwaysOn).toMatch(/use exec/i);
+    expect(tool.description).not.toMatch(/use exec/i);
+  });
+
   it('当 agent_type 锁定模型（allowModelOverride === false）时，主 agent 传 model 报错拒绝', async () => {
     const deps = makeDeps({
       agentTypes: [

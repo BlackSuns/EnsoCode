@@ -199,6 +199,16 @@ describe('coworker tool model 参数', () => {
     expect(snippet).toMatch(/read-only review.*report evidence/is);
   });
 
+  it('coworker 不加判断型并行开火，也不把同类 grep 指去 exec', () => {
+    const tool = createCoworkerTool(makeDeps({ agentTypes: [] }));
+    const text = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join(
+      '\n'
+    );
+    expect(text).not.toMatch(/independent repos/i);
+    expect(text).not.toMatch(/serial-search/i);
+    expect(text).not.toMatch(/use exec/i);
+  });
+
   it('当 agent_type 设为必须自选（allowModelOverride === true）时，spawn 不填 model 拒绝继承', async () => {
     const deps = makeDeps({
       agentTypes: [

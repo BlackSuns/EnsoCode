@@ -201,21 +201,24 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
     name: 'subagent',
     label: 'Subagent',
     description:
-      'Before delegating, decide whether delegation has clear value. Handle short tasks directly when their context is already known. ' +
+      'Dispatch self-contained one-shot work (including a single review) in an isolated context with its own tools ' +
+      '(read/bash/edit/write/MCP); returns the final report as the tool result. ' +
+      'Multiple subagent calls in one message run in parallel — when the user names N independent repos, directories, or questions that each need isolated judgment, dispatch N subagents in the same message instead of searching them yourself. ' +
+      'Handle short tasks directly when their context is already known. ' +
       'Delegate only when the user explicitly requests it, or when parallel execution, isolated context, or independent review offers a clear benefit. ' +
-      'After deciding delegation is worthwhile, use a subagent for self-contained one-shot work (including a single review); ' +
-      'use coworker if available only for sustained collaboration and context reuse: the same role across rounds. Spawn once, then send. Do not start a new subagent each round to re-paste background. ' +
-      'Tool availability does not itself justify delegation. A subagent runs in an isolated context with its own tools ' +
-      '(read/bash/edit/write/MCP). Returns the subagent final report as the tool result. ' +
-      'multiple subagent calls in one message run in parallel. ' +
+      'Use coworker if available only for sustained collaboration and context reuse: the same role across rounds. Spawn once, then send. Do not start a new subagent each round to re-paste background. ' +
+      'Tool availability does not itself justify delegation. ' +
       'The subagent cannot ask you questions — include all needed context in the prompt. ' +
       'Pass wait:false for long tasks to keep working — the final report is delivered to you ' +
       'automatically when it finishes (and the parent abort no longer kills it). ' +
       (deps.agentTypes.length > 0 ? ` Available agent types: ${typeList}.` : ''),
     promptSnippet:
-      'subagent: first decide whether delegation adds clear value; handle short tasks directly when their context is already known. ' +
+      'subagent: self-contained one-shot work including a single review. ' +
+      'N independent repos/dirs/questions that each need isolated judgment → N subagent calls in the same message (do not serial-search them yourself). ' +
+      'Do not spawn subagents for 3+ similar read/grep/find that only need a reduced result — use exec. ' +
+      'Handle short tasks directly when their context is already known. ' +
       'Delegate only on user request or a clear parallel, context-isolation, or independent-review benefit. ' +
-      'After deciding delegation is worthwhile, use a subagent for self-contained one-shot work including a single review; use coworker if available only for sustained collaboration and context reuse (same role across rounds: spawn once, then send). Do not start a new subagent each round to re-paste background. ' +
+      'Use coworker if available only for sustained collaboration and context reuse (same role across rounds: spawn once, then send). Do not start a new subagent each round to re-paste background. ' +
       'Tool availability does not itself justify delegation. Give the subagent a complete prompt and get a final report back; ' +
       'multiple subagent calls in one message run in parallel' +
       (deps.agentTypes.length > 0
@@ -227,9 +230,12 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
         ? '; a model parameter lets you pick a cheaper/stronger model per subtask — required for [custom model required] types, otherwise omit to inherit'
         : ''),
     promptGuidelines: [
-      'Delegate only when the user requests delegation or parallel execution, isolated context, or independent review offers a clear benefit. ' +
-        'Handle short tasks directly when their context is already known. When parallel execution has a clear benefit, dispatch independent one-shot tasks ' +
-        'as subagent calls in the same message. Select subagent for one-shot work including a single review and coworker, if available, only for sustained collaboration and context reuse',
+      'When the user names independent repos, directories, or questions that each need isolated judgment, dispatch one subagent per item in the same message; do not serial-search them in the parent. ' +
+        'Do not spawn subagents for 3+ similar read/grep/find that only need a reduced result — use exec. ' +
+        'Handle short tasks directly when their context is already known. ' +
+        'Delegate only when the user requests delegation or parallel execution, isolated context, or independent review offers a clear benefit. ' +
+        'Select subagent for one-shot work including a single review and coworker, if available, only for sustained collaboration and context reuse. ' +
+        'Independent one-shot judgment tasks go as parallel subagent calls in the same message.',
       ...(roleHints.length > 0 ? [`Pick agent_type by role: ${roleHints.join('; ')}`] : []),
       ...(requiredPickTypes.length > 0 && modelNames.length > 0
         ? [

@@ -283,7 +283,7 @@ export function createIsolatedSandboxTool(options: IsolatedSandboxToolOptions): 
       'Tool names: "-" and "__" become "_": mcp__semble__search → mcp_semble_search. ' +
       'catalog.list() / listTools() lists callable names. store()/load() last for this live session. Not a shell.',
     promptSnippet:
-      'exec: prefer for 3+ similar read/grep/find when you only need a reduced result (count, path list, boolean, extracted fields) — not for exploring, dumping full file bodies, or wrapping a single call.' +
+      'exec: prefer for 3+ similar read/grep/find when you only need a reduced result (count, path list, boolean, extracted fields) — not for exploring, dumping full file bodies, or wrapping a single call. Do not spawn a subagent for this.' +
       hashlineSnippet +
       ' Write JS and return the value. Uncaught throw fails the cell. MCP names collapse __ and - to _.',
     promptGuidelines: [

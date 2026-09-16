@@ -60,6 +60,7 @@ describe('createIsolatedSandboxTool', () => {
     expect(text).toMatch(/No console/i);
     expect(text).toMatch(/isError: true/i);
     expect(text).toMatch(/listTools/i);
+    expect(tool.promptSnippet).toMatch(/Do not spawn a subagent for this/i);
   });
 
   it('hashline 模式才提示 nested read 不产生父级 snapshot', () => {
