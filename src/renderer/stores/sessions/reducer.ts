@@ -463,7 +463,7 @@ export function applyAgentEvent(
         );
         if (matched !== -1) tail = tail.toSpliced(matched, 1);
       }
-      // 工具收口即清掉流式尾巴：toolOutputs 非空是 watchdog 的活跃豁免，不能拖到轮末
+      // 工具收口即清掉流式尾巴，避免 UI 一直显示已结束的增量
       const settledId = event.message.role === 'toolResult' ? event.message.toolCallId : undefined;
       const settledTool =
         settledId && settledId in current.toolOutputs ? new Set([settledId]) : undefined;

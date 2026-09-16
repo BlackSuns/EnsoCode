@@ -126,14 +126,14 @@ expect(store.getState().conversations.ended.messages).toHaveLength(before);
 - 生成心跳：新增非空 assistant `text` / `thinking`、新的工具结果、变化的非空 `tool-output`、变化的 write/edit 可见预览。
 - 不刷新：用户消息、空 assistant（含 Connection error）、空 thinking、静态 toolCall、越界 upsert、递增 seq 但可见内容不变的全量快照。
 - write/edit 必须复用时间线的 `extractWriteContent` / `extractEdits`；edit 比较 oldText/newText 对，不比较键顺序或多余 metadata；空 old/new 占位不算，删除算。
-- task/subagent/approval 等可见状态进展沿用独立事件处理；watchdog 的活跃工具、coworker、审批等待豁免独立于生成心跳，不能顺手删除。
+- task/subagent/approval 等可见状态进展沿用独立事件处理。watchdog 只把等人（审批 / 提问）和 coworker spawning 当豁免；静默 bash、subagent、coworker 按 `lastOutputAt` 计时。父会话等 coworker 时心跳取自身与 running 子会话的较新值。
 
 越界 `message-upsert` 只推 `seq`。把丢弃的权威事件当成心跳，watchdog 会认为模型一直有输出。
 
 `snapshot` 不是新输出：同代连续 running 保留 `runStartedAt` / `lastOutputAt` 与未完成工具尾巴；
 首次/新代 running 以接收时间建立起点但不伪造输出。同代 idle/failed 结算 activeMs，显式清空时钟。
 **不能只省略时钟字段**：store 浅合并投影会保留旧值。新代/终态清空 toolOutputs，同轮快照清掉已完成工具的旧输出。
-`toolOutputs` 非空是 watchdog 的活跃工具豁免：toolResult upsert 落地时必须删掉对应 key（含 `toolStartedAt`），否则任一工具流式过就把豁免拖到轮末。
+toolResult upsert 落地时仍须删掉对应 `toolOutputs` / `toolStartedAt` key，避免 UI 残留已结束的流式尾巴。非空 `toolOutputs` 不再豁免 stall。
 
 回归测试必须覆盖重复内容 + 更大 seq、historyBaseIndex 尾窗、快照前后重复 tool-output，以及 `{...old, ...projection}` 清理行为。
 
@@ -186,9 +186,8 @@ Zustand persist 即使收到 `set((state) => state)` 也会调用存储适配器
 1. `SESSIONS_VERSION` +1，在 `migrateSessions` 里按 `emptyProjection` 补空集合
    （缺或 `null` 才写空值，已有非空保持原样）。不要放 `onRehydrateStorage`，
    原因见 [../main/settings-persistence.md](../main/settings-persistence.md)。
-2. 新读点对 `toolOutputs` / `pendingApprovals` / `pendingAsks` / `backgroundTasks` /
-   `subagents` 一律经可测纯函数容错（`stallLiveWorkFlags`），不要直接 `Object.keys` /
-   `.length` / `.some`。巡检不经 reducer，只靠 migrate 挡不住尚未回写的旧盘。
+2. 卡死巡检读 `pendingApprovals` / `pendingAsks` 一律经 `stallLiveWorkFlags` 容错（缺或
+   `null` 当空），不要直接 `.length`。巡检不经 reducer，只靠 migrate 挡不住尚未回写的旧盘。
 
 ## 多窗口同步
 

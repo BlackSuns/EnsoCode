@@ -3,10 +3,10 @@ import { addToast } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { useSessionsStore } from '@/stores/sessions';
 import {
-  hasInFlightToolCalls,
   hasLiveGenerationWork,
   nextStallWatchAction,
   shouldAbortStalledGeneration,
+  stallHeartbeatAt,
   stallLiveWorkFlags,
 } from '@/stores/sessions/stallTimeout';
 import { useSettingsStore } from '@/stores/settings';
@@ -27,22 +27,20 @@ export function useGenerationStallTimeout(): void {
         if (conversation.status === 'running' && conversation.lastOutputAt) {
           attempts.delete(conversation.id);
         }
-        const liveCoworker = (conversation.coworkerIds ?? []).some((id) => {
+        const spawningCoworker = (conversation.coworkerIds ?? []).some((id) => {
           const child = sessions.conversations[id];
-          return Boolean(child && (child.spawning || child.status === 'running'));
+          return Boolean(child?.spawning);
         });
         const action = nextStallWatchAction({
           shouldAbort: shouldAbortStalledGeneration({
             status: conversation.status,
             spawning: conversation.spawning,
-            lastOutputAt: conversation.lastOutputAt,
-            runStartedAt: conversation.runStartedAt,
+            lastOutputAt: stallHeartbeatAt(conversation, sessions.conversations),
             now,
             timeoutMs,
             hasLiveWork: hasLiveGenerationWork({
               ...stallLiveWorkFlags(conversation),
-              liveCoworker,
-              inFlightTools: hasInFlightToolCalls(conversation.messages),
+              spawningCoworker,
             }),
           }),
           status: conversation.status,

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  hasInFlightToolCalls,
   hasLiveGenerationWork,
   MAX_STALL_RETRIES,
   nextStallWatchAction,
   shouldAbortStalledGeneration,
+  stallHeartbeatAt,
   stallLiveWorkFlags,
 } from './stallTimeout';
 
@@ -74,7 +74,7 @@ describe('shouldAbortStalledGeneration', () => {
     ).toBe(false);
   });
 
-  it('工具还在跑时不算卡住，即使最近一条消息已超时', () => {
+  it('等人时不算卡住，即使最近一条消息已超时', () => {
     expect(
       shouldAbortStalledGeneration({
         status: 'running',
@@ -123,28 +123,19 @@ describe('hasLiveGenerationWork', () => {
   const idle = {
     pendingApprovals: 0,
     pendingAsks: 0,
-    runningBackgroundTasks: false,
-    runningSubagents: false,
-    hasToolOutput: false,
-    liveCoworker: false,
-    inFlightTools: false,
   };
 
   it('默认为空等', () => {
     expect(hasLiveGenerationWork(idle)).toBe(false);
   });
 
-  it('父会话还在等活着的 coworker 时算有输出', () => {
-    expect(hasLiveGenerationWork({ ...idle, liveCoworker: true })).toBe(true);
+  it('等人审批或提问时不算卡住', () => {
+    expect(hasLiveGenerationWork({ ...idle, pendingApprovals: 1 })).toBe(true);
+    expect(hasLiveGenerationWork({ ...idle, pendingAsks: 1 })).toBe(true);
   });
 
-  it('工具增量或后台任务在跑时算有输出', () => {
-    expect(hasLiveGenerationWork({ ...idle, hasToolOutput: true })).toBe(true);
-    expect(hasLiveGenerationWork({ ...idle, runningBackgroundTasks: true })).toBe(true);
-  });
-
-  it('主会话还在等 bash / coworker 工具返回时算有输出', () => {
-    expect(hasLiveGenerationWork({ ...idle, inFlightTools: true })).toBe(true);
+  it('coworker 还在 spawning 时不算卡住', () => {
+    expect(hasLiveGenerationWork({ ...idle, spawningCoworker: true })).toBe(true);
   });
 });
 
@@ -163,79 +154,58 @@ describe('stallLiveWorkFlags', () => {
     expect(stallLiveWorkFlags({})).toEqual({
       pendingApprovals: 0,
       pendingAsks: 0,
-      runningBackgroundTasks: false,
-      runningSubagents: false,
-      hasToolOutput: false,
     });
-    expect(hasLiveGenerationWork({ ...stallLiveWorkFlags({}), liveCoworker: false })).toBe(false);
+    expect(hasLiveGenerationWork(stallLiveWorkFlags({}))).toBe(false);
   });
 
-  it('已有集合按实际内容计数', () => {
+  it('已有审批集合按实际内容计数；静默工具/子代理不构成豁免', () => {
     expect(
       stallLiveWorkFlags({
         toolOutputs: { t1: 'x' },
         pendingApprovals: [{}],
         pendingAsks: [],
         backgroundTasks: [{ status: 'running' }],
-        subagents: [{ status: 'idle' }],
+        subagents: [{ status: 'running' }],
       })
     ).toEqual({
       pendingApprovals: 1,
       pendingAsks: 0,
-      runningBackgroundTasks: true,
-      runningSubagents: false,
-      hasToolOutput: true,
     });
+    expect(
+      hasLiveGenerationWork(
+        stallLiveWorkFlags({
+          toolOutputs: { t1: '' },
+          backgroundTasks: [{ status: 'running' }],
+          subagents: [{ status: 'running' }],
+        })
+      )
+    ).toBe(false);
   });
 });
 
-describe('hasInFlightToolCalls', () => {
-  const bashCall = { type: 'toolCall', id: 't1', name: 'bash' };
-  const coworkerCall = { type: 'toolCall', id: 't1', name: 'coworker' };
-  it('末轮 assistant 有未完成的 bash / coworker 调用', () => {
-    expect(
-      hasInFlightToolCalls([
-        {
-          role: 'assistant',
-          content: [bashCall],
-        },
-      ])
-    ).toBe(true);
-    expect(
-      hasInFlightToolCalls([
-        {
-          role: 'assistant',
-          content: [coworkerCall],
-        },
-      ])
-    ).toBe(true);
+describe('stallHeartbeatAt', () => {
+  it('无子会话时用自身 lastOutputAt / runStartedAt', () => {
+    expect(stallHeartbeatAt({ lastOutputAt: 3_000, runStartedAt: 1_000 }, {})).toBe(3_000);
+    expect(stallHeartbeatAt({ runStartedAt: 1_000 }, {})).toBe(1_000);
+    expect(stallHeartbeatAt({}, {})).toBeUndefined();
   });
 
-  it('对应 toolResult 已到则不算进行中', () => {
+  it('父会话等 coworker 时沿用子会话心跳，子也静默才算空等', () => {
+    const parent = { lastOutputAt: 1_000, coworkerIds: ['kid'] };
     expect(
-      hasInFlightToolCalls([
-        {
-          role: 'assistant',
-          content: [bashCall],
-        },
-        { role: 'toolResult', toolCallId: 't1' },
-      ])
-    ).toBe(false);
-  });
-
-  it('历史轮次缺结果不算进行中', () => {
+      stallHeartbeatAt(parent, {
+        kid: { status: 'running', lastOutputAt: 8_000 },
+      })
+    ).toBe(8_000);
     expect(
-      hasInFlightToolCalls([
-        {
-          role: 'assistant',
-          content: [bashCall],
-        },
-        { role: 'user' },
-        {
-          role: 'assistant',
-          content: [{ type: 'text' }],
-        },
-      ])
-    ).toBe(false);
+      stallHeartbeatAt(parent, {
+        kid: { status: 'running', lastOutputAt: 1_000 },
+      })
+    ).toBe(1_000);
+    expect(
+      stallHeartbeatAt(parent, {
+        kid: { status: 'idle', lastOutputAt: 9_000 },
+      })
+    ).toBe(1_000);
   });
 });

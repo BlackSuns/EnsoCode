@@ -920,7 +920,7 @@ describe('applyAgentEvent tool-output', () => {
     expect(failed.toolOutputs).toEqual({});
   });
 
-  it('toolResult 落地即清掉该工具的流式输出与起点，不让 hasToolOutput 豁免拖到轮末', () => {
+  it('toolResult 落地即清掉该工具的流式输出与起点，避免残留增量', () => {
     const withOutput = applyAgentEvent(
       applyAgentEvent(base, 's1', toolOutput(1, 'partial', 1_000)),
       's1',

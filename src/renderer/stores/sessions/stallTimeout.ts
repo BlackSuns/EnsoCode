@@ -25,72 +25,53 @@ type StallConversation = {
   subagents?: ReadonlyArray<{ status?: string }> | null;
 };
 
-/** persist 回灌可能缺运行态集合；缺省 / null 一律当空，避免 Object.keys 抛错。 */
+/** persist 回灌可能缺运行态集合；缺省 / null 一律当空。 */
 export function stallLiveWorkFlags(conversation: StallConversation): {
   pendingApprovals: number;
   pendingAsks: number;
-  runningBackgroundTasks: boolean;
-  runningSubagents: boolean;
-  hasToolOutput: boolean;
 } {
-  const toolOutputs = conversation.toolOutputs ?? {};
   const pendingApprovals = conversation.pendingApprovals ?? [];
   const pendingAsks = conversation.pendingAsks ?? [];
-  const backgroundTasks = conversation.backgroundTasks ?? [];
-  const subagents = conversation.subagents ?? [];
   return {
     pendingApprovals: pendingApprovals.length,
     pendingAsks: pendingAsks.length,
-    runningBackgroundTasks: backgroundTasks.some((task) => task.status === 'running'),
-    runningSubagents: subagents.some((agent) => agent.status === 'running'),
-    hasToolOutput: Object.keys(toolOutputs).length > 0,
   };
 }
 
 export function hasLiveGenerationWork(input: {
   pendingApprovals: number;
   pendingAsks: number;
-  runningBackgroundTasks: boolean;
-  runningSubagents: boolean;
-  hasToolOutput: boolean;
-  liveCoworker: boolean;
-  inFlightTools?: boolean;
+  spawningCoworker?: boolean;
 }): boolean {
-  return (
-    input.pendingApprovals > 0 ||
-    input.pendingAsks > 0 ||
-    input.runningBackgroundTasks ||
-    input.runningSubagents ||
-    input.hasToolOutput ||
-    input.liveCoworker ||
-    Boolean(input.inFlightTools)
-  );
+  return input.pendingApprovals > 0 || input.pendingAsks > 0 || Boolean(input.spawningCoworker);
 }
 
-type StallMessage = {
-  role?: string;
-  content?: ReadonlyArray<{ type?: string; id?: string; name?: string }>;
-  toolCallId?: string;
+type StallSession = {
+  lastOutputAt?: number;
+  runStartedAt?: number;
+  coworkerIds?: readonly string[];
 };
 
-/** 本轮末 assistant 已发出、尚未收到 toolResult 的调用（如 bash / coworker wait）。 */
-export function hasInFlightToolCalls(messages: readonly StallMessage[]): boolean {
-  let lastTurnIndex = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role !== 'toolResult') {
-      lastTurnIndex = i;
-      break;
-    }
+type StallChild = {
+  spawning?: boolean;
+  status?: string;
+  lastOutputAt?: number;
+  runStartedAt?: number;
+};
+
+/** 父会话等 coworker 时沿用子会话可见心跳；静默 bash / subagent 不另开豁免。 */
+export function stallHeartbeatAt(
+  conversation: StallSession,
+  conversations: Record<string, StallChild | undefined>
+): number | undefined {
+  let at = conversation.lastOutputAt ?? conversation.runStartedAt;
+  for (const id of conversation.coworkerIds ?? []) {
+    const child = conversations[id];
+    if (!child || child.spawning || child.status !== 'running') continue;
+    const childAt = child.lastOutputAt ?? child.runStartedAt;
+    if (childAt !== undefined && (at === undefined || childAt > at)) at = childAt;
   }
-  if (lastTurnIndex < 0 || messages[lastTurnIndex]?.role !== 'assistant') return false;
-  const done = new Set<string>();
-  for (let i = lastTurnIndex + 1; i < messages.length; i++) {
-    const id = messages[i]?.toolCallId;
-    if (id) done.add(id);
-  }
-  return (messages[lastTurnIndex].content ?? []).some(
-    (part) => part.type === 'toolCall' && typeof part.id === 'string' && !done.has(part.id)
-  );
+  return at;
 }
 
 export type StallWatchAction = 'abort' | 'retry' | 'give-up' | 'none';
