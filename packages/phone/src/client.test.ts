@@ -1,4 +1,9 @@
-import { openFrame, type PairedDevice, type PhoneToHost } from '@enso/pair';
+import {
+  type DirectPeer,
+  openFrame,
+  type PairedDevice,
+  type PhoneToHost,
+} from '@enso/pair';
 import { emptyGuestView } from '@shared/pair/guestProjection';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type ClientEvents, PairClient } from './client';
@@ -75,6 +80,21 @@ function cached(): PhoneCacheData {
 
 async function settle() {
   for (let i = 0; i < 80; i++) await Promise.resolve();
+}
+
+function stubDirectPeer(): DirectPeer {
+  return {
+    createOffer: async () => 'offer-sdp',
+    acceptOffer: async () => 'answer-sdp',
+    acceptAnswer: async () => {},
+    addIceCandidate: async () => {},
+    onIceCandidate: () => () => {},
+    onOpen: () => () => {},
+    onMessage: () => () => {},
+    onClose: () => () => {},
+    send: () => true,
+    close() {},
+  };
 }
 
 describe('PairClient 缓存与续传', () => {
@@ -561,5 +581,31 @@ describe('PairClient 缓存与续传', () => {
     client.nudge('visibility');
     await settle();
     expect(Socket.all).toHaveLength(1);
+  });
+
+  it('后台过阈值回前台：直连 offer 等新中继就绪再发，不丢在旧 socket', async () => {
+    client.close();
+    client = new PairClient(device, events, () => stubDirectPeer(), cache);
+    const socket = await start();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'host-online' }) });
+    socket.receive({ type: 'host-info', capabilities: ['direct-v1'], iceServers: [] });
+    await settle();
+    const offersOnOld = socket.sent.filter((item) => item.type === 'direct-offer');
+    expect(offersOnOld).not.toHaveLength(0);
+
+    client.conceal();
+    await vi.advanceTimersByTimeAsync(2_000);
+    client.nudge('visibility');
+    await settle();
+    expect(Socket.all).toHaveLength(2);
+    expect(socket.sent.filter((item) => item.type === 'direct-offer')).toHaveLength(
+      offersOnOld.length
+    );
+
+    const next = Socket.all[1];
+    next.open();
+    next.onmessage?.({ data: JSON.stringify({ type: 'host-online' }) });
+    await settle();
+    expect(next.sent.filter((item) => item.type === 'direct-offer')).not.toHaveLength(0);
   });
 });

@@ -114,6 +114,8 @@ export class PairClient {
   private roomPrimed = false;
   /** 上次退到后台的时刻；回前台用来判断 TCP 是否多半已被冻死 */
   private hiddenAt: number | null = null;
+  /** 换中继 socket 期间先别发 offer，等 host-online 再 ICE restart */
+  private pendingDirectRestart = false;
   private metadata: Omit<PhoneCacheData, 'sessions'> = {
     catalog: [],
     pinnedOrder: [],
@@ -253,6 +255,7 @@ export class PairClient {
           if (control.type === 'host-online') {
             this.events.onState('online');
             this.direct.peerOnline(true);
+            this.flushDirectRestart();
             this.primeRoom();
           } else if (control.type === 'host-offline') {
             this.events.onState('host-offline');
@@ -280,22 +283,35 @@ export class PairClient {
   /** 回前台只探活；网络恢复拆半开链，死链立即重连 */
   nudge(reason: NudgeReason = 'visibility'): void {
     if (this.closed || this.revoked) return;
-    // 网络换了：直连的候选地址已失效，拆掉立即重协商（先落回中继）
-    if (reason === 'online' || reason === 'network-change') this.direct.networkChange();
     // 已经在连：别把刚发起的握手掐掉再开第二条
-    if (this.ws?.readyState === 0) return;
+    if (this.ws?.readyState === 0) {
+      if (reason === 'online' || reason === 'network-change') this.pendingDirectRestart = true;
+      return;
+    }
     const hiddenMs = this.hiddenAt === null ? 0 : Date.now() - this.hiddenAt;
     this.hiddenAt = null;
     const stale =
       (reason === 'visibility' || reason === 'resume') && isForegroundSocketStale(hiddenMs);
-    if (stale) this.direct.networkChange();
-    if (stale || shouldReplaceOnNudge(reason, this.ws !== null, this.ws?.readyState ?? null)) {
+    const replace =
+      stale || shouldReplaceOnNudge(reason, this.ws !== null, this.ws?.readyState ?? null);
+    // 直连信令必须走活着的中继。先拆 socket 再发 offer 会把这一轮丢进 15s 超时。
+    if (reason === 'online' || reason === 'network-change' || stale) {
+      if (replace) this.pendingDirectRestart = true;
+      else this.direct.networkChange();
+    }
+    if (replace) {
       this.replaceRelay();
       return;
     }
     this.heartbeat?.probe(
       reason === 'visibility' || reason === 'resume' ? VISIBILITY_PROBE_MS : undefined
     );
+  }
+
+  private flushDirectRestart(): void {
+    if (!this.pendingDirectRestart) return;
+    this.pendingDirectRestart = false;
+    this.direct.networkChange();
   }
 
   /** 退后台瞬间记下时刻，回前台判断是否该直接换链 */
@@ -306,6 +322,7 @@ export class PairClient {
   close(): void {
     this.flushCache();
     this.closed = true;
+    this.pendingDirectRestart = false;
     this.stopSyncRetry();
     if (this.timer) clearTimeout(this.timer);
     this.direct.close();
@@ -729,6 +746,7 @@ export class PairClient {
 
   private revoke(): void {
     this.revoked = true;
+    this.pendingDirectRestart = false;
     this.stopSyncRetry();
     if (this.timer) clearTimeout(this.timer);
     if (this.cacheTimer) clearTimeout(this.cacheTimer);
