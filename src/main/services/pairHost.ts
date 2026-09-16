@@ -138,8 +138,6 @@ interface Connection {
   metaDirty: boolean;
   metaSending: boolean;
   metaEpoch?: number;
-  /** 进房/直连 resync：已发过的 providers 不再跟着重打 */
-  guestMeta?: boolean;
   providersSentFp?: string;
   providersSentAt?: number;
   phoneOnline: boolean;
@@ -993,21 +991,20 @@ function requestMeta(conn: Connection): void {
   requestPairMeta(conn, sendMeta);
 }
 
-/** 进房重发目录/项目/推送配置；providers 按指纹跳过。 */
+/** 进房重发目录/项目/模型表/推送配置。 */
 function resyncGuestMeta(conn: Connection, forgetCatalog = true): void {
-  conn.guestMeta = true;
   if (forgetCatalog && !conn.metaSending) {
     conn.sentMeta = forgetGuestSyncMeta(conn.sentMeta);
     const next = forgetGuestSyncMeta(stableMetaByPair.get(conn.device.pairId));
     if (next) stableMetaByPair.set(conn.device.pairId, next);
     else stableMetaByPair.delete(conn.device.pairId);
+    conn.providersSentFp = undefined;
+    conn.providersSentAt = undefined;
   }
   requestMeta(conn);
 }
 
 async function sendMeta(conn: Connection): Promise<void> {
-  const guestMeta = conn.guestMeta === true;
-  conn.guestMeta = false;
   const appearance = {
     type: 'appearance' as const,
     theme,
@@ -1038,7 +1035,6 @@ async function sendMeta(conn: Connection): Promise<void> {
   // 会让 guest 把仍在订阅的会话误判为幽灵。被扣下的通道不进 next，flushChangedMeta 只记实际发出的。
   const last = mergeStableMeta(stableMetaByPair.get(conn.device.pairId), conn.sentMeta);
   const allowed = new Set(channelsForMetaPush(last, next, catalogReady));
-  if (guestMeta && last?.providers !== undefined) allowed.delete('providers');
   const remembered = rememberStableMeta(stableMetaByPair.get(conn.device.pairId), allowed, next);
   if (remembered) stableMetaByPair.set(conn.device.pairId, remembered);
   const gated: PairMetaFingerprints = {};

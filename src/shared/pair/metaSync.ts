@@ -127,14 +127,13 @@ export function withholdRendererMeta(
 }
 
 /**
- * 进房只保留 providers：14kB 模型表不必重打。
- * 项目列表和 push-config 必须重发——PWA 刷新后内存是空的，这两项也不进可靠缓存。
+ * 进房作废全部指纹。PWA 刷新后内存是空的，模型表/项目/推送都不能按上次指纹跳过。
+ * 同一连接连打仍靠 shouldEmitProviders / rememberStableMeta 去重。
  */
 export function forgetGuestSyncMeta(
-  last: PairMetaFingerprints | undefined
+  _last: PairMetaFingerprints | undefined
 ): PairMetaFingerprints | undefined {
-  if (!last) return undefined;
-  return last.providers !== undefined ? { providers: last.providers } : undefined;
+  return undefined;
 }
 
 /** pair 进程内低频通道指纹，避免进房时 conn.sentMeta 被清掉后重打 providers。 */
@@ -163,8 +162,7 @@ export function rememberStableMeta(
 }
 
 /**
- * guest 显式 snapshot 默认只强制 catalog（见 forgetGuestSyncMeta）。
- * force=true 仍整包重发，留给 renderer 尚未推过目录之外的抢救路径。
+ * last 与 next 指纹不同的通道才发。force 忽略 last，整包重发。
  */
 export function channelsForMetaPush(
   last: PairMetaFingerprints | undefined,

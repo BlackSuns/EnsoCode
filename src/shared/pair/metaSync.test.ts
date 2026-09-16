@@ -237,13 +237,12 @@ describe('forgetGuestSyncMeta', () => {
     hostInfo: 'host',
   } as const;
 
-  it('进房只保留 providers 指纹，项目和推送配置仍重发', () => {
-    expect(forgetGuestSyncMeta(fps)).toEqual({
-      providers: 'pr',
-    });
-    expect(changedMetaChannels(forgetGuestSyncMeta(fps), fps)).toEqual([
+  it('进房作废全部指纹，模型表也重发', () => {
+    expect(forgetGuestSyncMeta(fps)).toBeUndefined();
+    expect(changedMetaChannels(undefined, fps)).toEqual([
       'catalog',
       'projects',
+      'providers',
       'appearance',
       'pushConfig',
       'hostInfo',
@@ -254,12 +253,13 @@ describe('forgetGuestSyncMeta', () => {
     expect(forgetGuestSyncMeta(undefined)).toBeUndefined();
   });
 
-  it('进房竞态只提交了 catalog 时，合并 pair 级指纹仍跳过 providers', () => {
+  it('进房后合并空指纹，模型表仍会重发', () => {
     const stable = forgetGuestSyncMeta(fps);
     const sent = forgetGuestSyncMeta({ catalog: 'c-old' });
     expect(changedMetaChannels(mergeStableMeta(stable, sent), fps)).toEqual([
       'catalog',
       'projects',
+      'providers',
       'appearance',
       'pushConfig',
       'hostInfo',
