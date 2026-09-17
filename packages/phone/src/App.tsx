@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { applyAppBadge, attentionBadgeCount } from './attentionBadge';
 import { ChatScreen } from './ChatScreen';
 import { type ConnState, PairClient, type SessionView } from './client';
+import { formatOnlineConnectionLabel } from './connectionLabel';
 import { pickActive, removeDevice, renameDevice, upsertDevice } from './deviceList';
 import { parseSessionFromSearch, parseSessionId, takeStashedSessionId } from './launchSession';
 import { NewSessionSheet } from './NewSessionSheet';
@@ -98,6 +99,7 @@ export function App() {
   const [adding, setAdding] = useState(false);
   const [state, setState] = useState<ConnState>('connecting');
   const [transport, setTransport] = useState<'relay' | 'direct'>('relay');
+  const [rttMs, setRttMs] = useState<number | null>(null);
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   /** 桌面置顶组的手动拖拽顺序（旧桌面不下发，空 = 按活跃倒序） */
   const [pinnedOrder, setPinnedOrder] = useState<string[]>([]);
@@ -203,7 +205,11 @@ export function App() {
     setTransport('relay');
     const client = new PairClient(device, {
       onState: setState,
-      onTransport: setTransport,
+      onTransport: (next) => {
+        setTransport(next);
+        setRttMs(null);
+      },
+      onRtt: setRttMs,
       onCatalog: (entries, order) => {
         setCatalog(entries);
         setPinnedOrder(order ?? []);
@@ -389,9 +395,7 @@ export function App() {
 
   // 在线时附带业务帧出口（直连 / 中继）：顶栏副标题与抽屉设备行共用
   const connectionLabel =
-    state === 'online'
-      ? `${STATE_LABEL.online} · ${transport === 'direct' ? '直连' : '中继'}`
-      : STATE_LABEL[state];
+    state === 'online' ? formatOnlineConnectionLabel(transport, rttMs) : STATE_LABEL[state];
 
   /** 切到另一台时清空上一台的目录/视图，等新桌面下发 */
   const resetHostState = (nextActiveId: string | null) => {
@@ -403,6 +407,7 @@ export function App() {
     setView(null);
     setSyncing(false);
     setQueueEchoes([]);
+    setRttMs(null);
     setActiveId(nextActiveId);
   };
 

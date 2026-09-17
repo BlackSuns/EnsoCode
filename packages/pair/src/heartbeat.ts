@@ -17,22 +17,36 @@ export interface Heartbeat {
   stop(): void;
 }
 
-export function attachHeartbeat(ws: WebSocket, onDead: () => void): Heartbeat {
+export function attachHeartbeat(
+  ws: WebSocket,
+  onDead: () => void,
+  onRtt?: (ms: number) => void
+): Heartbeat {
   let deadline: ReturnType<typeof setTimeout> | null = null;
+  let pingAt: number | null = null;
   const alive = (): void => {
     if (deadline) clearTimeout(deadline);
     deadline = null;
   };
   const probe = (timeoutMs = HEARTBEAT_TIMEOUT_MS): void => {
     if (ws.readyState !== 1) return;
+    pingAt = Date.now();
     try {
       ws.send('ping');
     } catch {}
     if (deadline) clearTimeout(deadline);
     deadline = setTimeout(onDead, timeoutMs);
   };
-  // 收到任何消息（含 pong、业务帧）都算存活
-  ws.addEventListener('message', alive);
+  const onMessage = (event: Event): void => {
+    alive();
+    const data = (event as MessageEvent).data;
+    if (data === 'pong' && pingAt !== null) {
+      onRtt?.(Date.now() - pingAt);
+      pingAt = null;
+    }
+  };
+  // 收到任何消息（含 pong、业务帧）都算存活；仅 pong 计 RTT
+  ws.addEventListener('message', onMessage);
   const onOpen = (): void => probe();
   ws.addEventListener('open', onOpen);
   if (ws.readyState === 1) probe();
@@ -42,7 +56,8 @@ export function attachHeartbeat(ws: WebSocket, onDead: () => void): Heartbeat {
     stop() {
       clearInterval(timer);
       alive();
-      ws.removeEventListener('message', alive);
+      pingAt = null;
+      ws.removeEventListener('message', onMessage);
       ws.removeEventListener('open', onOpen);
     },
   };

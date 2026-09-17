@@ -78,6 +78,8 @@ export interface ClientEvents {
   onHistoryPending?(sessionId: string, pending: boolean): void;
   /** 业务帧出口切换：直连（WebRTC）↔ 中继 */
   onTransport?(transport: DirectTransport): void;
+  /** 当前业务通道 ping→pong 往返（ms） */
+  onRtt?(ms: number): void;
 }
 
 export class PairClient {
@@ -149,6 +151,7 @@ export class PairClient {
         this.primeRoom();
       },
       onDiagnostic: (line) => console.info(`[pair] ${line}`),
+      onRtt: (ms) => this.events.onRtt?.(ms),
     });
   }
 
@@ -225,12 +228,18 @@ export class PairClient {
       if (this.direct.transport() !== 'direct') this.events.onState('offline');
       this.scheduleReconnect();
     };
-    this.heartbeat = attachHeartbeat(ws, () => {
-      try {
-        ws.close();
-      } catch {}
-      closed(null);
-    });
+    this.heartbeat = attachHeartbeat(
+      ws,
+      () => {
+        try {
+          ws.close();
+        } catch {}
+        closed(null);
+      },
+      (ms) => {
+        if (this.direct.transport() === 'relay') this.events.onRtt?.(ms);
+      }
+    );
     connectTimer = setTimeout(() => {
       if (isConnectStuck(ws.readyState, RELAY_CONNECT_TIMEOUT_MS)) {
         try {

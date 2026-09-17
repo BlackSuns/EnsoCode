@@ -39,6 +39,8 @@ export interface DirectLinkDeps {
   onResync(): void;
   /** 每代协商的结果与双方候选摘要（NAT 类型 / 地址族），供日志判断为何打不通 */
   onDiagnostic?(line: string): void;
+  /** DataChannel ping→pong 往返（ms）；仅直连通道 */
+  onRtt?(ms: number): void;
 }
 
 /** DataChannel 心跳字节：与分片头（0x00/0x01）区分，在拆片之前拦截 */
@@ -62,6 +64,7 @@ export class DirectLink {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeatDeadline: ReturnType<typeof setTimeout> | null = null;
+  private pingSentAt: number | null = null;
   private closed = false;
 
   constructor(private deps: DirectLinkDeps) {
@@ -271,7 +274,13 @@ export class DirectLink {
         peer.send(new Uint8Array([PONG]));
         return;
       }
-      if (bytes.byteLength === 1 && bytes[0] === PONG) return;
+      if (bytes.byteLength === 1 && bytes[0] === PONG) {
+        if (this.pingSentAt !== null) {
+          this.deps.onRtt?.(Date.now() - this.pingSentAt);
+          this.pingSentAt = null;
+        }
+        return;
+      }
       const frame = this.reassembler.push(bytes);
       if (frame) this.deps.onFrame(frame);
     });
@@ -304,14 +313,17 @@ export class DirectLink {
 
   private startHeartbeat(peer: DirectPeer, gen: number): void {
     this.stopHeartbeat();
-    this.heartbeatTimer = setInterval(() => {
+    const ping = (): void => {
       if (this.peerGen !== gen) return;
+      this.pingSentAt = Date.now();
       peer.send(new Uint8Array([PING]));
       this.heartbeatDeadline ??= setTimeout(() => {
         this.heartbeatDeadline = null;
         if (this.peerGen === gen) this.dispatch({ type: 'dc-close', gen });
       }, HEARTBEAT_TIMEOUT_MS);
-    }, HEARTBEAT_INTERVAL_MS);
+    };
+    ping();
+    this.heartbeatTimer = setInterval(ping, HEARTBEAT_INTERVAL_MS);
   }
 
   private alive(): void {
@@ -322,6 +334,7 @@ export class DirectLink {
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
+    this.pingSentAt = null;
     this.alive();
   }
 

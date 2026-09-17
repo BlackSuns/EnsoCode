@@ -88,10 +88,12 @@ function harness(role: 'guest' | 'host', factoryNull = false) {
   const frames: Uint8Array[] = [];
   const transports: string[] = [];
   const diagnostics: string[] = [];
+  const rtts: number[] = [];
   let resyncs = 0;
   const link = new DirectLink({
     role,
     onDiagnostic: (line) => diagnostics.push(line),
+    onRtt: (ms) => rtts.push(ms),
     factory: (iceServers) => {
       factoryIceServers.push(iceServers);
       if (factoryNull) return null;
@@ -115,6 +117,7 @@ function harness(role: 'guest' | 'host', factoryNull = false) {
     frames,
     transports,
     diagnostics,
+    rtts,
     resyncs: () => resyncs,
   };
 }
@@ -240,7 +243,7 @@ describe('DirectLink guest', () => {
 
     const frame = new Uint8Array(20_000).fill(9);
     expect(h.link.send(frame)).toBe(true);
-    expect(p.sent).toHaveLength(2);
+    expect(p.sent).toHaveLength(3);
 
     for (const c of encodeChunks(new Uint8Array([1, 2, 3]))) p.fire.message(c);
     expect(h.frames).toEqual([new Uint8Array([1, 2, 3])]);
@@ -256,7 +259,7 @@ describe('DirectLink guest', () => {
     p.sendResults.push(true, false);
 
     expect(h.link.send(new Uint8Array(20_000))).toBe(false);
-    expect(p.sent).toHaveLength(1);
+    expect(p.sent).toHaveLength(2);
     expect(p.isClosed()).toBe(true);
     expect(h.link.transport()).toBe('relay');
     expect(h.transports).toEqual(['direct', 'relay']);
@@ -272,7 +275,7 @@ describe('DirectLink guest', () => {
     p.sendResults.push(false);
 
     expect(h.link.send(new Uint8Array(20_000))).toBe(false);
-    expect(p.sent).toEqual([]);
+    expect(p.sent).toEqual([new Uint8Array([0x02])]);
     expect(p.isClosed()).toBe(false);
     expect(h.link.transport()).toBe('direct');
     expect(h.transports).toEqual(['direct']);
@@ -320,18 +323,31 @@ describe('DirectLink guest', () => {
     expect(h.factoryIceServers).toHaveLength(1);
   });
 
-  it('心跳：25s 发 ping，10s 内无消息判死 → 切回 relay', async () => {
+  it('心跳：打开后立刻 ping，10s 内无消息判死 → 切回 relay', async () => {
     const h = harness('guest');
     h.link.peerOnline(true);
     h.link.hostInfo({ capabilities: ['direct-v1'] });
     await flush();
     const p = h.peers[0];
     p.fire.open();
-    await vi.advanceTimersByTimeAsync(25_000);
     expect(p.sent.at(-1)).toEqual(new Uint8Array([0x02]));
     await vi.advanceTimersByTimeAsync(10_000);
     expect(h.link.transport()).toBe('relay');
     expect(p.isClosed()).toBe(true);
+  });
+
+  it('直连打开立刻 ping，pong 回报 RTT', async () => {
+    vi.setSystemTime(10_000);
+    const h = harness('guest');
+    h.link.peerOnline(true);
+    h.link.hostInfo({ capabilities: ['direct-v1'] });
+    await flush();
+    const p = h.peers[0];
+    p.fire.open();
+    expect(p.sent[0]).toEqual(new Uint8Array([0x02]));
+    vi.setSystemTime(10_037);
+    p.fire.message(new Uint8Array([0x03]));
+    expect(h.rtts).toEqual([37]);
   });
 
   it('收到 ping 回 pong；pong 视为存活', async () => {
