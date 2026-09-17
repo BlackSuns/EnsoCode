@@ -5,9 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@rahularya01/pi-cursor@1.4.33':
-    hash: f46e71fb1417ba875b2e000a84184a50de17950d5aef6f41a55e3039b3dbd0c4
-    path: patches/@rahularya01__pi-cursor@1.4.33.patch
+  '@rahularya01/pi-cursor@1.4.34':
+    hash: 6a265b720f8cb13bf4d3792c175c829c8f68f8b1c817096c1ed768ec43abaded
+    path: patches/@rahularya01__pi-cursor@1.4.34.patch
 
 importers:
 
@@ -56,8 +56,8 @@ importers:
         specifier: ^1.3.5
         version: 1.3.5(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@rahularya01/pi-cursor':
-        specifier: 1.4.33
-        version: 1.4.33(patch_hash=f46e71fb1417ba875b2e000a84184a50de17950d5aef6f41a55e3039b3dbd0c4)(@earendil-works/pi-ai@0.85.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))(@earendil-works/pi-coding-agent@0.85.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))
+        specifier: 1.4.34
+        version: 1.4.34(patch_hash=6a265b720f8cb13bf4d3792c175c829c8f68f8b1c817096c1ed768ec43abaded)(@earendil-works/pi-ai@0.85.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))(@earendil-works/pi-coding-agent@0.85.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))
       '@shikijs/themes':
         specifier: 4.4.3
         version: 4.4.3
@@ -1679,8 +1679,8 @@ packages:
   '@protobufjs/utf8@1.1.2':
     resolution: {integrity: sha512-b1UQwcEZ4yCnMCD8DAL1VlbvBJE9/IX4FTIp7BG1xYpf29SLazLSrqUkj4w7Y5y7cCVP6E5tcqqcI0xemPkHug==}
 
-  '@rahularya01/pi-cursor@1.4.33':
-    resolution: {integrity: sha512-3dq0JBWayY89w8Im1gLUmg8kR112waVk3rt6AG9Srx24MRluMrBjm9HyjWJl2MsPo7yWgezoZFuKto9Ea1igDA==}
+  '@rahularya01/pi-cursor@1.4.34':
+    resolution: {integrity: sha512-DVNBHH6O65S6+dJd25ibWoiuEGqY9ToFYCpgCR2Y5jWL5tj1qGoxASN4U9DY2I81RF/oXp5/jE2h36E89fUQNQ==}
     engines: {bun: '>=1.4.0'}
     peerDependencies:
       '@earendil-works/pi-ai': '>=0.80.0'
@@ -6783,7 +6783,7 @@ snapshots:
 
   '@protobufjs/utf8@1.1.2': {}
 
-  '@rahularya01/pi-cursor@1.4.33(patch_hash=f46e71fb1417ba875b2e000a84184a50de17950d5aef6f41a55e3039b3dbd0c4)(@earendil-works/pi-ai@0.85.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))(@earendil-works/pi-coding-agent@0.85.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))':
+  '@rahularya01/pi-cursor@1.4.34(patch_hash=6a265b720f8cb13bf4d3792c175c829c8f68f8b1c817096c1ed768ec43abaded)(@earendil-works/pi-ai@0.85.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))(@earendil-works/pi-coding-agent@0.85.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))':
     dependencies:
       '@bufbuild/protobuf': 2.14.0
       '@earendil-works/pi-ai': 0.85.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
