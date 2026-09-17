@@ -5,7 +5,7 @@ import type {
 } from '@shared/types/mentions';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { cn } from '@/lib/utils';
-import { extractMentionQuery, type MentionSegment } from './mentionComposer';
+import { extractMentionQuery, fileMentionBasename, type MentionSegment } from './mentionComposer';
 
 /**
  * contentEditable 提及编辑器:文件/会话以原子卡片(contenteditable=false)内联,
@@ -66,6 +66,9 @@ const ICON_SVG: Record<'file' | 'chat' | 'ui-element', string> = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/></svg>',
 };
 
+const FOLDER_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
+
 const CHIP_CLASS: Record<'file' | 'chat' | 'ui-element', string> = {
   file: 'bg-success/15 text-success',
   chat: 'bg-warning/25 text-warning-foreground dark:bg-warning/15 dark:text-warning',
@@ -97,12 +100,12 @@ function buildChip(segment: Exclude<MentionSegment, { type: 'text' }>): HTMLSpan
   );
   const icon = document.createElement('span');
   icon.className = 'shrink-0 inline-flex';
-  icon.innerHTML = ICON_SVG[segment.type];
+  icon.innerHTML =
+    segment.type === 'file' && /[\\/]$/.test(segment.path) ? FOLDER_SVG : ICON_SVG[segment.type];
   chip.appendChild(icon);
   const label = document.createElement('span');
   label.className = 'truncate';
-  label.textContent =
-    segment.type === 'file' ? segment.path.split('/').at(-1) || segment.path : segment.label;
+  label.textContent = segment.type === 'file' ? fileMentionBasename(segment.path) : segment.label;
   chip.appendChild(label);
   return chip;
 }

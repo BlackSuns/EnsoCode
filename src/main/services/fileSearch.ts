@@ -35,6 +35,27 @@ function hasIgnoredDir(relativePath: string): boolean {
   return relativePath.split(/[\\/]/).some((part) => IGNORED_DIRS.has(part));
 }
 
+function toPosix(relativePath: string): string {
+  return relativePath.replaceAll('\\', '/');
+}
+
+/** 从文件路径合成祖先目录，目录相对路径统一 posix 且带尾 / */
+function ancestorDirectories(files: readonly string[]): string[] {
+  const dirs = new Set<string>();
+  for (const file of files) {
+    const parts = toPosix(file).split('/');
+    for (let i = 1; i < parts.length; i++) {
+      dirs.add(`${parts.slice(0, i).join('/')}/`);
+    }
+  }
+  return [...dirs];
+}
+
+function entryName(relativePath: string): string {
+  const trimmed = toPosix(relativePath).replace(/\/+$/, '');
+  return trimmed.split('/').at(-1) || trimmed;
+}
+
 function listGitFiles(root: string): string[] | null {
   try {
     const inside = execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
@@ -120,20 +141,34 @@ export function fuzzyScore(query: string, target: string): number {
   return score / (1 + t.length / 100);
 }
 
-/** 在 root 下按文件名/路径模糊搜索 */
+/** 在 root 下按文件名/路径模糊搜索；目录由文件路径合成，相对路径带尾 / */
 export function searchFiles(root: string, query: string, maxResults = 10): FileSearchResult[] {
   const files = listFiles(root);
+  const entries: FileSearchResult[] = [
+    ...ancestorDirectories(files).map((relativePath) => ({
+      relativePath,
+      name: entryName(relativePath),
+    })),
+    ...files.map((relativePath) => ({
+      relativePath,
+      name: path.basename(relativePath),
+    })),
+  ];
   const trimmed = query.trim();
   if (!trimmed) {
-    return files
-      .sort((a, b) => a.length - b.length || a.localeCompare(b))
+    return entries
+      .sort(
+        (a, b) =>
+          a.relativePath.length - b.relativePath.length ||
+          a.relativePath.localeCompare(b.relativePath)
+      )
       .slice(0, maxResults)
-      .map((relativePath) => ({ relativePath, name: path.basename(relativePath) }));
+      .map(({ relativePath, name }) => ({ relativePath, name }));
   }
   const needle = trimmed.toLowerCase();
-  return files
-    .map((relativePath) => {
-      const name = path.basename(relativePath);
+  return entries
+    .map((entry) => {
+      const { relativePath, name } = entry;
       let score = Math.max(fuzzyScore(trimmed, name) * 2, fuzzyScore(trimmed, relativePath));
       if (name.toLowerCase() === needle) score += 1000;
       return { relativePath, name, score };

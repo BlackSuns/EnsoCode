@@ -55,11 +55,30 @@ describe('listFiles / searchFiles', () => {
 
   it('空查询返回浅层文件在前', () => {
     const results = searchFiles(tmp, '');
-    expect(results[0]?.relativePath).toBe('README.md');
+    const paths = results.map((hit) => hit.relativePath);
+    expect(paths).toContain('README.md');
+    expect(paths).toContain('src/');
   });
 
   it('目录不存在时不崩，返回空', () => {
     expect(searchFiles(path.join(tmp, 'nope'), 'x')).toEqual([]);
+  });
+
+  it('混搜目录候选，相对路径带尾 /', () => {
+    const byName = Object.fromEntries(
+      searchFiles(tmp, 'src', 20).map((hit) => [hit.relativePath, hit])
+    );
+    expect(byName['src/']).toEqual({ relativePath: 'src/', name: 'src' });
+    expect(byName['src/components/']).toEqual({
+      relativePath: 'src/components/',
+      name: 'components',
+    });
+    expect(byName[path.join('src', 'index.ts')]?.name).toBe('index.ts');
+  });
+
+  it('目录名精确命中排在同名前缀文件前面', () => {
+    const results = searchFiles(tmp, 'src', 20);
+    expect(results[0]?.relativePath).toBe('src/');
   });
 });
 
@@ -118,5 +137,6 @@ describe('文件引用搜索', () => {
     );
     expect(files).not.toContain('App.class');
     expect(files.some((file) => file.includes('.DS_Store'))).toBe(false);
+    expect(searchFiles(tmp, 'src').map((hit) => hit.relativePath)).toContain('src/');
   });
 });

@@ -399,6 +399,7 @@ export const zhTranslations: Record<string, string> = {
   Agents: 'Agent',
   File: '文件',
   Files: '文件',
+  Folder: '文件夹',
   'Open a file from the tree.': '从左侧树打开文件。',
   'This file is too large to open in the editor.': '文件太大，无法在编辑器中打开。',
   'This file changed on disk.': '磁盘上的文件已更改。',

@@ -262,18 +262,24 @@ export function splitInlineMentions(text: string): MentionSegment[] {
 }
 
 /** 内联文件 token：带扩展名才算（@src/main.ts、@.DS_Store、@.gitignore），
- * 避免误伤 @types/node 这类 npm scope（无点） */
-const INLINE_FILE_TOKEN = /^[\w./-]*\.[\w-]{1,16}(?:#L\d+(?:-L\d+)?)?$/;
+ * 目录以尾 / 识别（@src/、@src/components/）。避免误伤 @types/node 这类 npm scope（无点） */
+const INLINE_FILE_TOKEN = /^(?:[\w./-]*\.[\w-]{1,16}(?:#L\d+(?:-L\d+)?)?|[\w./-]+\/)$/;
 const FILE_LINE_REF = /#L\d+(?:-L\d+)?$/;
 
 export function stripFileLineRef(path: string): string {
   return path.replace(FILE_LINE_REF, '');
 }
 
+/** 文件/目录 mention 的显示名：去掉尾 / 后取最后一段 */
+export function fileMentionBasename(relativePath: string): string {
+  const trimmed = relativePath.replace(/[\\/]+$/, '');
+  return trimmed.split(/[\\/]/).filter(Boolean).at(-1) || relativePath;
+}
+
 /**
  * 把文本拆成普通段与内联 @文件 段，供发出的气泡原位渲染成 tag（Cursor 式）。
  * 启发式识别（气泡只有文本没有结构化元数据）：@ 前是空白/行首，
- * token 剥掉句尾标点后末段带扩展名。邮箱（@ 前非空白）、npm scope 不误伤。
+ * token 剥掉句尾标点后末段带扩展名或尾 /。邮箱（@ 前非空白）、npm scope 不误伤。
  */
 export function splitInlineFileTokens(text: string): InlineSegment[] {
   const segments: InlineSegment[] = [];
@@ -350,7 +356,7 @@ export function createEditorPayload(input: {
         return {
           kind: 'file' as const,
           id: segment.path,
-          label: segment.path.split('/').at(-1) || segment.path,
+          label: fileMentionBasename(segment.path),
           relativePath: stripFileLineRef(segment.path),
         };
       }

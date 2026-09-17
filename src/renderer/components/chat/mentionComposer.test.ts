@@ -412,6 +412,13 @@ describe('typed multi-entity mentions', () => {
       { type: 'file', path: 'SAND_BOX_REMOTE.md#L6-L11' },
       { type: 'text', text: ' please' },
     ]);
+    expect(splitInlineFileTokens('look at @src/ and @src/components/ please')).toEqual([
+      { type: 'text', text: 'look at ' },
+      { type: 'file', path: 'src/' },
+      { type: 'text', text: ' and ' },
+      { type: 'file', path: 'src/components/' },
+      { type: 'text', text: ' please' },
+    ]);
   });
 
   it('round-trips editor segments through wire text: files and chats keep inline positions', () => {
@@ -516,6 +523,26 @@ describe('typed multi-entity mentions', () => {
         images: [],
       }).text
     ).toBe('/plan go');
+  });
+
+  it('directory mention keeps trailing slash on the wire and uses the folder basename as label', () => {
+    const payload = createEditorPayload({
+      segments: [
+        { type: 'text', text: 'see ' },
+        { type: 'file', path: 'src/components/' },
+      ],
+      slash: null,
+      images: [],
+    });
+    expect(payload.text).toBe('see @src/components/');
+    expect(payload.mentions).toEqual([
+      {
+        kind: 'file',
+        id: 'src/components/',
+        label: 'components',
+        relativePath: 'src/components/',
+      },
+    ]);
   });
 
   it('round-trips a ui-element segment: wire is the single-line ref; history has no image binding', () => {

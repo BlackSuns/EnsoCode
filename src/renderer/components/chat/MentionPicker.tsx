@@ -1,5 +1,5 @@
 import type { MentionCandidate } from '@shared/types/mentions';
-import { Bot, ChevronRight, FileText, History } from 'lucide-react';
+import { Bot, ChevronRight, FileText, Folder, History } from 'lucide-react';
 import { useEffect, useMemo, useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { flattenMentionRoot, type MentionSearchGroups } from '@/hooks/useMentionSearch';
@@ -217,8 +217,15 @@ function MentionOption({
   onSelect: () => void;
 }) {
   const { t } = useI18n();
+  const directory = isDirectoryMention(candidate);
   const Icon =
-    candidate.kind === 'agent-type' ? Bot : candidate.kind === 'chat' ? History : FileText;
+    candidate.kind === 'agent-type'
+      ? Bot
+      : candidate.kind === 'chat'
+        ? History
+        : directory
+          ? Folder
+          : FileText;
   return (
     <button
       ref={ref}
@@ -255,7 +262,7 @@ function MentionOption({
                 )
               : candidate.kind === 'chat'
                 ? t('Chat')
-                : t('File')}
+                : t(directory ? 'Folder' : 'File')}
           </Badge>
           {candidate.kind === 'agent-type' && candidate.locked && (
             <Badge variant="secondary" className="px-1 py-0 text-[9px]">
@@ -278,4 +285,8 @@ function MentionOption({
       </span>
     </button>
   );
+}
+
+function isDirectoryMention(candidate: MentionCandidate): boolean {
+  return candidate.kind === 'file' && /[\\/]$/.test(candidate.relativePath);
 }

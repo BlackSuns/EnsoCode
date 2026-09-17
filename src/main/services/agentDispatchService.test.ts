@@ -311,6 +311,32 @@ describe('AgentDispatchService delta coordination', () => {
     expect(fixture.promptedTasks[0]).not.toContain('wrong main content');
   });
 
+  it('skips directory file mentions when snapshotting dispatch task text', async () => {
+    const fixture = await setup();
+    mkdirSync(path.join(fixture.projectPath, 'src'));
+    writeFileSync(path.join(fixture.projectPath, 'note.txt'), 'note body');
+    const result = await fixture.service.dispatch(
+      {
+        requestId: 'dir-mention',
+        selectionBindingId: fixture.selectionBindingId,
+        typeKey: 'agent:enso',
+        task: {
+          text: 'look at @src/ and @note.txt',
+          images: [],
+          fileMentions: [
+            { id: 'src/', relativePath: 'src/' },
+            { id: 'note.txt', relativePath: 'note.txt' },
+          ],
+        },
+      },
+      1
+    );
+    expect(result.accepted).toBe(true);
+    expect(fixture.promptedTasks[0]).toContain('look at @src/ and @note.txt');
+    expect(fixture.promptedTasks[0]).toContain('note body');
+    expect(fixture.promptedTasks[0]).not.toContain('path="src/"');
+  });
+
   it.each([true, false])(
     '冷 parent 首次 dispatch 按 root registry 选择 cwd（worktree=%s）',
     async (isolated) => {

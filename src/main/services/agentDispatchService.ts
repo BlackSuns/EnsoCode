@@ -993,9 +993,14 @@ export class AgentDispatchService {
       if (path.isAbsolute(mention.relativePath)) {
         throw new Error('Absolute file mentions are not allowed.');
       }
-      const resolved = realpathSync(path.resolve(root, mention.relativePath));
+      const relativePath = mention.relativePath.replace(/[\\/]+$/, '');
+      if (!relativePath || path.isAbsolute(relativePath)) {
+        throw new Error('Absolute file mentions are not allowed.');
+      }
+      const resolved = realpathSync(path.resolve(root, relativePath));
       if (!resolved.startsWith(prefix)) throw new Error('File mention escapes the bound project.');
       const stat = statSync(resolved);
+      if (stat.isDirectory()) return '';
       if (!stat.isFile() || stat.size > MAX_FILE_MENTION_BYTES) {
         throw new Error('Mentioned file is unavailable or too large.');
       }
