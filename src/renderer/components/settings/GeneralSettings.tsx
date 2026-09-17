@@ -526,6 +526,8 @@ function UpdateSection() {
   const { t } = useI18n();
   const autoUpdate = useSettingsStore((s) => s.autoUpdate);
   const setAutoUpdate = useSettingsStore((s) => s.setAutoUpdate);
+  const autoRestartWhenIdle = useSettingsStore((s) => s.autoRestartWhenIdle);
+  const setAutoRestartWhenIdle = useSettingsStore((s) => s.setAutoRestartWhenIdle);
   const [status, setStatus] = React.useState<UpdateStatus | null>(null);
 
   React.useEffect(() => {
@@ -603,6 +605,26 @@ function UpdateSection() {
           onCheckedChange={(checked) => {
             setAutoUpdate(checked);
             void window.electronAPI.updater.setAutoUpdateEnabled(checked);
+          }}
+        />
+      </div>
+      <div
+        className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2.5 ${autoUpdate ? '' : 'opacity-60'}`}
+      >
+        <div className="min-w-0">
+          <p className="text-sm">{t('Restart and apply when idle')}</p>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'After the update is downloaded, restart automatically if no agent is running, nothing is queued, and there are no pending questions or approvals. The idle state must last 5 minutes, and a focused window also blocks it.'
+            )}
+          </p>
+        </div>
+        <Switch
+          checked={autoUpdate && autoRestartWhenIdle}
+          disabled={!autoUpdate}
+          onCheckedChange={(checked) => {
+            setAutoRestartWhenIdle(checked);
+            void window.electronAPI.updater.setAutoRestartWhenIdle(checked);
           }}
         />
       </div>

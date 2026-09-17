@@ -39,6 +39,7 @@ describe('AgentSessionIndex generation and reservation authority', () => {
     const sessions = index();
     expect(sessions.workspaceTreeRunning(parent.sessionId)).toBe(false);
     sessions.prepareParent(parent);
+    expect(sessions.anyWorkspaceBusy()).toBe(true);
     expect(sessions.workspaceTreeRunning(parent.sessionId)).toBe(true);
     sessions.observe({
       type: 'parent-ready',

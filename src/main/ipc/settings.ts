@@ -52,6 +52,7 @@ export const SETTINGS_STATE_FIELDS = [
   'smartCompactModel',
   'smartCompactMode',
   'autoUpdate',
+  'autoRestartWhenIdle',
   'proxyMode',
   'customProxyUrl',
   'openChangesOnFileEdit',
@@ -122,6 +123,7 @@ const CONFIG_SYNC_EXCLUDED_STATE_FIELDS = new Set<SettingsStateField>([
   'terminalShell',
   'worktreeRoot',
   'autoUpdate',
+  'autoRestartWhenIdle',
   'proxyMode',
   'customProxyUrl',
   'backgroundImageEnabled',
@@ -490,11 +492,29 @@ export function readTraySleepPolicy(): TraySleepPolicy {
 }
 
 export function writeTraySleepPolicy(policy: TraySleepPolicy): boolean {
+  return writeTrayState({ sleepPolicy: policy });
+}
+
+function trayState(): Record<string, unknown> {
+  return objectRecord(readSettings()?.[TRAY_SETTINGS_KEY]) ?? {};
+}
+
+function writeTrayState(patch: Record<string, unknown>): boolean {
   const current = readSettings() ?? {};
   return scheduleWrite({
     ...current,
-    [TRAY_SETTINGS_KEY]: { sleepPolicy: policy },
+    [TRAY_SETTINGS_KEY]: { ...trayState(), ...patch },
   });
+}
+
+export function writeTrayReenterAfterUpdate(reenter: boolean): boolean {
+  return writeTrayState({ reenterAfterUpdate: reenter });
+}
+
+export function consumeTrayReenterAfterUpdate(): boolean {
+  if (trayState().reenterAfterUpdate !== true) return false;
+  writeTrayReenterAfterUpdate(false);
+  return true;
 }
 
 /** 无 renderer 时由 Main 改会话元数据；形状与 zustand persist 的 enso-conversations 一致。 */

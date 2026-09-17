@@ -3,12 +3,13 @@ import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { app, type BrowserWindow } from 'electron';
 
 import { registerIpcHandlers } from './ipc';
-import { readSettings } from './ipc/settings';
+import { consumeTrayReenterAfterUpdate, readSettings } from './ipc/settings';
 import { startAgentWorker } from './services/agentHost';
 import { attachAppQuitDrain } from './services/appQuitDrain';
 import {
   leaveServerMode,
   restoreFromSecondInstance,
+  scheduleReenterServerMode,
   shouldQuitOnWindowAllClosed,
 } from './services/appServerMode';
 import { browserHost } from './services/browserHost';
@@ -123,6 +124,7 @@ if (!gotTheLock) {
       startPairGuest();
     });
     void initAutoUpdater(mainWindow);
+    if (consumeTrayReenterAfterUpdate()) scheduleReenterServerMode();
 
     app.on('activate', () => {
       leaveServerMode();
@@ -166,9 +168,9 @@ async function initAutoUpdater(window: BrowserWindow): Promise<void> {
   if (process.platform === 'linux' && !process.env.APPIMAGE) return;
   // 读持久化设置里的 autoUpdate(zustand persist 形状:{ state: {...} });缺省 true
   const persisted = readSettings()?.['enso-settings'] as
-    | { state?: { autoUpdate?: boolean } }
+    | { state?: { autoUpdate?: boolean; autoRestartWhenIdle?: boolean } }
     | undefined;
   const autoUpdate = persisted?.state?.autoUpdate ?? true;
   const { autoUpdaterService } = await import('./services/updater/AutoUpdater');
-  autoUpdaterService.init(window, autoUpdate);
+  autoUpdaterService.init(window, autoUpdate, persisted?.state?.autoRestartWhenIdle === true);
 }

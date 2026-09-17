@@ -39,6 +39,9 @@ export const zhTranslations: Record<string, string> = {
   'Restart to update': '重启更新',
   'Automatic updates': '自动更新',
   'Download and install updates automatically': '自动下载并安装更新',
+  'Restart and apply when idle': '空闲时重启并应用更新',
+  'After the update is downloaded, restart automatically if no agent is running, nothing is queued, and there are no pending questions or approvals. The idle state must last 5 minutes, and a focused window also blocks it.':
+    '更新下载完成后，没有 agent 在跑、没有排队消息、也没有待回答/待审批时自动重启。该状态需连续保持 5 分钟；窗口在前台时也会拦住。',
   'Network proxy': '网络代理',
   'Used by model requests, the built-in browser, and agent tools':
     '作用于模型请求、内嵌浏览器和 agent 工具',

@@ -60,6 +60,7 @@ export const SETTINGS_DATA_COVERAGE = {
     'Verified smart compaction mode is a desktop session preference, not an Enso capability.'
   ),
   autoUpdate: surfaces('general.automatic-updates'),
+  autoRestartWhenIdle: excluded('Device idle-restart update policy; not an Enso capability.'),
   proxyMode: surfaces('general.proxy-mode'),
   customProxyUrl: surfaces('general.custom-proxy-url'),
   openChangesOnFileEdit: excluded('Renderer side-panel preference; not an Enso capability.'),
@@ -162,6 +163,7 @@ export const SETTINGS_ACTION_COVERAGE = {
     'Verified smart compaction mode is a desktop session preference, not an Enso capability.'
   ),
   setAutoUpdate: surfaces('general.automatic-updates'),
+  setAutoRestartWhenIdle: excluded('Device idle-restart update policy; not an Enso capability.'),
   setProxyMode: surfaces('general.proxy-mode'),
   setCustomProxyUrl: surfaces('general.custom-proxy-url'),
   setOpenChangesOnFileEdit: excluded('Renderer side-panel preference; not an Enso capability.'),
@@ -452,6 +454,9 @@ export const IPC_PRODUCT_COVERAGE = {
   UPDATER_DOWNLOAD_UPDATE: surfaces('updates.download'),
   UPDATER_QUIT_AND_INSTALL: surfaces('updates.install'),
   UPDATER_SET_AUTO_UPDATE_ENABLED: surfaces('general.automatic-updates'),
+  UPDATER_SET_AUTO_RESTART_WHEN_IDLE: excluded(
+    'Device idle-restart update policy; not an Enso capability.'
+  ),
   PROXY_APPLY: surfaces('general.proxy-mode', 'general.custom-proxy-url'),
   UPDATER_STATUS: surfaces('updates.status'),
   DIALOG_SELECT_FILE: excluded('Native file picker; user-driven OS dialog.'),

@@ -137,6 +137,8 @@ export interface SettingsState {
 
   /** 是否自动检查并下载应用更新；缺省 true */
   autoUpdate: boolean;
+  /** 包已下好且空闲连续 5 分钟后自动重启安装；缺省关 */
+  autoRestartWhenIdle: boolean;
 
   /** 网络代理：系统 / 直连 / 自定义；缺省 system */
   proxyMode: ProxyMode;
@@ -280,6 +282,7 @@ export interface SettingsState {
   setSmartCompactModel: (value: DefaultModelRef | null) => void;
   setSmartCompactMode: (value: import('@shared/smartCompactMode').SmartCompactMode) => void;
   setAutoUpdate: (value: boolean) => void;
+  setAutoRestartWhenIdle: (value: boolean) => void;
   setProxyMode: (mode: ProxyMode) => void;
   setCustomProxyUrl: (url: string) => void;
   setOpenChangesOnFileEdit: (value: boolean) => void;

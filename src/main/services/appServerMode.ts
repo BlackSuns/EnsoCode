@@ -28,6 +28,7 @@ import { refreshPowerKeepAlive } from './pairHost';
 import { setPairHeadless } from './pairSessionHost';
 
 const FLUSH_TIMEOUT_MS = 5_000;
+const REENTER_FALLBACK_MS = 8_000;
 
 let active = false;
 let tray: Tray | null = null;
@@ -128,7 +129,7 @@ function recreateTray(): void {
   ensureTray();
 }
 
-async function flushRendererPersist(): Promise<void> {
+export async function flushRendererPersist(): Promise<void> {
   const win = getMainWindow();
   if (!win || win.isDestroyed()) return;
   const contents = getWindowWebContents(win);
@@ -197,4 +198,19 @@ export function quitFromTray(): void {
 
 export function restoreFromSecondInstance(): void {
   leaveServerMode();
+}
+
+/** 更新安装后冷启动：等 renderer 把目录推来再进托盘，避免 headless 种子是空的。 */
+export function scheduleReenterServerMode(): void {
+  let entered = false;
+  const enter = () => {
+    if (entered || active) return;
+    entered = true;
+    ipcMain.removeListener(IPC_CHANNELS.PAIR_CATALOG, onCatalog);
+    clearTimeout(timer);
+    void enterServerMode();
+  };
+  const onCatalog = () => enter();
+  ipcMain.on(IPC_CHANNELS.PAIR_CATALOG, onCatalog);
+  const timer = setTimeout(enter, REENTER_FALLBACK_MS);
 }

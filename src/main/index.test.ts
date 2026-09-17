@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
     mocks.order.push('window');
     return {};
   }),
+  consumeTrayReenter: vi.fn(() => false),
+  scheduleReenter: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -40,7 +42,10 @@ vi.mock('@electron-toolkit/utils', () => ({
 vi.mock('./ipc', () => ({
   registerIpcHandlers: vi.fn(() => mocks.order.push('ipc')),
 }));
-vi.mock('./ipc/settings', () => ({ readSettings: vi.fn(() => null) }));
+vi.mock('./ipc/settings', () => ({
+  readSettings: vi.fn(() => null),
+  consumeTrayReenterAfterUpdate: () => mocks.consumeTrayReenter(),
+}));
 vi.mock('./services/localImageProtocol', () => ({
   registerLocalImageProtocolHandler: vi.fn(),
   registerLocalImageSchemePrivileges: vi.fn(),
@@ -73,6 +78,7 @@ vi.mock('./services/appServerMode', () => ({
   restoreFromSecondInstance: vi.fn(),
   shouldQuitOnWindowAllClosed: () => false,
   isServerMode: () => false,
+  scheduleReenterServerMode: (...args: unknown[]) => mocks.scheduleReenter(...args),
 }));
 
 const originalUserDataOverride = process.env.ENSO_USER_DATA_DIR;
@@ -86,6 +92,9 @@ beforeEach(() => {
   mocks.startAgentWorker.mockClear();
   mocks.createMainWindow.mockClear();
   mocks.autoUpdaterInit.mockClear();
+  mocks.consumeTrayReenter.mockReset();
+  mocks.consumeTrayReenter.mockReturnValue(false);
+  mocks.scheduleReenter.mockClear();
   delete process.env.ENSO_USER_DATA_DIR;
 });
 
@@ -108,6 +117,15 @@ describe('Main startup order', () => {
     expect(mocks.order).toEqual(['ipc', 'window', 'pair', 'worker']);
     expect(mocks.createMainWindow).toHaveBeenCalledOnce();
     expect(mocks.startAgentWorker).toHaveBeenCalledOnce();
+    expect(mocks.scheduleReenter).not.toHaveBeenCalled();
+  });
+
+  it('schedules tray re-entry after an update restart', async () => {
+    mocks.consumeTrayReenter.mockReturnValue(true);
+    await import('./index');
+    await Promise.resolve();
+    expect(mocks.createMainWindow).toHaveBeenCalledOnce();
+    expect(mocks.scheduleReenter).toHaveBeenCalledOnce();
   });
 });
 

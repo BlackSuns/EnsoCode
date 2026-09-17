@@ -30,4 +30,13 @@ export function registerUpdaterHandlers(): void {
     const { autoUpdaterService } = await import('../services/updater/AutoUpdater');
     autoUpdaterService.setAutoUpdateEnabled(enabled);
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.UPDATER_SET_AUTO_RESTART_WHEN_IDLE,
+    async (_event, enabled: unknown) => {
+      if (!isUpdaterEnabled() || typeof enabled !== 'boolean') return;
+      const { autoUpdaterService } = await import('../services/updater/AutoUpdater');
+      autoUpdaterService.setAutoRestartWhenIdle(enabled);
+    }
+  );
 }

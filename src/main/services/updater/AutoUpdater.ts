@@ -1,9 +1,13 @@
 import { is } from '@electron-toolkit/utils';
 import { IPC_CHANNELS } from '@shared/types';
 import type { UpdateStatus } from '@shared/types/updater';
-import { BrowserWindow } from 'electron';
+import { AUTO_RESTART_IDLE_MS } from '@shared/updater/idleRestart';
+import { app, BrowserWindow } from 'electron';
 import electronUpdater from 'electron-updater';
+import { flushSettings, writeTrayReenterAfterUpdate } from '../../ipc/settings';
 import { sendToWindow } from '../../windows/createAppWindow';
+import { IdleRestartGate } from './idleRestartGate';
+import { currentIdleRestartObservation } from './idleRestartSnapshot';
 
 const { autoUpdater } = electronUpdater;
 
@@ -11,6 +15,7 @@ const { autoUpdater } = electronUpdater;
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 // focus 检查最小间隔:30 分钟
 const MIN_FOCUS_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+const BUSY_POLL_MS = 5_000;
 
 /**
  * 自动更新单例(移植自 EnsoAI,剥离 proxy 耦合)。
@@ -25,9 +30,14 @@ class AutoUpdaterService {
   private lastCheckTime = 0;
   private onFocusHandler: (() => void) | null = null;
   private quittingForUpdate = false;
+  private autoRestartWhenIdle = false;
+  private idleGate = new IdleRestartGate();
+  private idleTimer: NodeJS.Timeout | null = null;
+  private installingIdleRestart = false;
 
-  init(window: BrowserWindow, autoUpdateEnabled = true): void {
+  init(window: BrowserWindow, autoUpdateEnabled = true, autoRestartWhenIdle = false): void {
     this.mainWindow = window;
+    this.autoRestartWhenIdle = autoRestartWhenIdle;
 
     if (is.dev) {
       autoUpdater.logger = console;
@@ -53,12 +63,14 @@ class AutoUpdaterService {
     });
     autoUpdater.on('update-downloaded', (info) => {
       this.updateDownloaded = true;
+      this.idleGate.reset();
       // 停掉后续检查,防止竞态把下载完成的状态覆盖掉
       if (this.checkIntervalId) {
         clearInterval(this.checkIntervalId);
         this.checkIntervalId = null;
       }
       this.sendStatus({ status: 'downloaded', info: projectInfo(info) });
+      this.notifyIdleStateChanged();
     });
     autoUpdater.on('error', (error) => this.sendStatus({ status: 'error', error: error.message }));
 
@@ -82,6 +94,8 @@ class AutoUpdaterService {
     });
 
     this.setAutoUpdateEnabled(autoUpdateEnabled);
+    app.on('browser-window-focus', () => this.notifyIdleStateChanged());
+    app.on('browser-window-blur', () => this.notifyIdleStateChanged());
   }
 
   private sendStatus(status: UpdateStatus): void {
@@ -142,6 +156,77 @@ class AutoUpdaterService {
         clearTimeout(this.initialCheckTimer);
         this.initialCheckTimer = null;
       }
+    }
+    this.notifyIdleStateChanged();
+  }
+
+  setAutoRestartWhenIdle(enabled: boolean): void {
+    this.autoRestartWhenIdle = enabled;
+    if (!enabled) this.idleGate.reset();
+    this.notifyIdleStateChanged();
+  }
+
+  notifyIdleStateChanged(): void {
+    if (
+      this.installingIdleRestart ||
+      this.quittingForUpdate ||
+      this.idleGate.isFailed() ||
+      !this.updateDownloaded ||
+      !this.autoRestartWhenIdle ||
+      !autoUpdater.autoDownload
+    ) {
+      this.clearIdleTimer();
+      return;
+    }
+    const now = Date.now();
+    const observation = currentIdleRestartObservation(true, true);
+    if (this.idleGate.evaluate(observation, now)) {
+      this.clearIdleTimer();
+      void this.installWhenIdle();
+      return;
+    }
+    const remaining = this.idleGate.delayUntilReadyMs(now);
+    this.scheduleIdleCheck(remaining === null ? BUSY_POLL_MS : Math.max(remaining, 250));
+  }
+
+  private scheduleIdleCheck(delayMs: number): void {
+    this.clearIdleTimer();
+    this.idleTimer = setTimeout(
+      () => {
+        this.idleTimer = null;
+        this.notifyIdleStateChanged();
+      },
+      Math.min(delayMs, AUTO_RESTART_IDLE_MS)
+    );
+  }
+
+  private clearIdleTimer(): void {
+    if (!this.idleTimer) return;
+    clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+  }
+
+  private async installWhenIdle(): Promise<void> {
+    if (this.installingIdleRestart || this.quittingForUpdate) return;
+    this.installingIdleRestart = true;
+    try {
+      const { flushRendererPersist, isServerMode } = await import('../appServerMode');
+      await flushRendererPersist();
+      flushSettings();
+      const observation = currentIdleRestartObservation(true, true);
+      if (!this.idleGate.evaluate(observation, Date.now())) {
+        return;
+      }
+      if (isServerMode()) writeTrayReenterAfterUpdate(true);
+      this.quitAndInstall();
+    } catch (error) {
+      console.error('Idle auto-restart failed:', error);
+      this.idleGate.markFailed();
+      writeTrayReenterAfterUpdate(false);
+      this.clearIdleTimer();
+    } finally {
+      this.installingIdleRestart = false;
+      if (!this.quittingForUpdate && !this.idleGate.isFailed()) this.notifyIdleStateChanged();
     }
   }
 }

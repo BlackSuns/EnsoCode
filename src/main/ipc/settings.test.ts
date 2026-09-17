@@ -94,4 +94,18 @@ describe('settings广播策略', () => {
     expect(mocks.sends[0]).not.toHaveBeenCalled();
     expect(mocks.sends[1]).toHaveBeenCalledWith(IPC_CHANNELS.SETTINGS_CHANGED);
   });
+
+  it('托盘休眠策略写入不会清掉更新后回托盘标记', async () => {
+    const {
+      consumeTrayReenterAfterUpdate,
+      readTraySleepPolicy,
+      writeTrayReenterAfterUpdate,
+      writeTraySleepPolicy,
+    } = await import('./settings');
+    expect(writeTrayReenterAfterUpdate(true)).toBe(true);
+    expect(writeTraySleepPolicy('never')).toBe(true);
+    expect(readTraySleepPolicy()).toBe('never');
+    expect(consumeTrayReenterAfterUpdate()).toBe(true);
+    expect(consumeTrayReenterAfterUpdate()).toBe(false);
+  });
 });

@@ -64,6 +64,22 @@ export function isPairHeadless(): boolean {
   return headless;
 }
 
+export function headlessIdleBlocks(): {
+  queuedCount: number;
+  pendingAskCount: number;
+  pendingApprovalCount: number;
+} {
+  let queuedCount = 0;
+  let pendingAskCount = 0;
+  let pendingApprovalCount = 0;
+  for (const runtime of runtimes.values()) {
+    queuedCount += runtime.queued.length;
+    pendingAskCount += runtime.pendingAsks;
+    pendingApprovalCount += runtime.pendingApprovals;
+  }
+  return { queuedCount, pendingAskCount, pendingApprovalCount };
+}
+
 function runtimeOf(sessionId: string): HeadlessSessionRuntime {
   const current = runtimes.get(sessionId);
   if (current) return current;

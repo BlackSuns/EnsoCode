@@ -172,6 +172,16 @@ export class AgentSessionIndex {
     return this.sessions.get(sessionId)?.alive === true;
   }
 
+  anyWorkspaceBusy(): boolean {
+    for (const session of this.sessions.values()) {
+      if ('parent' in session.identity) continue;
+      if (this.workspaceTreeRunning(session.identity.sessionId)) return true;
+    }
+    return [...this.reservations.values()].some(({ child }) =>
+      this.workspaceTreeRunning(this.workspaceRoot(child.parent.sessionId))
+    );
+  }
+
   workspaceRoot(sessionId: string): string {
     const identity = this.currentIdentity(sessionId);
     if (identity && 'parent' in identity) return this.workspaceRoot(identity.parent.sessionId);
