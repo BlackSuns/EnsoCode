@@ -67,6 +67,9 @@ It is important to remember:
 - You must prefix new lines with \`+\` even when creating a new file
 - The first line must be exactly \`*** Begin Patch\` and the last line exactly \`*** End Patch\` — no extra asterisks on those marker lines
 
+- This is not a git unified diff. Do not emit git hunk headers.
+- Every Update must contain \`-\` or \`+\` lines. \`@@\` context alone does not change a file.
+
 ${APPLY_PATCH_LARK_GRAMMAR}`;
 
 export function createApplyPatchTool(options: CreateApplyPatchToolOptions): ToolDefinition {

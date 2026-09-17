@@ -221,25 +221,6 @@ describe('apply_patch 参数和语法', () => {
   });
 
   it('Update 中无前缀空行当作空 context，不跳过 identity chunk', () => {
-    const [operation] = parseApplyPatch(
-      envelope(
-        ['*** Update File: file.txt', '@@', ' context before', '', ' context after'].join('\n')
-      )
-    );
-    expect(operation).toMatchObject({
-      type: 'update',
-      chunks: [
-        {
-          oldLines: ['context before', '', 'context after'],
-          newLines: ['context before', '', 'context after'],
-          contextLineIndices: [
-            [0, 0],
-            [1, 1],
-            [2, 2],
-          ],
-        },
-      ],
-    });
     expect(parseApplyPatch(envelope('*** Update File: a.txt\n@@\n-same\n+same'))).toMatchObject([
       { type: 'update', chunks: [{ oldLines: ['same'], newLines: ['same'] }] },
     ]);
@@ -268,5 +249,90 @@ describe('apply_patch 参数和语法', () => {
         { oldLines: ['trailing'], newLines: ['trailing'] },
       ],
     });
+  });
+
+  it('git unified hunk 头当作裸 @@，不当 changeContext', () => {
+    const [operation] = parseApplyPatch(
+      envelope(
+        ['*** Update File: a.txt', '@@ -10,2 +10,3 @@', ' keep', '-old', '+new', '+added'].join(
+          '\n'
+        )
+      )
+    );
+    expect(operation).toMatchObject({
+      type: 'update',
+      chunks: [
+        {
+          oldLines: ['keep', 'old'],
+          newLines: ['keep', 'new', 'added'],
+        },
+      ],
+    });
+    if (operation.type !== 'update') throw new Error('expected update');
+    expect(operation.chunks[0]).not.toHaveProperty('changeContext');
+
+    const [named] = parseApplyPatch(
+      envelope(
+        ['*** Update File: b.txt', '@@ -1,1 +1,1 @@ function foo', '-old', '+new'].join('\n')
+      )
+    );
+    if (named.type !== 'update') throw new Error('expected update');
+    expect(named.chunks[0]).not.toHaveProperty('changeContext');
+    expect(named.chunks[0]).toMatchObject({ oldLines: ['old'], newLines: ['new'] });
+  });
+
+  it('@@ 后直接跟 +/- 时拆成改动行，不当 changeContext', () => {
+    const [operation] = parseApplyPatch(
+      envelope(
+        [
+          '*** Update File: a.ts',
+          '@@ -function harness(t: Test) {',
+          '+function harness(',
+          '+  t: Test',
+          '+) {',
+        ].join('\n')
+      )
+    );
+    if (operation.type !== 'update') throw new Error('expected update');
+    expect(operation.chunks[0]).not.toHaveProperty('changeContext');
+    expect(operation.chunks[0]).toMatchObject({
+      oldLines: ['function harness(t: Test) {'],
+      newLines: ['function harness(', '  t: Test', ') {'],
+    });
+  });
+
+  it('接受 End of File 行尾多余 ***', () => {
+    const [operation] = parseApplyPatch(
+      envelope('*** Update File: a.txt\n@@\n-old\n+new\n*** End of File ***')
+    );
+    if (operation.type !== 'update') throw new Error('expected update');
+    expect(operation.chunks[0]?.endOfFile).toBe(true);
+    expect(operation.chunks[0]).toMatchObject({ oldLines: ['old'], newLines: ['new'] });
+  });
+
+  it('纯定位 Update（只有 @@/上下文、没有 -/+）拒绝', () => {
+    expect(() => parseApplyPatch(envelope('*** Update File: a.txt\n@@ locate\n keep'))).toThrow(
+      /has no '-'\/'\+' edits/
+    );
+    expect(() =>
+      parseApplyPatch(
+        envelope(
+          ['*** Update File: file.txt', '@@', ' context before', '', ' context after'].join('\n')
+        )
+      )
+    ).toThrow(/has no '-'\/'\+' edits/);
+  });
+
+  it('Move 可以只有上下文，不要求 -/+', () => {
+    expect(
+      parseApplyPatch(envelope('*** Update File: a.txt\n*** Move to: b.txt\n@@\n keep'))
+    ).toMatchObject([
+      {
+        type: 'update',
+        path: 'a.txt',
+        movePath: 'b.txt',
+        chunks: [{ oldLines: ['keep'], newLines: ['keep'] }],
+      },
+    ]);
   });
 });

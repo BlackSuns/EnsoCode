@@ -14,6 +14,8 @@ const HUNK_HEADERS = "'*** Add File: {path}', '*** Delete File: {path}', '*** Up
 const BEGIN_DECORATED = `${BEGIN} ***`;
 const END_DECORATED = `${END} ***`;
 const PATCH_OPERATION = /^\*\*\* (?:Add|Update|Delete) File: .+$/;
+const EOF_DECORATED = `${EOF} ***`;
+const UNIFIED_HUNK_HEADER = /^@@[ \t]+-\d+(?:,\d+)?[ \t]+\+\d+(?:,\d+)?[ \t]*@@/;
 
 export function looksLikeApplyPatchDocument(value: string): boolean {
   const lines = rustLines(value.trim());
@@ -105,6 +107,44 @@ function chunkEmpty(chunk: ApplyPatchChunk | undefined): boolean {
   return chunk !== undefined && chunk.oldLines.length === 0 && chunk.newLines.length === 0;
 }
 
+function isBareAtAt(line: string): boolean {
+  return line === EMPTY_CHANGE_CONTEXT || /^@@[ \t]+$/.test(line) || UNIFIED_HUNK_HEADER.test(line);
+}
+
+function gluedChangeLine(line: string): string | undefined {
+  if (!line.startsWith('@@') || UNIFIED_HUNK_HEADER.test(line)) return undefined;
+  const rest = line.slice(2).replace(/^[ \t]+/, '');
+  if (rest.startsWith('+') || rest.startsWith('-')) return rest;
+  return undefined;
+}
+
+function isEofMarker(line: string): boolean {
+  return line === EOF || line === EOF_DECORATED;
+}
+
+function chunkHasEdits(chunk: ApplyPatchChunk): boolean {
+  if (chunk.oldLines.length !== chunk.newLines.length) return true;
+  if (chunk.contextLineIndices.length !== chunk.oldLines.length) return true;
+  return chunk.oldLines.some((line, index) => line !== chunk.newLines[index]);
+}
+
+function applyGluedChange(
+  update: Extract<ApplyPatchOperation, { type: 'update' }>,
+  prefixed: string
+): void {
+  const current = lastChunk(update);
+  if (current && !chunkEmpty(current)) {
+    update.chunks.push({
+      oldLines: [],
+      newLines: [],
+      contextLineIndices: [],
+      endOfFile: false,
+    });
+  }
+  if (prefixed.startsWith('+')) ensureChunk(update).newLines.push(prefixed.slice(1));
+  else ensureChunk(update).oldLines.push(prefixed.slice(1));
+}
+
 function ensureUpdateNotEmpty(
   operations: ApplyPatchOperation[],
   mode: Mode,
@@ -117,7 +157,15 @@ function ensureUpdateNotEmpty(
   if (update.chunks.length === 0 && mode === 'update') {
     invalidHunk(hunkLineNumber, `Update file hunk for path '${update.path}' is empty`);
   }
-  if (!chunkEmpty(lastChunk(update))) return;
+  if (!chunkEmpty(lastChunk(update))) {
+    if (!update.movePath && !update.chunks.some(chunkHasEdits)) {
+      invalidHunk(
+        hunkLineNumber,
+        `Update file hunk for path '${update.path}' has no '-'/'+' edits`
+      );
+    }
+    return;
+  }
   if (line === END) invalidHunk(lineNumber, 'Update hunk does not contain any lines');
   invalidHunk(
     lineNumber,
@@ -258,16 +306,13 @@ function processLine(
       update.movePath = updateLine.slice(MOVE.length);
       return { mode, hunkLineNumber };
     }
-    if (
-      (updateLine === EMPTY_CHANGE_CONTEXT || updateLine.startsWith(CHANGE_CONTEXT)) &&
-      chunkEmpty(current)
-    ) {
-      invalidHunk(
-        lineNumber,
-        `Unexpected line found in update hunk: '${line}'. Every line should start with ' ' (context line), '+' (added line), or '-' (removed line)`
-      );
-    }
-    if (updateLine === EMPTY_CHANGE_CONTEXT) {
+    if (isBareAtAt(updateLine)) {
+      if (chunkEmpty(current)) {
+        invalidHunk(
+          lineNumber,
+          `Unexpected line found in update hunk: '${line}'. Every line should start with ' ' (context line), '+' (added line), or '-' (removed line)`
+        );
+      }
       update.chunks.push({
         oldLines: [],
         newLines: [],
@@ -276,7 +321,18 @@ function processLine(
       });
       return { mode, hunkLineNumber };
     }
+    const glued = gluedChangeLine(updateLine);
+    if (glued) {
+      applyGluedChange(update, glued);
+      return { mode, hunkLineNumber };
+    }
     if (updateLine.startsWith(CHANGE_CONTEXT)) {
+      if (chunkEmpty(current)) {
+        invalidHunk(
+          lineNumber,
+          `Unexpected line found in update hunk: '${line}'. Every line should start with ' ' (context line), '+' (added line), or '-' (removed line)`
+        );
+      }
       update.chunks.push({
         changeContext: updateLine.slice(CHANGE_CONTEXT.length),
         oldLines: [],
@@ -286,7 +342,7 @@ function processLine(
       });
       return { mode, hunkLineNumber };
     }
-    if (updateLine === EOF) {
+    if (isEofMarker(updateLine)) {
       if (chunkEmpty(current)) invalidHunk(lineNumber, 'Update hunk does not contain any lines');
       if (current) current.endOfFile = true;
       return { mode, hunkLineNumber };

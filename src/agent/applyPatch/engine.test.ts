@@ -86,6 +86,35 @@ describe('apply_patch 引擎', () => {
     expect(await text('update.txt')).toBe('one\nchanged\nthree\n');
   });
 
+  it('git unified hunk 头不阻断实质改动', async () => {
+    await writeFile(path.join(cwd, 'update.txt'), 'keep\nold\n');
+    const result = await executeApplyPatch(
+      cwd,
+      patch('*** Update File: update.txt', '@@ -1,2 +1,3 @@', ' keep', '-old', '+new', '+added')
+    );
+    expect(result.details.status).toBe('success');
+    expect(await text('update.txt')).toBe('keep\nnew\nadded\n');
+  });
+
+  it('纯定位 Update 在解析期拒绝且零写', async () => {
+    await writeFile(path.join(cwd, 'a.txt'), 'one\ntwo\n');
+    await expectFailed(
+      executeApplyPatch(cwd, patch('*** Update File: a.txt', '@@ locate', ' one')),
+      /has no '-'\/'\+' edits/
+    );
+    expect(await text('a.txt')).toBe('one\ntwo\n');
+  });
+
+  it('End of File 行尾多余 *** 仍按 EOF 锚点应用', async () => {
+    await writeFile(path.join(cwd, 'eof.txt'), 'old\n');
+    const result = await executeApplyPatch(
+      cwd,
+      patch('*** Update File: eof.txt', '@@', '-old', '+changed', '*** End of File ***')
+    );
+    expect(result.details.status).toBe('success');
+    expect(await text('eof.txt')).toBe('changed\n');
+  });
+
   it('move 先独占写目标再删除源，并按两个物理路径报告', async () => {
     await writeFile(path.join(cwd, 'old.txt'), 'old\n');
     const result = await executeApplyPatch(

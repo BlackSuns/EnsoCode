@@ -38,6 +38,9 @@ describe('apply_patch tool 与 SSH IO', () => {
       'The first line must be exactly `*** Begin Patch` and the last line exactly `*** End Patch`'
     );
     expect(tool.description).toContain('no extra asterisks on those marker lines');
+    expect(tool.description).toContain('not a git unified diff');
+    expect(tool.description).toContain('Do not emit git hunk headers');
+    expect(tool.description).toContain('Every Update must contain `-` or `+` lines');
     expect(
       (tool.parameters as { properties: { input: { description: string } } }).properties.input
         .description
