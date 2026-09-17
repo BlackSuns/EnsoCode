@@ -1,0 +1,200 @@
+import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import {
+  FALLBACK_TRAY_ICON_DATA_URL,
+  firstExistingPath,
+  isTrayTemplatePath,
+  shouldStayAliveOnWindowAllClosed,
+  trayIconCandidates,
+} from '@shared/appServerMode';
+import { IPC_CHANNELS } from '@shared/types';
+import { app, ipcMain, Menu, nativeImage, Tray } from 'electron';
+import {
+  flushSettings,
+  readSettings,
+  readTraySleepPolicy,
+  writeTraySleepPolicy,
+} from '../ipc/settings';
+import {
+  closeWindowWebContents,
+  getWindowWebContents,
+  sendToWindow,
+} from '../windows/createAppWindow';
+import { createMainWindow, getMainWindow, isMainWindowAlive } from '../windows/MainWindow';
+import { getSettingsWindow } from '../windows/SettingsWindow';
+import { allowAppQuit, bypassNextCloseConfirm } from './appCloseConfirm';
+import { browserHost } from './browserHost';
+import { refreshPowerKeepAlive } from './pairHost';
+import { setPairHeadless } from './pairSessionHost';
+
+const FLUSH_TIMEOUT_MS = 5_000;
+
+let active = false;
+let tray: Tray | null = null;
+
+export function isServerMode(): boolean {
+  return active;
+}
+
+export function shouldQuitOnWindowAllClosed(platform: NodeJS.Platform): boolean {
+  return !shouldStayAliveOnWindowAllClosed({ serverMode: active, platform });
+}
+
+function languageIsZh(): boolean {
+  const settings = readSettings()?.['enso-settings'] as
+    | { state?: { language?: unknown } }
+    | undefined;
+  return settings?.state?.language === 'zh';
+}
+
+function trayIcon() {
+  const file = firstExistingPath(
+    trayIconCandidates({
+      appPath: app.getAppPath(),
+      resourcesPath: process.resourcesPath,
+      moduleDir: import.meta.dirname,
+      cwd: process.cwd(),
+      platform: process.platform,
+    }),
+    existsSync
+  );
+  let image = file ? nativeImage.createFromPath(file) : nativeImage.createEmpty();
+  if (image.isEmpty()) image = nativeImage.createFromDataURL(FALLBACK_TRAY_ICON_DATA_URL);
+  const template = Boolean(file && isTrayTemplatePath(file));
+  if (!template) {
+    const { width } = image.getSize();
+    if (width > 32 || width < 16) image = image.resize({ width: 16, height: 16 });
+  }
+  if (process.platform === 'darwin' && (template || !file)) image.setTemplateImage(true);
+  return image;
+}
+
+function rebuildTrayMenu(): void {
+  if (!tray) return;
+  const zh = languageIsZh();
+  const sleepPolicy = readTraySleepPolicy();
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: zh ? '打开 EnsoCode' : 'Show EnsoCode',
+        click: () => {
+          leaveServerMode();
+        },
+      },
+      { type: 'separator' },
+      {
+        label: zh ? '有 Agent 运行时不休眠' : 'Prevent sleep while agent is running',
+        type: 'radio',
+        checked: sleepPolicy === 'when-agent-running',
+        click: () => {
+          writeTraySleepPolicy('when-agent-running');
+          refreshPowerKeepAlive();
+          rebuildTrayMenu();
+        },
+      },
+      {
+        label: zh ? '永远不休眠' : 'Never sleep',
+        type: 'radio',
+        checked: sleepPolicy === 'never',
+        click: () => {
+          writeTraySleepPolicy('never');
+          refreshPowerKeepAlive();
+          rebuildTrayMenu();
+        },
+      },
+      { type: 'separator' },
+      {
+        label: zh ? '退出' : 'Quit',
+        click: () => quitFromTray(),
+      },
+    ])
+  );
+  tray.setToolTip('EnsoCode');
+}
+
+function ensureTray(): void {
+  if (tray && !tray.isDestroyed()) {
+    rebuildTrayMenu();
+    return;
+  }
+  tray = new Tray(trayIcon());
+  tray.on('click', () => leaveServerMode());
+  rebuildTrayMenu();
+}
+
+function recreateTray(): void {
+  if (tray && !tray.isDestroyed()) tray.destroy();
+  tray = null;
+  ensureTray();
+}
+
+async function flushRendererPersist(): Promise<void> {
+  const win = getMainWindow();
+  if (!win || win.isDestroyed()) return;
+  const contents = getWindowWebContents(win);
+  if (contents.isDestroyed()) return;
+  const requestId = randomUUID();
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      ipcMain.removeListener(IPC_CHANNELS.APP_FLUSH_PERSIST_RESPONSE, onResponse);
+      resolve();
+    };
+    const onResponse = (_event: Electron.IpcMainEvent, incomingId: unknown) => {
+      if (incomingId === requestId) done();
+    };
+    const timer = setTimeout(done, FLUSH_TIMEOUT_MS);
+    ipcMain.on(IPC_CHANNELS.APP_FLUSH_PERSIST_RESPONSE, onResponse);
+    sendToWindow(win, IPC_CHANNELS.APP_FLUSH_PERSIST_REQUEST, requestId);
+  });
+}
+
+export async function enterServerMode(): Promise<void> {
+  if (active) return;
+  await flushRendererPersist();
+  flushSettings();
+  active = true;
+  setPairHeadless(true);
+  bypassNextCloseConfirm();
+  refreshPowerKeepAlive();
+  const settings = getSettingsWindow();
+  if (settings && !settings.isDestroyed()) settings.close();
+  ensureTray();
+  await browserHost.hibernateAll();
+  const win = getMainWindow();
+  if (win && !win.isDestroyed()) {
+    closeWindowWebContents(win);
+    win.destroy();
+  }
+  app.dock?.hide();
+  // dock.hide() 会把 activation policy 改成 accessory，已有 NSStatusItem 经常被丢掉。
+  recreateTray();
+}
+
+export function leaveServerMode(): void {
+  const wasActive = active;
+  active = false;
+  setPairHeadless(false);
+  flushSettings();
+  app.dock?.show();
+  if (!isMainWindowAlive()) createMainWindow();
+  const win = getMainWindow();
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+  if (wasActive) ensureTray();
+}
+
+export function quitFromTray(): void {
+  allowAppQuit();
+  app.quit();
+}
+
+export function restoreFromSecondInstance(): void {
+  leaveServerMode();
+}

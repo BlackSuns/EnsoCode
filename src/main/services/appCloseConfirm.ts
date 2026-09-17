@@ -13,19 +13,33 @@ export interface AppCloseConfirmHost {
   removeListener(event: 'closed', listener: () => void): void;
 }
 
+let allowQuit = false;
+let bypassDestroy = false;
+
+export function allowAppQuit(): void {
+  allowQuit = true;
+}
+
+export function bypassNextCloseConfirm(): void {
+  bypassDestroy = true;
+}
+
 export function attachAppCloseConfirm(
   win: AppCloseConfirmHost,
   send: (channel: string, ...args: unknown[]) => void,
-  contentsOf: () => WebContents
+  contentsOf: () => WebContents,
+  options: {
+    interceptBeforeQuit: boolean;
+    onTray: () => void | Promise<void>;
+  }
 ): void {
-  let allowQuit = false;
   let flowInProgress = false;
 
-  const askRenderer = (): Promise<boolean> => {
+  const askRenderer = (): Promise<'cancel' | 'quit' | 'tray'> => {
     const requestId = randomUUID();
     return new Promise((resolve) => {
       let settled = false;
-      const finalize = (value: boolean) => {
+      const finalize = (value: 'cancel' | 'quit' | 'tray') => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -42,14 +56,14 @@ export function attachAppCloseConfirm(
         }
         resolve(value);
       };
-      const gone = () => finalize(false);
+      const gone = () => finalize('cancel');
       const onResponse = (event: Electron.IpcMainEvent, incomingId: unknown, payload: unknown) => {
         if (event.sender !== contentsOf()) return;
         const parsed = parseAppCloseResponse(requestId, incomingId, payload);
         if (!parsed) return;
-        finalize(parsed.allow);
+        finalize(parsed.action);
       };
-      const timer = setTimeout(() => finalize(false), CLOSE_RESPONSE_TIMEOUT_MS);
+      const timer = setTimeout(() => finalize('cancel'), CLOSE_RESPONSE_TIMEOUT_MS);
       ipcMain.on(IPC_CHANNELS.APP_CLOSE_RESPONSE, onResponse);
       win.once('closed', gone);
       contentsOf().once('destroyed', gone);
@@ -62,21 +76,30 @@ export function attachAppCloseConfirm(
     flowInProgress = true;
     try {
       if (win.isDestroyed() || contentsOf().isDestroyed()) return;
-      const confirmed = await askRenderer();
-      if (!confirmed) return;
-      allowQuit = true;
+      const action = await askRenderer();
+      if (action === 'cancel') return;
       flowInProgress = false;
+      if (action === 'tray') {
+        await options.onTray();
+        return;
+      }
+      allowQuit = true;
       app.quit();
     } finally {
       flowInProgress = false;
     }
   };
 
-  const shouldPass = () =>
-    shouldBypassCloseConfirm({
+  const shouldPass = () => {
+    if (bypassDestroy) {
+      bypassDestroy = false;
+      return true;
+    }
+    return shouldBypassCloseConfirm({
       allowQuit,
       quittingForUpdate: autoUpdaterService.isQuittingForUpdate(),
     });
+  };
 
   win.on('close', (event) => {
     if (shouldPass()) return;
@@ -89,8 +112,16 @@ export function attachAppCloseConfirm(
     event.preventDefault();
     void beginConfirm();
   };
-  app.on('before-quit', onBeforeQuit);
+  const markQuitting = () => {
+    allowQuit = true;
+  };
+  if (options.interceptBeforeQuit) app.on('before-quit', onBeforeQuit);
+  else {
+    // dev：不拦 before-quit（Ctrl+C），但要让随后的 window close 放行，否则确认框把进程卡住。
+    app.on('before-quit', markQuitting);
+  }
   win.once('closed', () => {
-    app.removeListener('before-quit', onBeforeQuit);
+    if (options.interceptBeforeQuit) app.removeListener('before-quit', onBeforeQuit);
+    else app.removeListener('before-quit', markQuitting);
   });
 }

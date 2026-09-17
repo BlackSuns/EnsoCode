@@ -1,12 +1,15 @@
+export type AppCloseAction = 'cancel' | 'quit' | 'tray';
+
 export interface AppCloseDecision {
-  allow: boolean;
+  action: AppCloseAction;
 }
 
 export function shouldBypassCloseConfirm(input: {
   allowQuit: boolean;
   quittingForUpdate: boolean;
+  bypassDestroy?: boolean;
 }): boolean {
-  return input.allowQuit || input.quittingForUpdate;
+  return input.allowQuit || input.quittingForUpdate || input.bypassDestroy === true;
 }
 
 export function parseAppCloseResponse(
@@ -16,7 +19,7 @@ export function parseAppCloseResponse(
 ): AppCloseDecision | null {
   if (typeof incomingId !== 'string' || incomingId !== requestId) return null;
   if (!payload || typeof payload !== 'object') return null;
-  const confirmed = (payload as { confirmed?: unknown }).confirmed;
-  if (typeof confirmed !== 'boolean') return null;
-  return { allow: confirmed };
+  const action = (payload as { action?: unknown }).action;
+  if (action === 'cancel' || action === 'quit' || action === 'tray') return { action };
+  return null;
 }

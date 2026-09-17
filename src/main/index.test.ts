@@ -48,6 +48,7 @@ vi.mock('./services/localImageProtocol', () => ({
 vi.mock('./services/pairHost', () => ({
   startPairHost: vi.fn(() => mocks.order.push('pair')),
   stopPairHost: vi.fn(),
+  refreshPowerKeepAlive: vi.fn(),
 }));
 vi.mock('./services/pairGuest', () => ({
   startPairGuest: vi.fn(),
@@ -66,6 +67,12 @@ vi.mock('./services/updater/AutoUpdater', () => ({
 vi.mock('./windows/MainWindow', () => ({
   createMainWindow: mocks.createMainWindow,
   getMainWindow: vi.fn(() => null),
+}));
+vi.mock('./services/appServerMode', () => ({
+  leaveServerMode: vi.fn(),
+  restoreFromSecondInstance: vi.fn(),
+  shouldQuitOnWindowAllClosed: () => false,
+  isServerMode: () => false,
 }));
 
 const originalUserDataOverride = process.env.ENSO_USER_DATA_DIR;

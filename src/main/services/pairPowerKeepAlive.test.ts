@@ -1,7 +1,11 @@
 import type { SessionIdentity } from '@shared/builtinAgents';
 import type { RendererAgentEvent, SessionSnapshot } from '@shared/types/agent';
 import { describe, expect, it } from 'vitest';
-import { applyPairPowerTaskEvent, shouldHoldPairPowerKeepAlive } from './pairPowerKeepAlive';
+import {
+  applyPairPowerTaskEvent,
+  parseTraySleepPolicy,
+  shouldHoldPairPowerKeepAlive,
+} from './pairPowerKeepAlive';
 
 const identity = (sessionId: string): SessionIdentity => ({
   sessionId,
@@ -17,16 +21,19 @@ const snapshot = (sessionId: string, status: SessionSnapshot['status']): Session
   }) as SessionSnapshot;
 
 describe('shouldHoldPairPowerKeepAlive', () => {
-  it('手机在线时持锁', () => {
-    expect(shouldHoldPairPowerKeepAlive(true, 0)).toBe(true);
+  it('默认策略：只有 agent 在跑才持锁', () => {
+    expect(shouldHoldPairPowerKeepAlive('when-agent-running', 0)).toBe(false);
+    expect(shouldHoldPairPowerKeepAlive('when-agent-running', 1)).toBe(true);
   });
 
-  it('有任务在跑时持锁，即使手机不在线', () => {
-    expect(shouldHoldPairPowerKeepAlive(false, 1)).toBe(true);
+  it('永远不休眠：没有 agent 也持锁', () => {
+    expect(shouldHoldPairPowerKeepAlive('never', 0)).toBe(true);
   });
 
-  it('手机离线且没有任务时放锁', () => {
-    expect(shouldHoldPairPowerKeepAlive(false, 0)).toBe(false);
+  it('脏值回落到有 agent 才持锁', () => {
+    expect(parseTraySleepPolicy(undefined)).toBe('when-agent-running');
+    expect(parseTraySleepPolicy('never')).toBe('never');
+    expect(parseTraySleepPolicy('always')).toBe('when-agent-running');
   });
 });
 

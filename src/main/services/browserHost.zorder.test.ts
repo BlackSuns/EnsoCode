@@ -17,6 +17,8 @@ vi.mock('electron', () => ({
       setPermissionRequestHandler() {},
       setPermissionCheckHandler() {},
       webRequest: { onBeforeRequest() {} },
+      cookies: { flushStore: async () => {} },
+      flushStorageData: async () => {},
     }),
   },
   WebContentsView: class {
@@ -41,6 +43,9 @@ vi.mock('electron', () => ({
         getTitle: () => '',
         isLoading: () => false,
         isDestroyed: () => false,
+        isDevToolsOpened: () => false,
+        close() {},
+        closeDevTools() {},
         navigationHistory: {
           clear() {},
           canGoBack: () => false,
@@ -139,4 +144,23 @@ it('covered 闩锁同样在上报方消失后回落', async () => {
 
   host.resetOverlayReports();
   expect(raised(win)).toBe(true);
+});
+
+it('hibernateAll 关掉 guest webContents，进托盘才能丢掉 renderer', async () => {
+  const { host, win } = await setup();
+  let closed = false;
+  mock.contents[0].close = () => {
+    closed = true;
+    mock.contents[0].isDestroyed = () => true;
+  };
+  expect(win.contentView.children.some((c) => c.name === 'guest')).toBe(true);
+
+  await host.hibernateAll();
+
+  expect(closed).toBe(true);
+  expect(host.state('tab-a').tabId).toBe(null);
+  expect(win.contentView.children.some((c) => c.name === 'guest')).toBe(false);
+  expect(host.listSearchableTabs().some((tab) => tab.url.startsWith('https://example.com'))).toBe(
+    true
+  );
 });

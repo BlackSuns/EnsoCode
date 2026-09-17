@@ -327,7 +327,9 @@ export const zhTranslations: Record<string, string> = {
   'Connection failed': '连接失败',
   Cancel: '取消',
   'Confirm exit': '确认退出',
-  'Are you sure you want to exit the app?': '确定要退出应用吗？',
+  'The app will keep running in the background so your phone can still connect.':
+    '应用会在后台继续运行，手机仍可连接。',
+  'Minimize to tray': '最小化到托盘',
   Exit: '退出',
   // Unified provider setup, default model, and Enso
   'Add a provider subscription or API Key, or import providers from local AI apps':

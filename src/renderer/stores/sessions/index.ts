@@ -3495,8 +3495,8 @@ export const useSessionsStore = create<SessionsState>()(
         const viewed = viewedFromState(state);
         if (viewed) {
           void hydrateParentHistoryTail(viewed);
-          void window.electronAPI.agent.requestSnapshot(viewed);
         }
+        void window.electronAPI.agent.requestSnapshot();
         void syncConversationProjectIds()
           .then(() => useSessionsStore.getState().refreshWorktreeStatuses())
           .catch(() => {});

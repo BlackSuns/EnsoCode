@@ -1,11 +1,16 @@
 import path from 'node:path';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
-import { app, BrowserWindow } from 'electron';
+import { app, type BrowserWindow } from 'electron';
 
 import { registerIpcHandlers } from './ipc';
 import { readSettings } from './ipc/settings';
 import { startAgentWorker } from './services/agentHost';
 import { attachAppQuitDrain } from './services/appQuitDrain';
+import {
+  leaveServerMode,
+  restoreFromSecondInstance,
+  shouldQuitOnWindowAllClosed,
+} from './services/appServerMode';
 import { browserHost } from './services/browserHost';
 import { releaseLocalChatSlot } from './services/llama/chat';
 import { disposeLlamaRuntime, llamaRuntimeActive } from './services/llama/runtime';
@@ -64,12 +69,7 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    const win = getMainWindow();
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
-    }
+    restoreFromSecondInstance();
   });
   app.on('child-process-gone', (_event, details) => {
     console.error(
@@ -125,16 +125,12 @@ if (!gotTheLock) {
     void initAutoUpdater(mainWindow);
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        createMainWindow();
-      }
+      leaveServerMode();
     });
   });
 
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-      app.quit();
-    }
+    if (shouldQuitOnWindowAllClosed(process.platform)) app.quit();
   });
 
   // Electron 退出即断开中继，手机侧收到 host-offline

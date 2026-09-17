@@ -56,6 +56,14 @@ export function getWindowWebContents(win: BrowserWindow): WebContents {
   return workbenchViews.get(win)?.webContents ?? win.webContents;
 }
 
+/** destroy 窗口前先 close，避免 WebContentsView 把 renderer 进程留下来。 */
+export function closeWindowWebContents(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  const workbench = workbenchViews.get(win);
+  if (workbench && !workbench.webContents.isDestroyed()) workbench.webContents.close();
+  if (!win.webContents.isDestroyed()) win.webContents.close();
+}
+
 export function sendToWindow(win: BrowserWindow, channel: string, ...args: unknown[]): void {
   if (win.isDestroyed()) return;
   const contents = getWindowWebContents(win);

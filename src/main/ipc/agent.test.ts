@@ -93,6 +93,11 @@ vi.mock('../services/notifications', () => ({ maybeNotify: vi.fn() }));
 vi.mock('../services/pairHost', () => ({
   forwardAgentEvent: vi.fn(),
   setPairAgentBridge: mocks.setPairAgentBridge,
+  refreshPowerKeepAlive: vi.fn(),
+}));
+vi.mock('../services/pairSessionHost', () => ({
+  configurePairSessionHost: vi.fn(),
+  handlePairHeadlessAgentEvent: vi.fn(),
 }));
 vi.mock('./capabilities', () => ({
   agentSessionIndex: {

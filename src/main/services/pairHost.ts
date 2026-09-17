@@ -54,6 +54,7 @@ import type {
   PairStatus,
 } from '@shared/types/pair';
 import { app, powerMonitor, powerSaveBlocker } from 'electron';
+import { readTraySleepPolicy } from '../ipc/settings';
 // 会话命令一律走 agentBridge（身份解析留在 ipc/agent.ts），这里只留无需身份的 snapshot。
 import { requestSnapshot, setPinnedSessions } from './agentHost';
 import { MacosSystemSleepAssertion } from './macosSystemSleepAssertion';
@@ -240,13 +241,11 @@ const macosSystemSleepAssertion = new MacosSystemSleepAssertion();
 let runningTaskIds = new Set<string>();
 
 /**
- * 手机在线或任务在跑时阻止 idle 休眠（屏幕仍可熄）。
- * 任务在跑也锁：手机切后台后 socket 常断，不锁会睡死、任务和重连一起没。
+ * 按托盘休眠策略持锁（屏幕仍可熄）。
  * macOS 额外请求 caffeinate -i -s：尝试挡住系统睡 / 合盖睡（插电才有 -s；合盖仍可能被系统强制睡）。
  */
 function syncPowerBlocker(): void {
-  const anyOnline = [...connections.values()].some((c) => c.phoneOnline);
-  const shouldBlock = shouldHoldPairPowerKeepAlive(anyOnline, runningTaskIds.size);
+  const shouldBlock = shouldHoldPairPowerKeepAlive(readTraySleepPolicy(), runningTaskIds.size);
   if (shouldBlock) {
     if (powerBlockerId === null) {
       powerBlockerId = powerSaveBlocker.start('prevent-app-suspension');
@@ -261,8 +260,11 @@ function syncPowerBlocker(): void {
   }
 }
 
+export function refreshPowerKeepAlive(): void {
+  syncPowerBlocker();
+}
+
 function notifyStatus(): void {
-  // phoneOnline 的每次变化都会走到这里，顺带同步休眠锁
   syncPowerBlocker();
   syncPinnedSessions();
   onStatusChange?.();
@@ -291,6 +293,7 @@ function ensureRelayCacheSeeded(): void {
 
 export function startPairHost(): void {
   ensureRelayCacheSeeded();
+  syncPowerBlocker();
   if (!resumeHooked) {
     resumeHooked = true;
     // 睡眠唤醒后 TCP 多半已死但 close 事件不会来：活链立即探测，死链立即重连
@@ -1281,6 +1284,22 @@ export function updatePairCatalog(payload: {
   };
   for (const conn of connections.values()) {
     // 人对端在房才推：readyState 开着但 peer-left 时往 relay 白发且会误记 sentMeta
+    if (conn.phoneOnline) requestMeta(conn);
+  }
+}
+
+export function getPairCatalog(): CatalogEntry[] {
+  return catalog;
+}
+
+export function getPairProjects(): ProjectEntry[] {
+  return projects;
+}
+
+export function mutatePairCatalog(mutate: (entries: CatalogEntry[]) => CatalogEntry[]): void {
+  if (!catalogReady) return;
+  catalog = mutate(catalog);
+  for (const conn of connections.values()) {
     if (conn.phoneOnline) requestMeta(conn);
   }
 }

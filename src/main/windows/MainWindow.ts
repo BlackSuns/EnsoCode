@@ -15,17 +15,19 @@ export function createMainWindow(): BrowserWindow {
     pinWorkbenchView: true,
   });
 
-  // dev 不弹退出确认：终端 Ctrl+C 杀掉 electron-vite 后 Electron 会卡在确认框上变孤儿
-  // （主进程接不到 SIGINT，Chromium 直接转成 app.quit()）
-  if (app.isPackaged) {
-    attachAppCloseConfirm(
-      mainWindow,
-      (channel, ...args) => {
-        if (mainWindow && !mainWindow.isDestroyed()) sendToWindow(mainWindow, channel, ...args);
-      },
-      () => getWindowWebContents(mainWindow as BrowserWindow)
-    );
-  }
+  // 关窗一律问退出还是进托盘。before-quit 只在打包版拦：dev 下 Ctrl+C 会变成
+  // app.quit()，拦了会卡在确认框上变孤儿。
+  attachAppCloseConfirm(
+    mainWindow,
+    (channel, ...args) => {
+      if (mainWindow && !mainWindow.isDestroyed()) sendToWindow(mainWindow, channel, ...args);
+    },
+    () => getWindowWebContents(mainWindow as BrowserWindow),
+    {
+      interceptBeforeQuit: app.isPackaged,
+      onTray: () => import('../services/appServerMode').then((mod) => mod.enterServerMode()),
+    }
+  );
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -36,6 +38,10 @@ export function createMainWindow(): BrowserWindow {
 
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow;
+}
+
+export function isMainWindowAlive(): boolean {
+  return Boolean(mainWindow && !mainWindow.isDestroyed());
 }
 
 export function isMainWebContents(webContentsId: number): boolean {

@@ -1345,6 +1345,30 @@ export class BrowserHost {
     return mergeBrowserSearchTabs(live, persisted);
   }
 
+  /** 进托盘：关掉所有 guest renderer，HTTP 用户 tab 的 URL 留在 persist 里。 */
+  async hibernateAll(): Promise<void> {
+    this.shown = null;
+    this.shownDevtools = null;
+    this.overlayActive = false;
+    this.pendingReveal.clear();
+    if (this.idleTimer) {
+      clearInterval(this.idleTimer);
+      this.idleTimer = undefined;
+    }
+    for (const tab of [...this.tabs.values()]) {
+      const state = this.stateOf(tab);
+      if (state.url.startsWith('http')) {
+        this.rememberTab(tab.id, {
+          url: state.url,
+          title: state.title,
+          conversationId: tab.ownerSessionId,
+          at: this.lastSeen.get(tab.id) ?? tab.createdAt,
+        });
+      }
+      await this.destroyTab(tab, { keepPersist: true });
+    }
+  }
+
   /** 退出前：flush 后关掉全部 tab。 */
   async dispose(): Promise<void> {
     this.disposing = true;

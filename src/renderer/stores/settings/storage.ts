@@ -13,10 +13,22 @@ import type { PersistStorage, StorageValue } from 'zustand/middleware';
  * 这正是 merge 之后、回调自身补写之前的那一点。开闸前的写入直接丢弃，不排队。
  */
 const hydratedNames = new Set<string>();
+const inflight = new Set<Promise<void>>();
 
 /** 本渲染进程接受的落盘更新次数（含合并中的更新），用于检测跨窗口重读期间的本地变更。 */
 let writeGeneration = 0;
 export const getWriteGeneration = (): number => writeGeneration;
+
+function trackWrite(done: Promise<void>): Promise<void> {
+  inflight.add(done);
+  void done.finally(() => inflight.delete(done));
+  return done;
+}
+
+/** 等所有在途 persist 写完，供进托盘前落盘。 */
+export async function flushElectronPersist(): Promise<void> {
+  await Promise.all([...inflight]);
+}
 
 /** persist 已把磁盘状态 merge 进内存，之后的落盘可放行。读失败（error 有值）不得调用。 */
 export function openPersistWriteGate(name: string): void {
@@ -36,13 +48,15 @@ export const electronStorage = {
   setItem: async (name: string, value: string): Promise<void> => {
     if (!hydratedNames.has(name)) return;
     writeGeneration++;
-    await window.electronAPI.settings.writeKey(name, JSON.parse(value));
+    await trackWrite(
+      window.electronAPI.settings.writeKey(name, JSON.parse(value)).then(() => undefined)
+    );
   },
 
   removeItem: async (name: string): Promise<void> => {
     if (!hydratedNames.has(name)) return;
     writeGeneration++;
-    await window.electronAPI.settings.writeKey(name, undefined);
+    await trackWrite(window.electronAPI.settings.writeKey(name, undefined).then(() => undefined));
   },
 };
 
@@ -80,6 +94,7 @@ export function createElectronPersistStorage<State>(): PersistStorage<State> {
     queues.set(name, queue);
     // persist 通常不等待写入；报告失败并标记已处理，同时保留调用方可等待的拒绝结果。
     void queue.done.catch((error: unknown) => console.error('会话持久化失败', name, error));
+    void trackWrite(queue.done.catch(() => undefined));
     async function drain(): Promise<void> {
       let failure: { error: unknown } | undefined;
       while (queue.pending) {

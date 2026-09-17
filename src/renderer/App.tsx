@@ -14,7 +14,6 @@ import { TitleBar } from '@/components/app/TitleBar';
 import { UpdateBanner } from '@/components/app/UpdateBanner';
 import { requestOpenChatFind } from '@/components/chat/ChatFindBar';
 import { ChatView } from '@/components/chat/ChatView';
-import { ConfirmDialog } from '@/components/chat/ConfirmDialog';
 import { requestFocusComposer } from '@/components/chat/composerMentionBridge';
 import { ResizeHandle } from '@/components/chat/ResizeHandle';
 import { Sidebar } from '@/components/chat/Sidebar';
@@ -23,6 +22,16 @@ import { OauthCredentialBootstrap } from '@/components/oauth/OauthCredentialBoot
 import { Onboarding } from '@/components/onboarding/Onboarding';
 import { WorkspaceSearchDialog } from '@/components/search/WorkspaceSearchDialog';
 import { SidePanel } from '@/components/sidepanel/SidePanel';
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
 import { ToastProvider } from '@/components/ui/toast';
 import { useAutoArchiveScan } from '@/hooks/useAutoArchiveScan';
 import { useBackgroundImage } from '@/hooks/useBackgroundImage';
@@ -40,6 +49,7 @@ import { bindPairCatalogSync } from '@/stores/pairCatalog';
 import { useRemoteNodesStore } from '@/stores/remoteNodes';
 import { useSessionsStore } from '@/stores/sessions';
 import { useSettingsStore } from '@/stores/settings';
+import { flushElectronPersist } from '@/stores/settings/storage';
 import { SIDE_PANEL_DEFAULT_WIDTH, useSidePanelStore } from '@/stores/sidePanel';
 
 /** 碰撞策略:光标所在的落点优先(否则会话行的大矩形会把置顶条/输入框让给重叠面积更大的项目块) */
@@ -85,11 +95,20 @@ export default function App() {
     return () => document.documentElement.classList.remove('enso-main-shell');
   }, []);
   useEffect(() => window.electronAPI.app.onCloseRequest(setCloseRequestId), []);
-  const respondClose = (confirmed: boolean) => {
+  useEffect(
+    () =>
+      window.electronAPI.app.onFlushPersist((requestId) => {
+        void flushElectronPersist().finally(() => {
+          window.electronAPI.app.respondFlushPersist(requestId);
+        });
+      }),
+    []
+  );
+  const respondClose = (action: 'cancel' | 'quit' | 'tray') => {
     const requestId = closeRequestId;
     if (!requestId) return;
     setCloseRequestId(null);
-    window.electronAPI.app.respondCloseRequest(requestId, { confirmed });
+    window.electronAPI.app.respondCloseRequest(requestId, { action });
   };
   // 右侧面板:手柄在面板左缘,向左拖加宽;拖拽中暂停宽度 spring 动画防抖动
   const [sideResizing, setSideResizing] = useState(false);
@@ -304,16 +323,32 @@ export default function App() {
       </div>
       {!onboarded && <Onboarding />}
       <WorkspaceSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
-      <ConfirmDialog
+      <AlertDialog
         open={closeRequestId !== null}
         onOpenChange={(open) => {
-          if (!open && closeRequestId) respondClose(false);
+          if (!open && closeRequestId) respondClose('cancel');
         }}
-        title={t('Confirm exit')}
-        description={t('Are you sure you want to exit the app?')}
-        confirmLabel={t('Exit')}
-        onConfirm={() => respondClose(true)}
-      />
+      >
+        <AlertDialogPopup className="sm:max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base">{t('Confirm exit')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('The app will keep running in the background so your phone can still connect.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter variant="bare">
+            <AlertDialogClose render={<Button variant="outline" size="sm" />}>
+              {t('Cancel')}
+            </AlertDialogClose>
+            <Button variant="destructive" size="sm" onClick={() => respondClose('quit')}>
+              {t('Exit')}
+            </Button>
+            <Button size="sm" onClick={() => respondClose('tray')}>
+              {t('Minimize to tray')}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
     </div>
   );
 }

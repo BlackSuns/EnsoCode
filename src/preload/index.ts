@@ -164,8 +164,19 @@ const electronAPI = {
       ipcRenderer.on(IPC_CHANNELS.APP_CLOSE_REQUEST, listener);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.APP_CLOSE_REQUEST, listener);
     },
-    respondCloseRequest: (requestId: string, payload: { confirmed: boolean }): void => {
+    respondCloseRequest: (
+      requestId: string,
+      payload: { action: 'cancel' | 'quit' | 'tray' }
+    ): void => {
       ipcRenderer.send(IPC_CHANNELS.APP_CLOSE_RESPONSE, requestId, payload);
+    },
+    onFlushPersist: (callback: (requestId: string) => void): (() => void) => {
+      const listener = (_: unknown, requestId: string) => callback(requestId);
+      ipcRenderer.on(IPC_CHANNELS.APP_FLUSH_PERSIST_REQUEST, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.APP_FLUSH_PERSIST_REQUEST, listener);
+    },
+    respondFlushPersist: (requestId: string): void => {
+      ipcRenderer.send(IPC_CHANNELS.APP_FLUSH_PERSIST_RESPONSE, requestId);
     },
   },
 

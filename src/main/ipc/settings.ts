@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { IPC_CHANNELS, isEditMode, resolveEditMode } from '@shared/types';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { readStoredOauthCredentialKeys } from '../services/oauthProviders';
+import { parseTraySleepPolicy, type TraySleepPolicy } from '../services/pairPowerKeepAlive';
 import { getWindowWebContents, sendToWindow } from '../windows/createAppWindow';
 
 function getSettingsPath(): string {
@@ -474,6 +475,62 @@ export function patchSettingsState(
   return scheduleWrite(next, sender, broadcast)
     ? { ok: true, previous, value: targetValue }
     : { ok: false, error: `Failed to write settings field: ${field}` };
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+const TRAY_SETTINGS_KEY = 'enso-tray';
+
+export function readTraySleepPolicy(): TraySleepPolicy {
+  return parseTraySleepPolicy(objectRecord(readSettings()?.[TRAY_SETTINGS_KEY])?.sleepPolicy);
+}
+
+export function writeTraySleepPolicy(policy: TraySleepPolicy): boolean {
+  const current = readSettings() ?? {};
+  return scheduleWrite({
+    ...current,
+    [TRAY_SETTINGS_KEY]: { sleepPolicy: policy },
+  });
+}
+
+/** 无 renderer 时由 Main 改会话元数据；形状与 zustand persist 的 enso-conversations 一致。 */
+export function patchConversationsState(
+  mutate: (state: {
+    conversations: Record<string, Record<string, unknown>>;
+    order: string[];
+    activeId: unknown;
+  }) => void
+): boolean {
+  const current = readSettings() ?? {};
+  const store = objectRecord(current['enso-conversations']) ?? {};
+  const state = objectRecord(store.state) ?? {};
+  const conversations: Record<string, Record<string, unknown>> = {};
+  for (const [id, value] of Object.entries(objectRecord(state.conversations) ?? {})) {
+    const row = objectRecord(value);
+    if (row) conversations[id] = row;
+  }
+  const order = Array.isArray(state.order)
+    ? state.order.filter((id): id is string => typeof id === 'string')
+    : [];
+  const nextState = { conversations, order, activeId: state.activeId };
+  mutate(nextState);
+  return scheduleWrite({
+    ...current,
+    'enso-conversations': {
+      ...store,
+      state: { ...state, ...nextState },
+    },
+  });
+}
+
+export function readPersistedConversation(sessionId: string): Record<string, unknown> | null {
+  const store = objectRecord(readSettings()?.['enso-conversations']);
+  const conversations = objectRecord(objectRecord(store?.state)?.conversations);
+  return conversations ? objectRecord(conversations[sessionId]) : null;
 }
 
 /** 删除项目及其会话元数据；两个 zustand store 在同一次顶层按键合并中原子更新。 */

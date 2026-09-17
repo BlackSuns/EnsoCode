@@ -1,11 +1,17 @@
 import type { RendererAgentEvent } from '@shared/types/agent';
 
-/** 手机在线，或桌面仍有任务在跑（手机切后台后 socket 常会断）。 */
+export type TraySleepPolicy = 'when-agent-running' | 'never';
+
+export function parseTraySleepPolicy(value: unknown): TraySleepPolicy {
+  return value === 'never' ? 'never' : 'when-agent-running';
+}
+
+/** 托盘策略：有 agent 在跑，或用户选了永远不休眠。 */
 export function shouldHoldPairPowerKeepAlive(
-  anyPhoneOnline: boolean,
+  policy: TraySleepPolicy,
   runningTaskCount: number
 ): boolean {
-  return anyPhoneOnline || runningTaskCount > 0;
+  return policy === 'never' || runningTaskCount > 0;
 }
 
 export function applyPairPowerTaskEvent(
