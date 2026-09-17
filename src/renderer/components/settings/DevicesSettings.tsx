@@ -1,3 +1,4 @@
+import { formatRttMs } from '@shared/pair/rtt';
 import type { PairStatus } from '@shared/types';
 import type { RemoteNodeStatus } from '@shared/types/nodes';
 import {
@@ -280,9 +281,16 @@ function ConnectToNodesSection() {
 }
 
 /** 业务帧出口标签：直连（WebRTC）/ 中继；只读，切换由 main 自动完成 */
-function TransportBadge({ transport }: { transport?: 'relay' | 'direct' }) {
+function TransportBadge({
+  transport,
+  rttMs,
+}: {
+  transport?: 'relay' | 'direct';
+  rttMs?: number;
+}) {
   const { t } = useI18n();
   const direct = transport === 'direct';
+  const rtt = formatRttMs(rttMs);
   return (
     <span
       className={cn(
@@ -291,6 +299,7 @@ function TransportBadge({ transport }: { transport?: 'relay' | 'direct' }) {
       )}
     >
       {direct ? t('Direct link') : t('Via relay')}
+      {rtt ? ` · ${rtt}` : ''}
     </span>
   );
 }
@@ -330,7 +339,9 @@ function PairedDeviceRow({ device }: { device: PairStatus['devices'][number] }) 
                   ? t('Waiting for device')
                   : t('Offline')}
             </span>
-            {device.phoneOnline && <TransportBadge transport={device.transport} />}
+            {device.phoneOnline && (
+              <TransportBadge transport={device.transport} rttMs={device.rttMs} />
+            )}
           </>
         ) : (
           <Input
@@ -401,7 +412,7 @@ function NodeRow({ node, onChanged }: { node: RemoteNodeStatus; onChanged: () =>
                   ? t('Remote desktop is offline')
                   : t('Offline')}
             </span>
-            {node.hostOnline && <TransportBadge transport={node.transport} />}
+            {node.hostOnline && <TransportBadge transport={node.transport} rttMs={node.rttMs} />}
           </>
         ) : (
           <Input

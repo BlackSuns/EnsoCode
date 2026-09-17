@@ -107,6 +107,7 @@ export interface PairStatusDevice {
   connected: boolean;
   phoneOnline: boolean;
   transport?: 'relay' | 'direct';
+  rttMs?: number;
 }
 
 interface Connection {
@@ -141,6 +142,8 @@ interface Connection {
   providersSentFp?: string;
   providersSentAt?: number;
   phoneOnline: boolean;
+  /** 当前业务通道 RTT（ms）；切通道时清空 */
+  rttMs: number | null;
   /** 手机页面可见性（presence 帧上报）：锁屏/切后台时 socket 半开不会 close，推送据此门控 */
   phoneVisible: boolean;
   attempt: number;
@@ -467,6 +470,7 @@ export function getPairStatus(): PairStatus {
         connected: conn?.ws?.readyState === 1,
         phoneOnline: conn?.phoneOnline ?? false,
         transport: conn?.direct.transport() ?? 'relay',
+        ...(conn?.phoneOnline && conn.rttMs != null ? { rttMs: conn.rttMs } : {}),
       };
     }),
   };
@@ -498,6 +502,7 @@ function openConnection(device: PairedDevice): void {
     metaDirty: false,
     metaSending: false,
     phoneOnline: false,
+    rttMs: null,
     phoneVisible: true,
     attempt: 0,
     timer: null,
@@ -516,8 +521,13 @@ function openConnection(device: PairedDevice): void {
     sendSignal: (signal) => void sendViaRelay(conn, signal),
     onFrame: (frame) => enqueueFrame(conn, frame, conn.generation, conn.ioEpoch),
     onTransportChange: (transport) => {
+      conn.rttMs = null;
       // 直连掉了且中继也不在：两条路都没了才算离线，转系统推送
       if (transport === 'relay' && conn.ws?.readyState !== 1) conn.phoneOnline = false;
+      notifyStatus();
+    },
+    onRtt: (ms) => {
+      conn.rttMs = ms;
       notifyStatus();
     },
     // 切通道的瞬间旧通道在途帧可能丢：目录类重推，会话正文由手机自己 subscribe 补
@@ -589,12 +599,21 @@ function attachHostSocket(conn: Connection, ws: WebSocket, generation: number): 
     notifyStatus();
     scheduleReconnect(conn);
   };
-  conn.heartbeat = attachHeartbeat(ws, () => {
-    try {
-      ws.close();
-    } catch {}
-    closed(null);
-  });
+  conn.heartbeat = attachHeartbeat(
+    ws,
+    () => {
+      try {
+        ws.close();
+      } catch {}
+      closed(null);
+    },
+    (ms) => {
+      if (conn.direct.transport() === 'relay') {
+        conn.rttMs = ms;
+        notifyStatus();
+      }
+    }
+  );
 
   ws.onopen = () => {
     conn.attempt = 0;

@@ -15,6 +15,8 @@ export interface RemoteNodeStatus {
   hostOnline: boolean;
   /** 业务帧当前出口：直连（WebRTC）或中继 */
   transport?: 'relay' | 'direct';
+  /** 当前业务通道 ping→pong 往返（ms）；未采样或缺省不展示 */
+  rttMs?: number;
   /** 对方下发的自述（连上后才有） */
   hostname?: string;
   appVersion?: string;

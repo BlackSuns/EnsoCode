@@ -57,6 +57,8 @@ interface Connection {
   /** renderer 最后一次订阅：切通道 resync 时原样重发（游标偏旧只会多重放，按 index 幂等） */
   lastSubscribe: PhoneToHost | null;
   hostOnline: boolean;
+  /** 当前业务通道 RTT（ms）；切通道时清空 */
+  rttMs: number | null;
   hostname?: string;
   appVersion?: string;
   attempt: number;
@@ -97,6 +99,7 @@ export function getNodesStatus(): NodesStatus {
         connected: conn?.ws?.readyState === 1,
         hostOnline: conn?.hostOnline ?? false,
         transport: conn?.direct.transport() ?? 'relay',
+        ...(conn?.hostOnline && conn.rttMs != null ? { rttMs: conn.rttMs } : {}),
         ...(conn?.hostname ? { hostname: conn.hostname } : {}),
         ...(conn?.appVersion ? { appVersion: conn.appVersion } : {}),
       };
@@ -267,6 +270,7 @@ function openConnection(node: RemoteNode): void {
     direct: null as unknown as DirectLink,
     lastSubscribe: null,
     hostOnline: false,
+    rttMs: null,
     attempt: 0,
     timer: null,
     closed: false,
@@ -278,7 +282,14 @@ function openConnection(node: RemoteNode): void {
     factory: PAIR_DIRECT_ENABLED && isDirectPeerAvailable() ? mainDirectPeerFactory : null,
     sendSignal: (signal) => void sendViaRelay(conn, signal as PhoneToHost),
     onFrame: (frame) => void handleFrame(conn, frame),
-    onTransportChange: () => notifyStatus(),
+    onTransportChange: () => {
+      conn.rttMs = null;
+      notifyStatus();
+    },
+    onRtt: (ms) => {
+      conn.rttMs = ms;
+      notifyStatus();
+    },
     // 切通道瞬间旧通道在途帧可能丢：重要目录 + 重发订阅（renderer 不感知通道切换，由 main 代补）
     onResync: () => {
       void sendFrame(conn, { type: 'snapshot' });
@@ -329,12 +340,21 @@ function attachGuestSocket(conn: Connection, ws: WebSocket, generation: number):
     notifyStatus();
     scheduleReconnect(conn);
   };
-  conn.heartbeat = attachHeartbeat(ws, () => {
-    try {
-      ws.close();
-    } catch {}
-    closed(null);
-  });
+  conn.heartbeat = attachHeartbeat(
+    ws,
+    () => {
+      try {
+        ws.close();
+      } catch {}
+      closed(null);
+    },
+    (ms) => {
+      if (conn.direct.transport() === 'relay') {
+        conn.rttMs = ms;
+        notifyStatus();
+      }
+    }
+  );
 
   ws.onopen = () => {
     conn.attempt = 0;
