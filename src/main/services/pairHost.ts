@@ -885,6 +885,10 @@ async function handleFrame(
     case 'direct-close':
       conn.direct.handleSignal(command);
       break;
+    case 'probe':
+      // 测速必须走中继，走直连会测到 DC 而不是中继路径
+      void enqueueSend(conn, { type: 'probe-ack', nonce: command.nonce }, true);
+      break;
     case 'spawn': {
       const check = checkSpawn(command, whitelist);
       if (!check.ok) {

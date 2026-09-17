@@ -14,6 +14,7 @@ describe('访客端直连会话', () => {
         attempt: 0,
         capable: true,
         peerOnline: false,
+        preferRelay: false,
       },
       actions: [],
     });
@@ -26,6 +27,7 @@ describe('访客端直连会话', () => {
         attempt: 0,
         capable: true,
         peerOnline: true,
+        preferRelay: false,
       },
       actions: [
         { type: 'create-offer', gen: 1 },
@@ -200,6 +202,68 @@ describe('访客端直连会话', () => {
     };
 
     expect(reduceDirect(state, { type: 'dc-open', gen: 5 })).toEqual({ state, actions: [] });
+  });
+
+  it('协商中判定直连更慢：拆通道、不重试、钉在中继', () => {
+    const state = {
+      ...initialDirectState('guest'),
+      phase: 'negotiating' as const,
+      gen: 2,
+      capable: true,
+      peerOnline: true,
+    };
+
+    expect(reduceDirect(state, { type: 'prefer-relay' })).toEqual({
+      state: { ...state, phase: 'idle', preferRelay: true, attempt: 0 },
+      actions: [{ type: 'send-close', gen: 2 }, { type: 'destroy-peer' }],
+    });
+  });
+
+  it('已连接时判定直连更慢：切回中继并重同步，不安排重试', () => {
+    const state = {
+      ...initialDirectState('guest'),
+      phase: 'connected' as const,
+      gen: 3,
+      capable: true,
+      peerOnline: true,
+    };
+
+    expect(reduceDirect(state, { type: 'prefer-relay' })).toEqual({
+      state: { ...state, phase: 'idle', preferRelay: true, attempt: 0 },
+      actions: [
+        { type: 'send-close', gen: 3 },
+        { type: 'destroy-peer' },
+        { type: 'switch', transport: 'relay' },
+        { type: 'resync' },
+      ],
+    });
+  });
+
+  it('钉在中继后忽略能力/在线重报，网络变化才重新协商', () => {
+    const held = {
+      ...initialDirectState('guest'),
+      phase: 'idle' as const,
+      gen: 2,
+      preferRelay: true,
+      capable: true,
+      peerOnline: true,
+    };
+
+    expect(reduceDirect(held, { type: 'peer-capable', capable: true })).toEqual({
+      state: held,
+      actions: [],
+    });
+    expect(reduceDirect(held, { type: 'peer-online', online: true })).toEqual({
+      state: held,
+      actions: [],
+    });
+    expect(reduceDirect(held, { type: 'network-change' })).toEqual({
+      state: { ...held, phase: 'negotiating', gen: 3, attempt: 0, preferRelay: false },
+      actions: [
+        { type: 'create-offer', gen: 3 },
+        { type: 'start-timeout', gen: 3 },
+      ],
+    });
   });
 
   it('计算带抖动的指数退避且上限为五分钟', () => {
@@ -393,5 +457,6 @@ describe('主机端直连会话', () => {
     });
     expect(reduceDirect(state, { type: 'answer', gen: 5 })).toEqual({ state, actions: [] });
     expect(reduceDirect(state, { type: 'cooldown-elapsed' })).toEqual({ state, actions: [] });
+    expect(reduceDirect(state, { type: 'prefer-relay' })).toEqual({ state, actions: [] });
   });
 });

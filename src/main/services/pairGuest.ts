@@ -65,6 +65,8 @@ interface Connection {
   timer: NodeJS.Timeout | null;
   closed: boolean;
   generation: number;
+  probeNonce: number;
+  probeSentAt: number | null;
 }
 
 const connections = new Map<string, Connection>();
@@ -275,6 +277,8 @@ function openConnection(node: RemoteNode): void {
     timer: null,
     closed: false,
     generation: 0,
+    probeNonce: 0,
+    probeSentAt: null,
   };
   conn.direct = new DirectLink({
     role: 'guest',
@@ -296,6 +300,11 @@ function openConnection(node: RemoteNode): void {
       if (conn.lastSubscribe) void sendFrame(conn, conn.lastSubscribe);
     },
     onDiagnostic: (line) => console.log(`[nodes] ${conn.node.label}: ${line}`),
+    onNeedRelayProbe: () => {
+      conn.probeNonce = (conn.probeNonce + 1) >>> 0;
+      conn.probeSentAt = Date.now();
+      void sendViaRelay(conn, { type: 'probe', nonce: conn.probeNonce });
+    },
   });
   connections.set(node.nodeId, conn);
   connect(conn);
@@ -441,6 +450,12 @@ async function handleFrame(conn: Connection, frame: Uint8Array): Promise<void> {
     case 'direct-answer':
     case 'direct-ice':
       conn.direct.handleSignal(payload);
+      return;
+    case 'probe-ack':
+      if (payload.nonce === conn.probeNonce && conn.probeSentAt !== null) {
+        conn.direct.noteRelayRtt(Date.now() - conn.probeSentAt);
+        conn.probeSentAt = null;
+      }
       return;
     // 桌面保留自己的主题；桌面没有 Web Push
     case 'appearance':

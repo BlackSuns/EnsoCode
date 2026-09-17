@@ -1,9 +1,4 @@
-import {
-  type DirectPeer,
-  openFrame,
-  type PairedDevice,
-  type PhoneToHost,
-} from '@enso/pair';
+import { type DirectPeer, openFrame, type PairedDevice, type PhoneToHost } from '@enso/pair';
 import { emptyGuestView } from '@shared/pair/guestProjection';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type ClientEvents, PairClient } from './client';
@@ -94,6 +89,34 @@ function stubDirectPeer(): DirectPeer {
     onClose: () => () => {},
     send: () => true,
     close() {},
+  };
+}
+
+function liveDirectPeer() {
+  let onOpen = (): void => {};
+  let onMessage = (_bytes: Uint8Array): void => {};
+  const peer: DirectPeer = {
+    createOffer: async () => 'offer-sdp',
+    acceptOffer: async () => 'answer-sdp',
+    acceptAnswer: async () => {},
+    addIceCandidate: async () => {},
+    onIceCandidate: () => () => {},
+    onOpen: (cb) => {
+      onOpen = cb;
+      return () => {};
+    },
+    onMessage: (cb) => {
+      onMessage = cb;
+      return () => {};
+    },
+    onClose: () => () => {},
+    send: () => true,
+    close() {},
+  };
+  return {
+    peer,
+    fireOpen: () => onOpen(),
+    fireMessage: (bytes: Uint8Array) => onMessage(bytes),
   };
 }
 
@@ -607,5 +630,29 @@ describe('PairClient 缓存与续传', () => {
     next.onmessage?.({ data: JSON.stringify({ type: 'host-online' }) });
     await settle();
     expect(next.sent.filter((item) => item.type === 'direct-offer')).not.toHaveLength(0);
+  });
+
+  it('直连 RTT 明显差于中继时发 probe 并钉在中继', async () => {
+    client.close();
+    const live = liveDirectPeer();
+    client = new PairClient(device, events, () => live.peer, cache);
+    const socket = await start();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'host-online' }) });
+    socket.receive({ type: 'host-info', capabilities: ['direct-v1'], iceServers: [] });
+    await settle();
+    vi.setSystemTime(10_000);
+    live.fireOpen();
+    await settle();
+    const probe = socket.sent.filter((item) => item.type === 'probe').at(-1);
+    expect(probe?.type).toBe('probe');
+    if (probe?.type !== 'probe') throw new Error('missing probe');
+    vi.setSystemTime(10_025);
+    socket.receive({ type: 'probe-ack', nonce: probe.nonce });
+    await settle();
+    vi.setSystemTime(10_120);
+    live.fireMessage(new Uint8Array([0x03]));
+    await settle();
+    expect(client.transport()).toBe('relay');
+    expect(socket.sent.some((item) => item.type === 'direct-close')).toBe(true);
   });
 });

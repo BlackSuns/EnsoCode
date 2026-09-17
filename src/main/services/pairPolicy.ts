@@ -209,6 +209,9 @@ export function parsePhoneCommand(value: unknown): CommandCheck {
     case 'direct-close':
       if (!isGen(v.gen)) return { ok: false, error: 'invalid gen' };
       return { ok: true, command: value as PhoneToHost };
+    case 'probe':
+      if (!isGen(v.nonce)) return { ok: false, error: 'invalid nonce' };
+      return { ok: true, command: value as PhoneToHost };
     default:
       return { ok: false, error: `command not allowed: ${String(v.type)}` };
   }

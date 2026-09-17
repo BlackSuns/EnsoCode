@@ -118,6 +118,8 @@ export class PairClient {
   private hiddenAt: number | null = null;
   /** 换中继 socket 期间先别发 offer，等 host-online 再 ICE restart */
   private pendingDirectRestart = false;
+  private probeNonce = 0;
+  private probeSentAt: number | null = null;
   private metadata: Omit<PhoneCacheData, 'sessions'> = {
     catalog: [],
     pinnedOrder: [],
@@ -152,6 +154,7 @@ export class PairClient {
       },
       onDiagnostic: (line) => console.info(`[pair] ${line}`),
       onRtt: (ms) => this.events.onRtt?.(ms),
+      onNeedRelayProbe: () => this.sendRelayProbe(),
     });
   }
 
@@ -445,6 +448,12 @@ export class PairClient {
       case 'direct-ice':
         this.direct.handleSignal(payload);
         break;
+      case 'probe-ack':
+        if (payload.nonce === this.probeNonce && this.probeSentAt !== null) {
+          this.direct.noteRelayRtt(Date.now() - this.probeSentAt);
+          this.probeSentAt = null;
+        }
+        break;
       case 'history': {
         // 上滑分页应答：只并入消息，不动 status/审批（那些以尾窗快照为准）
         if (!this.historyPending.has(payload.sessionId)) break;
@@ -639,6 +648,12 @@ export class PairClient {
   private sendFrameViaRelay(frame: Uint8Array): void {
     if (this.ws?.readyState !== 1) return;
     this.ws.send(frame.slice().buffer as ArrayBuffer);
+  }
+
+  private sendRelayProbe(): void {
+    this.probeNonce = (this.probeNonce + 1) >>> 0;
+    this.probeSentAt = Date.now();
+    this.sendViaRelay({ type: 'probe', nonce: this.probeNonce });
   }
 
   private sendViaRelay(command: PhoneToHost): void {

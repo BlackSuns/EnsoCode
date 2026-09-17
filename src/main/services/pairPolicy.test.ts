@@ -262,6 +262,14 @@ describe('直连信令帧校验', () => {
     ];
     for (const cmd of bad) expect(parsePhoneCommand(cmd).ok, JSON.stringify(cmd)).toBe(false);
   });
+
+  it('放行 probe，nonce 必须是非负整数', () => {
+    expect(parsePhoneCommand({ type: 'probe', nonce: 0 }).ok).toBe(true);
+    expect(parsePhoneCommand({ type: 'probe', nonce: 7 }).ok).toBe(true);
+    expect(parsePhoneCommand({ type: 'probe' }).ok).toBe(false);
+    expect(parsePhoneCommand({ type: 'probe', nonce: -1 }).ok).toBe(false);
+    expect(parsePhoneCommand({ type: 'probe', nonce: 1.5 }).ok).toBe(false);
+  });
 });
 
 describe('set-model 白名单校验', () => {

@@ -118,7 +118,9 @@ export type PhoneToHost =
   | { type: 'direct-offer'; gen: number; sdp: string }
   | ({ type: 'direct-ice'; gen: number } & DirectCandidate)
   /** guest 放弃本代（超时/网络变化），host 释放对应 PeerConnection */
-  | { type: 'direct-close'; gen: number };
+  | { type: 'direct-close'; gen: number }
+  /** 经中继的端到端测速；必须走中继，不能走直连 */
+  | { type: 'probe'; nonce: number };
 
 /** 手机命令白名单：main 只接受这些 type，其余（set-approval-mode、设置写入等）拒绝 */
 export const PHONE_COMMAND_TYPES = [
@@ -154,6 +156,7 @@ export const PHONE_COMMAND_TYPES = [
   'direct-offer',
   'direct-ice',
   'direct-close',
+  'probe',
 ] as const satisfies readonly PhoneToHost['type'][];
 
 export function isPhoneCommand(value: unknown): value is PhoneToHost {
@@ -311,4 +314,5 @@ export type HostToPhone =
       iceServers?: IceServerEntry[];
     }
   | { type: 'direct-answer'; gen: number; sdp: string }
-  | ({ type: 'direct-ice'; gen: number } & DirectCandidate);
+  | ({ type: 'direct-ice'; gen: number } & DirectCandidate)
+  | { type: 'probe-ack'; nonce: number };
