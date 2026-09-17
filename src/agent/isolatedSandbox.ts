@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { JSException, type JSValueHandle, QuickJS } from 'quickjs-wasi';
+import { looksLikeApplyPatchDocument } from './applyPatch/parser';
 import { isFailedApplyPatchResult } from './applyPatchResultExtension';
 
 const require = createRequire(import.meta.url);
@@ -320,6 +321,9 @@ export function createIsolatedSandboxTool(options: IsolatedSandboxToolOptions): 
       if (looksLikeShellCommand(code)) {
         throw new Error('exec expects JavaScript, not a shell command. Use bash for shell.');
       }
+      if (looksLikeApplyPatchDocument(code)) {
+        throw new Error('exec expects JavaScript, not an apply_patch document. Use apply_patch.');
+      }
       const catalog = options
         .getTools()
         .filter(
@@ -504,7 +508,11 @@ async function runGuest(input: {
     const runJob = async (job: HostCall) => {
       const tool = tools.get(job.name);
       const args =
-        job.args && typeof job.args === 'object' && !Array.isArray(job.args) ? job.args : {};
+        typeof job.args === 'string'
+          ? job.args
+          : job.args && typeof job.args === 'object' && !Array.isArray(job.args)
+            ? job.args
+            : {};
       const summary = callSummary(args);
       let ok = true;
       let payload: unknown = {};

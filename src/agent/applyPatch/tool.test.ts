@@ -34,6 +34,14 @@ describe('apply_patch tool 与 SSH IO', () => {
       additionalProperties: false,
     });
     expect(tool.prepareArguments?.(input)).toEqual({ input });
+    expect(tool.description).toContain(
+      'The first line must be exactly `*** Begin Patch` and the last line exactly `*** End Patch`'
+    );
+    expect(tool.description).toContain('no extra asterisks on those marker lines');
+    expect(
+      (tool.parameters as { properties: { input: { description: string } } }).properties.input
+        .description
+    ).toContain('no trailing `***`');
     expect(tool.prepareArguments?.(JSON.stringify({ input, path: 'bad' }))).toEqual({
       input,
       path: 'bad',

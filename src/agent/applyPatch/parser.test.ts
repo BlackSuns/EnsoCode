@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { getApplyPatchPaths, normalizeApplyPatchArguments, parseApplyPatch } from './index';
+import {
+  getApplyPatchPaths,
+  looksLikeApplyPatchDocument,
+  normalizeApplyPatchArguments,
+  parseApplyPatch,
+} from './index';
 
 const envelope = (body: string) => `*** Begin Patch\n${body}\n*** End Patch`;
 
@@ -78,6 +83,68 @@ describe('apply_patch 参数和语法', () => {
     [`prefix\n${envelope('*** Add File: a.txt\n+a')}`, 'envelope'],
   ])('拒绝非法 patch：%s', (patch) => {
     expect(() => parseApplyPatch(patch)).toThrow();
+  });
+
+  it('剥掉顶层 Begin/End 行尾多余 ***，正文里的装饰标记不改写', () => {
+    const body = '*** Add File: a.txt\n+hi';
+    expect(parseApplyPatch(`*** Begin Patch ***\n${body}\n*** End Patch ***`)).toEqual([
+      { type: 'add', path: 'a.txt', content: 'hi\n' },
+    ]);
+    expect(parseApplyPatch(`*** Begin Patch ***\n${body}\n*** End Patch`)).toEqual([
+      { type: 'add', path: 'a.txt', content: 'hi\n' },
+    ]);
+    expect(parseApplyPatch(`*** Begin Patch\n${body}\n*** End Patch ***`)).toEqual([
+      { type: 'add', path: 'a.txt', content: 'hi\n' },
+    ]);
+    expect(
+      parseApplyPatch(
+        `*** Begin Patch ***\r\n${body.replaceAll('\n', '\r\n')}\r\n*** End Patch ***\r\n`
+      )
+    ).toEqual([{ type: 'add', path: 'a.txt', content: 'hi\n' }]);
+    const innerDecorated = envelope(
+      [
+        '*** Update File: docs.md',
+        '@@',
+        '-old',
+        '+starts with *** Begin Patch ***',
+        '+ends with *** End Patch ***',
+      ].join('\n')
+    );
+    const [operation] = parseApplyPatch(innerDecorated);
+    expect(operation).toMatchObject({
+      type: 'update',
+      chunks: [
+        {
+          oldLines: ['old'],
+          newLines: ['starts with *** Begin Patch ***', 'ends with *** End Patch ***'],
+        },
+      ],
+    });
+    expect(() =>
+      parseApplyPatch(`prefix\n*** Begin Patch ***\n${body}\n*** End Patch ***`)
+    ).toThrow(/Begin Patch/);
+    expect(() => parseApplyPatch('*** Begin Patch ***\nplain text\n*** End Patch ***')).toThrow(
+      /Begin Patch/
+    );
+  });
+
+  it('识别完整 apply_patch 信封，放过 JS 和残缺信封', () => {
+    const body = '*** Add File: a.txt\n+hi';
+    expect(looksLikeApplyPatchDocument(`*** Begin Patch\n${body}\n*** End Patch`)).toBe(true);
+    expect(looksLikeApplyPatchDocument(`*** Begin Patch ***\n${body}\n*** End Patch ***`)).toBe(
+      true
+    );
+    expect(looksLikeApplyPatchDocument(`\n*** Begin Patch\n${body}\n*** End Patch\n`)).toBe(true);
+    expect(looksLikeApplyPatchDocument('*** Begin Patch\n*** End Patch')).toBe(false);
+    expect(looksLikeApplyPatchDocument('*** Begin Patch ***\nplain text\n*** End Patch ***')).toBe(
+      false
+    );
+    expect(
+      looksLikeApplyPatchDocument(
+        'const input = `*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch`;'
+      )
+    ).toBe(false);
+    expect(looksLikeApplyPatchDocument('await apply_patch({ input: "x" })')).toBe(false);
   });
 
   it('接受 heredoc 包装，拒绝引号不匹配的 heredoc', () => {

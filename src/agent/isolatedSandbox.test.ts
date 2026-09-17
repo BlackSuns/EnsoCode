@@ -44,6 +44,40 @@ describe('looksLikeShellCommand', () => {
 });
 
 describe('createIsolatedSandboxTool', () => {
+  it('嵌套工具的字符串参数原样下传，不收成空对象', async () => {
+    let received: unknown;
+    const patch = mockTool('apply_patch', async (_id, params) => {
+      received = params;
+      return { content: [{ type: 'text', text: 'ok' }] };
+    });
+    const payload = '*** Begin Patch\n*** Add File: a.txt\n+a\n*** End Patch';
+    const result = await run(`return await apply_patch(${JSON.stringify(payload)});`, [patch]);
+    expect(received).toBe(payload);
+    expect(result.details.status).toBe('completed');
+  });
+
+  it('整段 apply_patch 信封拒绝执行，JS 里提到信封不拦截', async () => {
+    const tool = createIsolatedSandboxTool({ getTools: () => [] });
+    const envelope = '*** Begin Patch\n*** Add File: a.txt\n+a\n*** End Patch';
+    await expect(
+      tool.execute('exec-1', { code: envelope }, undefined, undefined, {} as never)
+    ).rejects.toThrow(/not an apply_patch document/);
+    await expect(
+      tool.execute(
+        'exec-1',
+        { code: '*** Begin Patch ***\n*** Add File: a.txt\n+a\n*** End Patch ***' },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/not an apply_patch document/);
+    const mentioned = await run(
+      'const input = `*** Begin Patch\\n*** Add File: a.txt\\n+a\\n*** End Patch`; return input.length;'
+    );
+    expect(mentioned.details.status).toBe('completed');
+    expect(mentioned.details.value).toBe(envelope.length);
+  });
+
   it('非 hashline 模式的 prompt 不展示 snapshot 专属说明，其他约束保留', () => {
     const tool = createIsolatedSandboxTool({ getTools: () => [] });
     const text = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join(

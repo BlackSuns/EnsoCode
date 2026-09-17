@@ -65,6 +65,7 @@ It is important to remember:
 
 - You must include a header with your intended action (Add/Delete/Update)
 - You must prefix new lines with \`+\` even when creating a new file
+- The first line must be exactly \`*** Begin Patch\` and the last line exactly \`*** End Patch\` — no extra asterisks on those marker lines
 
 ${APPLY_PATCH_LARK_GRAMMAR}`;
 
@@ -79,7 +80,8 @@ export function createApplyPatchTool(options: CreateApplyPatchToolOptions): Tool
       properties: {
         input: {
           type: 'string',
-          description: 'Complete apply_patch document starting with *** Begin Patch',
+          description:
+            'Complete apply_patch document. Begin exactly with `*** Begin Patch` and end with `*** End Patch` (no trailing `***`).',
         },
       },
       required: ['input'],

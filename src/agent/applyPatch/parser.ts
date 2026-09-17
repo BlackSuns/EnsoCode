@@ -11,6 +11,20 @@ const ENVIRONMENT_ID = '*** Environment ID:';
 const CHANGE_CONTEXT = '@@ ';
 const EMPTY_CHANGE_CONTEXT = '@@';
 const HUNK_HEADERS = "'*** Add File: {path}', '*** Delete File: {path}', '*** Update File: {path}'";
+const BEGIN_DECORATED = `${BEGIN} ***`;
+const END_DECORATED = `${END} ***`;
+const PATCH_OPERATION = /^\*\*\* (?:Add|Update|Delete) File: .+$/;
+
+export function looksLikeApplyPatchDocument(value: string): boolean {
+  const lines = rustLines(value.trim());
+  if (lines.length < 3) return false;
+  const first = lines[0].trim();
+  const last = lines.at(-1)?.trim();
+  if ((first !== BEGIN && first !== BEGIN_DECORATED) || (last !== END && last !== END_DECORATED)) {
+    return false;
+  }
+  return lines.slice(1, -1).some((line) => PATCH_OPERATION.test(line));
+}
 
 function rustLines(value: string): string[] {
   const lines: string[] = [];
@@ -33,6 +47,18 @@ function invalidHunk(lineNumber: number, message: string): never {
   throw new Error(`invalid hunk at line ${lineNumber}, ${message}`);
 }
 
+function repairEnvelopeLines(lines: string[]): string[] {
+  if (lines.length < 2) return lines;
+  const first = lines[0].trim();
+  const last = lines.at(-1)?.trim();
+  const beginOk = first === BEGIN || first === BEGIN_DECORATED;
+  const endOk = last === END || last === END_DECORATED;
+  if (!beginOk || !endOk || (first === BEGIN && last === END)) return lines;
+  const body = lines.slice(1, -1);
+  if (!body.some((line) => PATCH_OPERATION.test(line))) return lines;
+  return [BEGIN, ...body, END];
+}
+
 function checkBoundaries(lines: string[]): string[] {
   const first = lines[0]?.trim();
   const last = lines.at(-1)?.trim();
@@ -45,7 +71,7 @@ function checkBoundaries(lines: string[]): string[] {
 
 function stripHeredoc(lines: string[]): string[] {
   try {
-    return checkBoundaries(lines);
+    return checkBoundaries(repairEnvelopeLines(lines));
   } catch (error) {
     const first = lines[0];
     const last = lines.at(-1);
@@ -54,7 +80,7 @@ function stripHeredoc(lines: string[]): string[] {
       last?.endsWith('EOF') &&
       (first === '<<EOF' || first === "<<'EOF'" || first === '<<"EOF"')
     ) {
-      return checkBoundaries(lines.slice(1, -1));
+      return checkBoundaries(repairEnvelopeLines(lines.slice(1, -1)));
     }
     throw error;
   }

@@ -2,6 +2,7 @@ export { APPLY_PATCH_LIMITS, executeApplyPatch, validateApplyPatchTargets } from
 export { createLocalApplyPatchIo, normalizePatchPath } from './localIo';
 export {
   getApplyPatchPaths,
+  looksLikeApplyPatchDocument,
   normalizeApplyPatchArguments,
   parseApplyPatch,
   requireApplyPatchInput,
