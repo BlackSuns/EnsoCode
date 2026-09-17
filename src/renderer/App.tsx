@@ -333,7 +333,9 @@ export default function App() {
           <AlertDialogHeader>
             <AlertDialogTitle className="text-base">{t('Confirm exit')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('The app will keep running in the background so your phone can still connect.')}
+              {t(
+                'Exit closes the app completely, so your phone can no longer connect. Minimize to tray keeps the app running in the background so your phone can still connect.'
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter variant="bare">

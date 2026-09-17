@@ -327,8 +327,8 @@ export const zhTranslations: Record<string, string> = {
   'Connection failed': '连接失败',
   Cancel: '取消',
   'Confirm exit': '确认退出',
-  'The app will keep running in the background so your phone can still connect.':
-    '应用会在后台继续运行，手机仍可连接。',
+  'Exit closes the app completely, so your phone can no longer connect. Minimize to tray keeps the app running in the background so your phone can still connect.':
+    '退出会完全关闭应用，手机将无法连接。最小化到托盘后应用会在后台继续运行，手机仍可连接。',
   'Minimize to tray': '最小化到托盘',
   Exit: '退出',
   // Unified provider setup, default model, and Enso
