@@ -1,0 +1,6 @@
+/enso-relay
+/enso-relay-*
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+/dist/

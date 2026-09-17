@@ -9,150 +9,206 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> • <b>简体中文</b>
+  <a href="https://github.com/J3n5en/EnsoCode/releases/latest"><b>下载</b></a>
+  ·
+  <a href="https://enso.j3.do/">官网</a>
+  ·
+  <a href="https://t.me/EnsoAI_news">更新频道</a>
+  ·
+  <a href="https://t.me/EnsoCode_Official">讨论群组</a>
+  ·
+  <a href="README.md">English</a>
 </p>
 
 <p align="center">
-  <a href="https://enso.j3.do/">官网</a> • <a href="https://t.me/EnsoAI_news">更新频道</a> • <a href="https://t.me/EnsoCode_Official">讨论群组</a>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/license-MIT-5c6bc0?style=flat-square" alt="MIT" />
+  <a href="https://github.com/J3n5en/EnsoCode/releases/latest"><img src="https://img.shields.io/github/v/release/J3n5en/EnsoCode?label=release" alt="Latest release" /></a>
+  <a href="https://github.com/J3n5en/EnsoCode/releases"><img src="https://img.shields.io/github/downloads/J3n5en/EnsoCode/total?label=downloads" alt="Downloads" /></a>
+  <a href="https://github.com/J3n5en/EnsoCode/stargazers"><img src="https://img.shields.io/github/stars/J3n5en/EnsoCode?style=flat&label=stars" alt="Stars" /></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-555?style=flat-square" alt="macOS, Windows, Linux" />
-  <img src="https://img.shields.io/badge/runtime-Electron%20%2B%20pi-blue?style=flat-square" alt="Electron + pi" />
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/J3n5en/EnsoCode" alt="MIT" /></a>
 </p>
 
 <p align="center">
-  <img src="docs/readme/chat.jpg" alt="EnsoCode 工作台：桌面端与手机伴侣，同一会话两块屏幕" width="920" />
+  <img src="docs/readme/chat.jpg" alt="EnsoCode 工作台：桌面端与手机伴侣" width="920" />
 </p>
+<p align="center"><sub>同一会话两块屏幕：桌面工作台和手机伴侣。</sub></p>
 
-> 购物车等着上「第二件半价」，数据库慢查询在报警，设计系统的样式还没统一——在 EnsoCode 侧栏挂入多个仓库，为每件事创建独立会话，Agent 团队并行开工。补丁、命令与目标都摊在时间线上，你只管把控和验收。
-> 人离开工位也不断线：审批与回合进度实时推送到手机，路上点一下，Agent 接着干。
-
----
-
-## 💡 为什么是 EnsoCode
-
-EnsoCode 是基于 [pi](https://github.com/earendil-works/pi) 架构与 Electron 构建的本地桌面级 Agent 协同工作台。它不只帮你写单点代码，更负责**调度与协同多 Agent 队伍**：
-
-- **分活有边界**：仓库挂进侧栏，一件事一个会话；同仓库多任务支持一键切入 Git Worktree (`enso/*`) 隔离，互不踩踏。
-- **任务分级派发**：单点一次性任务派 **Subagent**（独立上下文完成即销毁）；多步骤长线协作雇 **Coworker**（拥有专属 Tab、持久记忆，支持随时插话追问）。
-- **改动透明可控**：Diff 直接嵌入时间线，三档审批随时切，配备 Git Checkpoint 快照秒级无损回滚。
-- **离座不断线**：手机端轻量 PWA 伴侣，端到端加密（E2EE）直连，在路上也能翻阅时间线、审批并推进任务。
-- **远程节点与 SSH**：原生支持通过 SSH 隧道挂载远程机器项目，或在两台桌面间作为 Remote Node 互联协同。
-- **无缝平替迁移**：一键扫入本机 Claude Code / Codex / Cursor 的配置、模型、MCP 与历史会话，开箱即用。
+> 购物车等着上「第二件半价」，数据库慢查询在报警，设计系统的样式还没统一——侧栏挂入多个仓库，一件事一个会话，Agent 并行开工。补丁、命令与目标摊在时间线上，你只管把控和验收。
+> 人离开工位也不断线：审批与回合进度实时推到手机，路上点一下，Agent 接着干。
 
 ---
 
-## ⚡ 核心特性
+## 为什么是 EnsoCode
 
-### 1. 分工调度：一件事一个会话，互不干扰
+EnsoCode 是基于 Electron 和 [pi](https://github.com/earendil-works/pi) 的本地桌面 Agent 工作台。它负责**调度、监督、协同一队专职 Agent**，而不是一次回答一个问题。
 
-| 模式 / 机制 | 说明 |
+- **分活有边界**：仓库挂在侧栏，一件事一个会话；同仓库并行可选用 Git Worktree（`enso/*`），互不踩踏。
+- **任务分级派发**：一次性任务派 **Subagent**（独立上下文，交报告即销毁）；长线协作雇 **Coworker**（专属 Tab、持久记忆，随时插话）。
+- **改动摊在时间线**：Diff 嵌在对话流里。三档审批（全程审批 / 自动接受编辑 / 完全放行），加上 Git Checkpoint 一键回滚。
+- **离座不断线**：扫码配对 PWA 手机伴侣。端到端加密，中继只转发密文。
+- **远程干活**：原生 SSH 项目，或把另一台 EnsoCode 桌面配成 Remote Node。
+- **把已有资产带过来**：一键导入本机 Claude Code / Codex / Cursor 的配置、密钥、MCP 和历史会话。
+
+---
+
+## 五步开始验收
+
+1. **下载** [GitHub Releases](https://github.com/J3n5en/EnsoCode/releases/latest) 最新安装包。
+2. **接入模型**：打开设置，或从 Claude Code / Codex / Cursor 导入。
+3. **侧栏挂入仓库**。
+4. **开一个会话。** 一次性活派 Subagent，长线活雇 Coworker。
+5. **看结果。** 审 Diff、切审批档位，改乱了就回滚 Checkpoint。
+
+不需要 EnsoCode 账号。模型请求直达你配置的供应商。
+
+---
+
+## 核心能力
+
+### 1. 分工调度
+
+| 模式 | 做什么 |
 | :--- | :--- |
-| **多项目 & 多会话** | 侧栏聚合多个本地仓库。一件事一个独立会话：专属时间线、独立模型与预设，支持置顶与归档。 |
-| **Worktree 物理隔离** | 默认在主工作树工作；支持一键开启独立 Git Worktree（`enso/*` 分支），同仓库多任务并行开发无冲突。 |
-| **Subagent (外包子代理)** | 适合自包含的一次性独立任务（如 `scout` 调研、`tester` 写测试、`reviewer` 代码审查、`worker` 执行）。交付报告即销毁。 |
-| **Coworker (在编数字同事)** | 拥有独立 Tab 与持久化上下文的多轮子代理。支持直接在其 Tab 旁观、插话与追问，任务结束后随时解雇。 |
-| **后台任务 (Process)** | 面向 Dev Server、Watch、长构建等进程任务。浮动于输入框上方胶囊，支持查看输出与终止，任务完成自动通知。 |
+| **多项目 & 多会话** | 侧栏聚合多个本地仓库。每会话独立时间线、模型、预设，可置顶与归档。 |
+| **Git Worktree 隔离** | 默认在主工作树；可切到 `enso/*` worktree 做并行分支。 |
+| **Subagent** | 一次性工人（`scout` / `tester` / `reviewer` / `worker` …），独立上下文，交报告即退出。 |
+| **Coworker** | 长期同事，住在自己的 Tab。旁观、插话、追问，不污染父会话上下文。 |
+| **后台进程** | Dev Server、Watch、长构建以胶囊挂在输入框上方。 |
 
----
+### 2. 审查、安全、快照
 
-### 2. 审查与验收：时间线呈现，把控放行
-
-| 能力 | 说明 |
+| 能力 | 做什么 |
 | :--- | :--- |
-| **内嵌 Diff 视图** | 基于现代化 Diff 渲染器，文件读写与 Patch 改动在对话流中直观展开，无需反复跳出查看。 |
-| **三档审批策略** | 提供 **全程逐项审批** / **自动接受编辑** / **完全放行** 三种档位，会话运行中可即时切换。 |
-| **Git Checkpoint** | 写入前自动生成工作树快照（存入 `refs/enso-checkpoints`，每会话上限 50 个），代码改乱随时无损还原。 |
+| **内嵌 Diff** | 读文件、打补丁、改代码在对话流或侧栏展开。 |
+| **三档审批** | 全程逐项审批 / 自动接受编辑 / 完全放行，运行中可切换。 |
+| **Git Checkpoint** | 破坏性写入前打快照到 `refs/enso-checkpoints`（每会话最多 50 个）。 |
 
----
+### 3. 长任务跟得上
 
-### 3. 跟进与协同：人离开，任务照常跑
-
-| 能力 | 说明 |
+| 能力 | 做什么 |
 | :--- | :--- |
-| **目标模式 (`/goal`)** | 将当前核心目标钉在会话顶部，Agent 自动拆解并持续推进（上限 25 轮），支持随时暂停与继续。 |
-| **插话队列 (Steer)** | Agent 执行期间支持将补充消息暂存队列（可随时编辑删除，轮末合并投递），紧急情况下支持立即 Steer 插队打断。 |
-| **智能重试机制** | 遇到网络抖动或瞬态 API 报错时自动倒计时重试，状态条清晰显示剩余时间与重试轮次。 |
-| **多功能右侧面板** | 支持内嵌文件树浏览、会话改动对比 (Changes)、内置终端切片 (Terminal) 以及内置无头浏览器 (Browser)。 |
+| **目标跟踪（`/goal`）** | 把结果钉在顶部。Agent 自动推进（最多 25 轮），随时暂停或继续。 |
+| **插话队列** | 执行中可排队补充；能改能丢，紧急则立即打断。 |
+| **瞬态重试** | 网络抖动或供应商 5xx 自动倒计时重试。 |
+| **可停靠侧栏** | 文件树、会话改动、分栏终端、内嵌浏览器。 |
 
 <p align="center">
-  <img src="docs/readme/split-workbench.png" alt="多功能侧边栏工作台：文件树、改动对比、终端与内嵌浏览器" width="920" />
+  <img src="docs/readme/split-workbench.png" alt="侧栏：文件、改动、终端、浏览器" width="920" />
 </p>
+<p align="center"><sub>文件、改动、终端、浏览器贴在会话旁边。</sub></p>
 
----
+### 4. 手机伴侣与远程节点
 
-### 4. 双屏伴侣与远程连接
-
-- **双屏手机伴侣**：扫码即连的 PWA 伴侣端（端到端加密 E2EE）。支持翻阅历史、插话、审批、回答交互式提问、推送通知直达。中继服务器仅透传密文。
-- **桌面 Remote Node**：两台运行 EnsoCode 的电脑可通过配对码互联，在轻薄本上查看并操作主力台式机上的会话。
-- **SSH 远程项目**：无需本地同步代码，直接通过安全 SSH 隧道连接远端服务器上的工程目录执行 Agent。
+- **手机伴侣**：扫码即连。翻历史、审批、回答提问、插话。中继只见密文。
+- **桌面 Remote Node**：两台 EnsoCode 配对，在轻薄本上操作另一台机器上的会话。
+- **SSH 项目**：经 SSH 直接打远端目录，不必把仓库镜像到本地。
 
 <p align="center">
-  <img src="docs/readme/phone.png" alt="设备配对：扫码即连，端到端加密，中继不见明文" width="920" />
+  <img src="docs/readme/phone.png" alt="扫码配对手机伴侣" width="920" />
 </p>
+<p align="center"><sub>几秒配对。加密密钥留在设备上。</sub></p>
 
----
+### 5. 扩展与个性化
 
-### 5. 资产继承与个性化
-
-| 能力 | 说明 |
+| 能力 | 做什么 |
 | :--- | :--- |
-| **技能、Slash 与 @ 引用** | 原生胶囊化 UI 展示，支持 `/skill:` 调起扩展技能，`@` 快速联想引用文件、Agent 类型与历史会话。 |
-| **运行时预设 (Presets)** | 将模型策略、技能组、MCP 服务和系统 Prompt 固化为预设方案，开局锁定以确保环境稳定。 |
-| **生态配置一键导入** | 自动扫描本机 Claude Code、Codex、Cursor 等环境，勾选导入模型 API、Skill、MCP 与 Instructions；支持直接导入历史对话。 |
-| **主题与外观定制** | 内置 Ghostty 终端配色引擎，支持浅色/深色模式无缝切换、终端字体自由调整与毛玻璃效果。 |
-| **可定制状态栏** | 自由勾选 Token 消耗、实时费用、运行耗时、上下文用量、Coworker 数量与审批档位。 |
+| **技能、MCP、Slash、`@`** | `/skill:` 胶囊，`@` 联想文件和会话，多 MCP 服务。 |
+| **运行时预设** | 把模型策略、技能、MCP、系统 Prompt 打成一套。 |
+| **导入** | 扫描本机 Claude Code / Codex / Cursor，导入密钥、技能、MCP、指令和历史。 |
+| **外观** | Ghostty 终端配色、浅色/深色、背景图、毛玻璃。 |
+| **状态栏** | Token、费用、耗时、上下文用量、Coworker 数、审批档位。 |
 
 <p align="center">
-  <img src="docs/readme/appearance.png" alt="外观设置：主题切换、Ghostty 终端配色引擎与实时预览" width="920" />
+  <img src="docs/readme/appearance.png" alt="外观：主题与终端配色" width="920" />
 </p>
+<p align="center"><sub>主题、Ghostty 配色、实时预览。</sub></p>
 
 ---
 
-## 🛠️ 本地开发与构建
+## Local-first，说清楚
 
-### 环境要求
-- **Node.js**: `>= 22.0.0`
-- **Package Manager**: [pnpm](https://pnpm.io) (`>= 10.0.0`)
+本地优先不等于「永远不联网」。
 
-### 快速启动
+| 数据 | 去向 |
+| :--- | :--- |
+| 会话 | 本机 JSONL |
+| 设置 | 本机应用数据 |
+| API 密钥 | 本机设置（只在 Main）。不会发到手机目录 |
+| 配对密钥 | 系统加密存储（可用时） |
+| SSH 密码 | 系统钥匙串 |
+| EnsoCode 遥测 | 无 |
+| 模型请求 | 直达你配置的供应商或 Endpoint |
+| 手机 / 远程节点 | 可选。默认中继只转发**密文**；同一局域网可直连 |
+
+不需要 EnsoCode 账号，也没有 Enso 托管的模型中转。若使用远程模型，请求上下文会发给该供应商，按其隐私政策处理。手机伴侣是可选项：不配对，除你发起的模型调用外，没有数据离开桌面。
+
+---
+
+## 下载
+
+**[下载最新版本 →](https://github.com/J3n5en/EnsoCode/releases/latest)**
+
+| 平台 | 安装包 |
+| :--- | :--- |
+| macOS | `.dmg`（Apple Silicon / Intel） |
+| Windows | `EnsoCode-Setup-<version>.exe` |
+| Linux | `.AppImage` / `.deb` |
+
+---
+
+## 本地开发
+
+<details>
+<summary><strong>从源码运行 EnsoCode</strong></summary>
+
+<br />
+
+**环境：** Node.js `>= 22`，[pnpm](https://pnpm.io) `>= 10`。
 
 ```bash
-# 1. 安装依赖
 pnpm install
-
-# 2. 启动桌面开发模式
 pnpm dev
 ```
 
-### 多端打包
-
 ```bash
-pnpm build:mac    # 构建 macOS 应用 (.dmg / .zip)
-pnpm build:win    # 构建 Windows 安装包 (.exe)
-pnpm build:linux  # 构建 Linux 安装包 (.AppImage / .deb)
+pnpm build:mac    # .dmg / .zip
+pnpm build:win    # .exe
+pnpm build:linux  # .AppImage / .deb
 ```
 
-### 代码质量检查
-
 ```bash
-pnpm typecheck    # TypeScript 类型检查
-pnpm lint         # Biome 静态代码规范检查
-pnpm test         # 运行 Vitest 单元测试套件
+pnpm typecheck
+pnpm lint
+pnpm test
 ```
+
+</details>
+
+<details>
+<summary><strong>自建手机中继</strong></summary>
+
+<br />
+
+默认公共中继是 `https://enso-relay.j3.do`。要自己跑，见 [packages/relay/README.zh-CN.md](packages/relay/README.zh-CN.md)：
+
+- **Cloudflare Worker**（推荐）：`pnpm --filter @enso/relay release`。
+- **Go 单二进制**：从 GitHub Release 下载 `enso-relay-linux-amd64` / `enso-relay-linux-arm64`，`chmod +x` 后运行。
+
+桌面端 **设置 → 设备 → 中继地址** 改成你的 URL。
+
+</details>
 
 ---
 
-## 🔗 相关链接
+## 链接
 
 - 官网：[enso.j3.do](https://enso.j3.do/)
+- 安装包：[github.com/J3n5en/EnsoCode/releases](https://github.com/J3n5en/EnsoCode/releases/latest)
 - 更新频道：[t.me/EnsoAI_news](https://t.me/EnsoAI_news)
 - 讨论群组：[t.me/EnsoCode_Official](https://t.me/EnsoCode_Official)
 
 ---
 
-## 📄 开源许可
+## 开源许可
 
-本项目基于 [MIT License](LICENSE) 协议开源。
+MIT。见 [LICENSE](LICENSE)。

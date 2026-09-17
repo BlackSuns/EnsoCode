@@ -1,0 +1,124 @@
+name: Relay Go
+
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - 'packages/relay-go/**'
+      - '.github/workflows/relay-go.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'packages/relay-go/**'
+      - '.github/workflows/relay-go.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach linux binaries to (e.g. v1.2.3)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: packages/relay-go/go.sum
+
+      - name: Test relay
+        working-directory: packages/relay-go
+        run: go test -count=1 ./...
+
+  build:
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve tag
+        id: meta
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ inputs.tag }}"
+          fi
+          TAG="${TAG#refs/tags/}"
+          if [[ -z "$TAG" ]]; then
+            echo "missing release tag" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: packages/relay-go/go.sum
+
+      - name: Get pnpm store directory
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test relay
+        working-directory: packages/relay-go
+        run: go test -count=1 ./...
+
+      - name: Embed phone PWA
+        run: ./packages/relay-go/sync-frontend.sh
+
+      - name: Build linux amd64 and arm64
+        working-directory: packages/relay-go
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          VERSION="${{ steps.meta.outputs.tag }}"
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/enso-relay-linux-amd64 .
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/enso-relay-linux-arm64 .
+          chmod +x dist/enso-relay-linux-*
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          gh release upload "$TAG" \
+            packages/relay-go/dist/enso-relay-linux-amd64 \
+            packages/relay-go/dist/enso-relay-linux-arm64 \
+            --clobber

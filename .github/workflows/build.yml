@@ -250,6 +250,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+
   generate-release-notes:
     needs: [build-mac, build-windows, build-linux]
     runs-on: ubuntu-latest
@@ -371,6 +372,7 @@ jobs:
             echo "- macOS: \`.dmg\`（Apple Silicon / Intel）"
             echo "- Windows: \`EnsoCode-Setup-${VERSION}.exe\`"
             echo "- Linux: \`.AppImage\` / \`.deb\`"
+            echo "- 自建中继: \`enso-relay-linux-amd64\` / \`enso-relay-linux-arm64\`"
             echo ""
             echo "---"
             echo ""

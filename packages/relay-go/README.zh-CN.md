@@ -1,0 +1,72 @@
+# enso-relay（Go）
+
+<p align="right"><a href="README.md">English</a></p>
+
+与 `packages/relay` Cloudflare Worker **协议兼容**的单进程中继：HTTP + WebSocket + SQLite，手机 PWA 打进二进制。双击 / 直接运行，不用装数据库、不用 Node。
+
+**自建仍推荐 Cloudflare Worker。** 没有或不想用 CF 时再用本二进制。完整说明见 [`../relay/README.zh-CN.md`](../relay/README.zh-CN.md)。
+
+Linux amd64 / arm64 会在应用 [GitHub Release](https://github.com/J3n5en/EnsoCode/releases/latest) 发布后再构建，并挂到同一个 Release。
+
+## 运行
+
+```bash
+chmod +x enso-relay-linux-amd64
+./enso-relay-linux-amd64
+```
+
+默认：
+
+- 监听 `:8787`
+- 数据库：可执行文件旁 `relay.sqlite`
+- 打开打印出的本机 / 局域网 URL 即是手机 PWA
+
+```text
+enso-relay
+  监听    http://0.0.0.0:8787
+  本机    http://127.0.0.1:8787
+  局域网  http://192.168.1.8:8787
+  数据库  /path/relay.sqlite
+```
+
+桌面端 **设置 → 设备 → 中继地址** 填上述 URL。公网 HTTPS：Caddy、Nginx，或不反代用 `--tls-cert` / `--tls-key`，见 [`../relay/README.zh-CN.md`](../relay/README.zh-CN.md#公网-https)。
+
+```bash
+./enso-relay --listen :8787
+./enso-relay --db /var/lib/enso-relay/relay.sqlite
+./enso-relay --tls-cert cert.pem --tls-key key.pem
+```
+
+对应环境变量：`RELAY_LISTEN`、`RELAY_DB`、`RELAY_TLS_CERT`、`RELAY_TLS_KEY`。
+
+## 从源码构建
+
+需要 Go 1.24+、仓库根目录的 pnpm（用于构建 PWA）。
+
+```bash
+# 仓库根目录
+./packages/relay-go/sync-frontend.sh
+cd packages/relay-go
+go test ./...
+CGO_ENABLED=0 go build -o enso-relay .
+./enso-relay
+```
+
+`sync-frontend.sh` 会构建 `packages/phone` 并把 `dist` 拷进 `frontend/`（编译期 `go:embed`）。不跑脚本时嵌入的是占位页，协议测试仍可通过。
+
+交叉编译：
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o enso-relay-linux-amd64 .
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o enso-relay-linux-arm64 .
+```
+
+SQLite 用纯 Go 驱动（`modernc.org/sqlite`），交叉编译不需要 CGO。
+
+## 开发测试
+
+```bash
+cd packages/relay-go
+go test ./...
+go test -race ./...
+```

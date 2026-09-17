@@ -9,149 +9,206 @@
 </p>
 
 <p align="center">
-  <b>English</b> • <a href="README.zh-CN.md">简体中文</a>
+  <a href="https://github.com/J3n5en/EnsoCode/releases/latest"><b>Download</b></a>
+  ·
+  <a href="https://enso.j3.do/">Website</a>
+  ·
+  <a href="https://t.me/EnsoAI_news">News</a>
+  ·
+  <a href="https://t.me/EnsoCode_Official">Community</a>
+  ·
+  <a href="README.zh-CN.md">简体中文</a>
 </p>
 
 <p align="center">
-  <a href="https://enso.j3.do/">Website</a> • <a href="https://t.me/EnsoAI_news">News Channel</a> • <a href="https://t.me/EnsoCode_Official">Community</a>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/license-MIT-5c6bc0?style=flat-square" alt="MIT" />
+  <a href="https://github.com/J3n5en/EnsoCode/releases/latest"><img src="https://img.shields.io/github/v/release/J3n5en/EnsoCode?label=release" alt="Latest release" /></a>
+  <a href="https://github.com/J3n5en/EnsoCode/releases"><img src="https://img.shields.io/github/downloads/J3n5en/EnsoCode/total?label=downloads" alt="Downloads" /></a>
+  <a href="https://github.com/J3n5en/EnsoCode/stargazers"><img src="https://img.shields.io/github/stars/J3n5en/EnsoCode?style=flat&label=stars" alt="Stars" /></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-555?style=flat-square" alt="macOS, Windows, Linux" />
-  <img src="https://img.shields.io/badge/runtime-Electron%20%2B%20pi-blue?style=flat-square" alt="Electron + pi" />
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/J3n5en/EnsoCode" alt="MIT" /></a>
 </p>
 
 <p align="center">
-  <img src="docs/readme/chat.jpg" alt="EnsoCode Workbench: Desktop workspace & mobile companion, one session across two screens" width="920" />
+  <img src="docs/readme/chat.jpg" alt="EnsoCode desktop workspace and mobile companion" width="920" />
 </p>
+<p align="center"><sub>Same session on two screens: desktop workbench and phone companion.</sub></p>
 
-> Cart discounts require urgent changes, database slow query alerts are firing, and the design system buttons still need padding adjustments. With EnsoCode, you connect three repositories into your sidebar, delegate each task to autonomous agents in parallel, and watch diffs, terminal outputs, and execution milestones appear live on your timeline while you focus on verification.
-> Step away from your desk without losing control: approvals, milestones, and agent turns stream to your mobile device via end-to-end encrypted relay in real time.
-
----
-
-## 💡 Why EnsoCode
-
-EnsoCode is a local-first desktop agent workbench built on Electron and powered by the [pi](https://github.com/earendil-works/pi) coding agent harness. Rather than treating an AI assistant as a single-turn completion tool, EnsoCode is engineered to **orchestrate, supervise, and collaborate with teams of specialized agents**:
-
-- **Task Isolation & Boundaries**: Local repositories stay pinned to the sidebar. Each conversation is dedicated to a distinct task. Parallel branches in the same repository leverage opt-in Git Worktrees (`enso/*`) to guarantee zero file-lock collisions or dirty working-tree overwrites.
-- **Hierarchical Agent Dispatch**: Delegate short, self-contained subtasks to **Subagents** (fire-and-forget in isolated context); assign multi-step exploratory workflows to **Coworkers** (persistent digital peers running in their own tabs with shared memory and interactive chat).
-- **Embedded Review & Total Control**: Modern diff inspector directly embedded in the conversation flow. Switch dynamically across three approval levels (Full Approval, Auto-Accept Edits, Full Access) backed by automatic Git Checkpoint snapshots with one-click rollback.
-- **Desk-Free Continuity**: Lightweight PWA mobile companion paired via QR code with end-to-end encryption (E2EE). Review diffs, approve critical commands, steer agents, and answer interactive questions anywhere.
-- **Multi-Node & Remote Execution**: Seamlessly connect to remote servers via native SSH tunnels or pair with another desktop node to run and inspect sessions remotely.
-- **Frictionless Ecosystem Migration**: One-click import for local Claude Code, Codex, and Cursor configurations, model keys, MCP servers, and prompt histories.
+> Cart discounts need an urgent change, slow-query alerts are firing, and the design-system buttons still need padding. Pin three repos in the sidebar, give each task its own session, and let agents work in parallel. Diffs, terminals, and milestones land on the timeline while you review.
+> Step away without losing the thread: approvals and turns stream to your phone over an end-to-end encrypted link.
 
 ---
 
-## ⚡ Core Capabilities
+## Why EnsoCode
 
-### 1. Multi-Task Orchestration & Agent Hierarchy
+EnsoCode is a local-first desktop agent workbench on Electron, powered by the [pi](https://github.com/earendil-works/pi) coding agent harness. It is built to **orchestrate, supervise, and collaborate with a team of specialized agents** — not to answer one prompt at a time.
 
-| Mode / Mechanism | Description |
+- **Task isolation**: Repos stay in the sidebar. One conversation per task. Same-repo parallelism can opt into Git worktrees (`enso/*`) so working trees do not collide.
+- **Hierarchical dispatch**: Short, self-contained work goes to **Subagents** (isolated context, report, then exit). Multi-step collaboration goes to **Coworkers** (own tab, lasting memory, you can jump in anytime).
+- **Review in the stream**: Diffs sit in the timeline. Three approval levels (full review, auto-accept edits, full access), plus Git checkpoints with one-click rewind.
+- **Desk-free continuity**: Pair a PWA phone companion with a QR code. End-to-end encryption; the relay forwards ciphertext only.
+- **Remote work**: Native SSH projects, or pair another EnsoCode desktop as a remote node.
+- **Bring what you already have**: Import local Claude Code, Codex, and Cursor configs, keys, MCP servers, and session history.
+
+---
+
+## From install to first review
+
+1. **Download** the latest build from [GitHub Releases](https://github.com/J3n5en/EnsoCode/releases/latest).
+2. **Connect a model** in Settings — or import providers from Claude Code, Codex, or Cursor.
+3. **Pin a project** in the sidebar.
+4. **Start a session.** Dispatch Subagents for one-shot work, or hire a Coworker for a longer thread.
+5. **Review the result.** Inspect diffs, change the approval level, rewind a checkpoint if needed.
+
+No EnsoCode account. Model traffic goes to the provider you configured.
+
+---
+
+## Core capabilities
+
+### 1. Multi-task orchestration
+
+| Mode | What it does |
 | :--- | :--- |
-| **Multi-Project & Sessions** | Centralize multiple local repositories in the sidebar. Dedicated timelines, model presets, pinned sessions, and archived states per conversation. |
-| **Opt-in Git Worktree Isolation** | Work directly on your main working copy by default, or switch to an isolated Git Worktree (`enso/*` branches) for conflict-free parallel feature branches. |
-| **Subagents (Outsourced Micro-Workers)** | Spawn isolated, one-shot agents for focused subtasks (e.g., `scout`, `tester`, `reviewer`, `worker`). Delivers a structured final report and safely self-terminates. |
-| **Coworkers (Persistent Digital Peers)** | Long-lived subordinate agents living in their own dedicated tabs. Observe their thoughts, steer their actions, or chat directly without polluting your main session context. |
-| **Background Processes** | Long-running servers, test watchers, and builds float in live status capsules above the composer with instant log inspection and exit hooks. |
+| **Projects & sessions** | Several local repos in the sidebar. Each conversation has its own timeline, model, preset, pin, and archive state. |
+| **Git worktree isolation** | Work on the main copy by default, or switch to an `enso/*` worktree for parallel branches. |
+| **Subagents** | One-shot workers (`scout`, `tester`, `reviewer`, `worker`, …) in isolated context. They return a report and exit. |
+| **Coworkers** | Long-lived peers in their own tabs. Watch, steer, or chat without stuffing the parent context. |
+| **Background processes** | Dev servers, watchers, and long builds sit as live capsules above the composer. |
 
----
+### 2. Review, safety, checkpoints
 
-### 2. Review, Safety & Checkpoints
-
-| Feature | Description |
+| Feature | What it does |
 | :--- | :--- |
-| **Embedded File Diffs** | Review line-by-line file reads, patch insertions, and modifications inside the stream or in the integrated side panel. |
-| **Three Approval Modes** | Seamlessly toggle between **Full Manual Approval** (requires review for bash/MCP/file modifications), **Auto-Accept Edits** (fast coding with command confirmation), and **Full Access**. |
-| **Git Checkpoints** | Automatic lightweight commits saved to `refs/enso-checkpoints` before destructive edits (up to 50 checkpoints per session) for instantaneous rewind and undo. |
+| **Embedded diffs** | Reads, patches, and edits expand in the stream or the side panel. |
+| **Three approval modes** | Full manual approval, auto-accept edits, or full access — switchable while a session runs. |
+| **Git checkpoints** | Lightweight snapshots in `refs/enso-checkpoints` (up to 50 per session) before destructive writes. |
 
----
+### 3. Keep a long task moving
 
-### 3. Continuous Execution & Steering
-
-| Feature | Description |
+| Feature | What it does |
 | :--- | :--- |
-| **Goal Tracking (`/goal`)** | Pin high-level milestones to the top of your session. The agent autonomously plans and drives forward (up to 25 auto-turns) with pause/resume controls. |
-| **Steer & Interrupt Queue** | Queue follow-up prompts and instructions while the agent is running; edit or drop them before execution, or trigger an immediate `Steer` interrupt. |
-| **Automatic Fault Recovery** | Automatic retry countdown on transient network timeouts or provider 5xx spikes, with clear status indicators. |
-| **Dockable Side Panel** | Multi-tab side workbench supporting integrated file navigation, session changes inspector, split terminals, and an embedded browser. |
+| **Goal tracking (`/goal`)** | Pin the outcome. The agent drives up to 25 auto-turns; pause or resume anytime. |
+| **Steer & queue** | Queue follow-ups while it runs; edit or drop them, or interrupt immediately. |
+| **Transient retries** | Network blips and provider 5xx retry with a visible countdown. |
+| **Dockable side panel** | Files, session changes, split terminals, and an embedded browser. |
 
 <p align="center">
-  <img src="docs/readme/split-workbench.png" alt="Integrated Dockable Side Panel: Files, Changes, Terminals, and Browser" width="920" />
+  <img src="docs/readme/split-workbench.png" alt="Files, Changes, Terminal, and Browser in the side panel" width="920" />
 </p>
+<p align="center"><sub>Files, Changes, Terminal, and Browser stay next to the conversation.</sub></p>
 
----
+### 4. Phone companion and remote nodes
 
-### 4. Remote Nodes & Mobile Companion
-
-- **Zero-Setup Mobile Companion**: Pair your phone in seconds using a QR code scan. Web-standard PWA with End-to-End Encryption (E2EE). The relay server forwards only ciphertext.
-- **Remote Desktop Nodes**: Interconnect different EnsoCode machines. Browse and operate sessions running on your remote workstation directly from your laptop.
-- **Native Remote SSH Projects**: Manage remote workspaces directly via SSH tunnels without requiring local filesystem synchronizations.
+- **Phone companion**: Scan a QR code. Review history, approve, answer questions, steer. Relay sees ciphertext only.
+- **Desktop remote node**: Pair two EnsoCode machines and operate sessions that live on the other desk.
+- **SSH projects**: Run against a remote tree over SSH without mirroring the repo locally.
 
 <p align="center">
-  <img src="docs/readme/phone.png" alt="Device Pairing: QR Scan, End-to-End Encryption" width="920" />
+  <img src="docs/readme/phone.png" alt="QR pairing for the phone companion" width="920" />
 </p>
+<p align="center"><sub>Pair in seconds. Encryption keys stay on the devices.</sub></p>
 
----
+### 5. Extensibility
 
-### 5. Extensibility & Personalization
-
-| Feature | Description |
+| Feature | What it does |
 | :--- | :--- |
-| **Skills, MCP & Slash Commands** | Native pill UI supporting `/skill:` invocations, `@` file and session autocomplete, and multi-server MCP integrations. |
-| **Runtime Presets** | Bundle model policies, skill packages, MCP tools, and system prompts into reusable presets. |
-| **Appearance & Ghostty Themes** | Built-in terminal color engines, light and dark themes, background images, and custom glassmorphism opacity. |
-| **Configuration Sync & Migration** | Automatically detect and import configuration, providers, and histories from Claude Code, Codex, and Cursor. |
+| **Skills, MCP, slash, `@`** | `/skill:` pills, `@` file and session autocomplete, multi-server MCP. |
+| **Runtime presets** | Bundle model policy, skills, MCP, and system prompt. |
+| **Import** | Scan local Claude Code, Codex, and Cursor setups; import keys, skills, MCP, instructions, and history. |
+| **Appearance** | Ghostty terminal palettes, light/dark, background image, glass opacity. |
+| **Status line** | Tokens, cost, elapsed time, context use, coworker count, approval mode. |
 
 <p align="center">
-  <img src="docs/readme/appearance.png" alt="Appearance: Themes, Terminal Themes, and Styling" width="920" />
+  <img src="docs/readme/appearance.png" alt="Appearance settings: themes and terminal palettes" width="920" />
 </p>
+<p align="center"><sub>Themes, Ghostty palettes, and live preview.</sub></p>
 
 ---
 
-## 🛠️ Development & Build
+## Local-first, precisely
 
-### Prerequisites
-- **Node.js**: `>= 22.0.0`
-- **Package Manager**: [pnpm](https://pnpm.io) (`>= 10.0.0`)
+Local-first does not mean “never touches the network.”
 
-### Quick Start
+| Data | Where it goes |
+| :--- | :--- |
+| Conversations | Local JSONL on this machine |
+| Settings | Local app data |
+| API keys | Local settings (Main process). Not sent to the phone catalog |
+| Pairing secrets | OS encrypted storage when available |
+| SSH passwords | System keychain |
+| EnsoCode telemetry | None |
+| Model requests | Direct to the provider or endpoint you configure |
+| Phone / remote node | Optional. Default relay forwards **ciphertext only**; same LAN can connect directly |
+
+There is no EnsoCode account and no Enso-hosted model proxy. If you use a remote model, that provider receives the context for the request under its own policy. The phone companion is optional; skip pairing and nothing leaves the desktop except model calls you make.
+
+---
+
+## Download
+
+**[Download the latest release →](https://github.com/J3n5en/EnsoCode/releases/latest)**
+
+| Platform | Package |
+| :--- | :--- |
+| macOS | `.dmg` (Apple Silicon / Intel) |
+| Windows | `EnsoCode-Setup-<version>.exe` |
+| Linux | `.AppImage` / `.deb` |
+
+---
+
+## Development
+
+<details>
+<summary><strong>Run EnsoCode from source</strong></summary>
+
+<br />
+
+**Requirements:** Node.js `>= 22`, [pnpm](https://pnpm.io) `>= 10`.
 
 ```bash
-# 1. Install dependencies
 pnpm install
-
-# 2. Launch desktop development mode
 pnpm dev
 ```
 
-### Packaging
-
 ```bash
-pnpm build:mac    # Build macOS app bundle (.dmg / .zip)
-pnpm build:win    # Build Windows executable (.exe)
-pnpm build:linux  # Build Linux package (.AppImage / .deb)
+pnpm build:mac    # .dmg / .zip
+pnpm build:win    # .exe
+pnpm build:linux  # .AppImage / .deb
 ```
 
-### Code Quality & Verification
-
 ```bash
-pnpm typecheck    # TypeScript verification
-pnpm lint         # Biome check & linting
-pnpm test         # Run Vitest test suites
+pnpm typecheck
+pnpm lint
+pnpm test
 ```
+
+</details>
+
+<details>
+<summary><strong>Self-host the phone relay</strong></summary>
+
+<br />
+
+The public default is `https://enso-relay.j3.do`. To run your own, see [packages/relay/README.md](packages/relay/README.md):
+
+- **Cloudflare Worker** (recommended): `pnpm --filter @enso/relay release`.
+- **Go binary**: download `enso-relay-linux-amd64` / `enso-relay-linux-arm64` from the GitHub Release, `chmod +x`, run it.
+
+Point **Settings → Devices → Relay URL** at your instance.
+
+</details>
 
 ---
 
-## 🔗 Links
+## Links
 
 - Website: [enso.j3.do](https://enso.j3.do/)
-- News channel: [t.me/EnsoAI_news](https://t.me/EnsoAI_news)
-- Community group: [t.me/EnsoCode_Official](https://t.me/EnsoCode_Official)
+- Releases: [github.com/J3n5en/EnsoCode/releases](https://github.com/J3n5en/EnsoCode/releases/latest)
+- News: [t.me/EnsoAI_news](https://t.me/EnsoAI_news)
+- Community: [t.me/EnsoCode_Official](https://t.me/EnsoCode_Official)
 
 ---
 
-## 📄 License
+## License
 
-This project is open-source under the [MIT License](LICENSE).
+MIT. See [LICENSE](LICENSE).
