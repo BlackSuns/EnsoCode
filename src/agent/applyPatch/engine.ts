@@ -24,6 +24,7 @@ interface ReadyPlan extends ApplyPatchPlan {
   io: PatchIo;
   snapshots: Map<string, PatchEntry>;
   actions: ReadyAction[];
+  input: string;
 }
 
 interface PhysicalAction {
@@ -229,7 +230,7 @@ async function buildPlan(
       type: action.type,
     },
   }));
-  return { operations, paths, io, snapshots, actions: readyActions };
+  return { operations, paths, io, snapshots, actions: readyActions, input };
 }
 
 export async function validateApplyPatchTargets(
@@ -283,7 +284,8 @@ function result(
   error?: string,
   failed: string[] = [],
   unattempted: string[] = [],
-  uncertain: string[] = []
+  uncertain: string[] = [],
+  input?: string
 ): { content: Array<{ type: 'text'; text: string }>; details: ApplyPatchDetails } {
   const applied = fileChanges.map((change) => change.path);
   const status = error ? (applied.length > 0 ? 'partial' : 'failed') : 'success';
@@ -294,6 +296,7 @@ function result(
     applied,
     failed,
     ...(error ? { error } : {}),
+    ...(error && input ? { input } : {}),
     unattempted,
     uncertain,
   };
@@ -308,17 +311,25 @@ function result(
           `Unattempted: ${unattempted.length ? unattempted.join(', ') : '(none)'}`,
           `Uncertain: ${uncertain.length ? uncertain.join(', ') : '(none)'}`,
           'Re-read failed or uncertain paths before retrying.',
+          ...(input ? ['Input:', input] : []),
         ];
   return { content: [{ type: 'text', text: lines.join('\n') }], details };
 }
 
 async function runPlan(plan: ReadyPlan, signal?: AbortSignal) {
+  const fail = (
+    fileChanges: AppliedFileChange[],
+    error: string,
+    failed: string[] = [],
+    unattempted: string[] = [],
+    uncertain: string[] = []
+  ) => result(fileChanges, error, failed, unattempted, uncertain, plan.input);
   for (const target of plan.paths) await recheck(plan, target, signal);
   const changes: AppliedFileChange[] = [];
   for (let index = 0; index < plan.actions.length; index += 1) {
     const action = plan.actions[index];
     if (signal?.aborted) {
-      return result(
+      return fail(
         changes,
         'apply_patch cancelled',
         [],
@@ -329,14 +340,14 @@ async function runPlan(plan: ReadyPlan, signal?: AbortSignal) {
       await recheck(plan, action.path, signal);
     } catch (error) {
       if (signal?.aborted) {
-        return result(
+        return fail(
           changes,
           'apply_patch cancelled',
           [],
           plan.actions.slice(index).map((entry) => entry.path)
         );
       }
-      return result(
+      return fail(
         changes,
         error instanceof Error ? error.message : String(error),
         [action.path],
@@ -344,7 +355,7 @@ async function runPlan(plan: ReadyPlan, signal?: AbortSignal) {
       );
     }
     if (signal?.aborted) {
-      return result(
+      return fail(
         changes,
         'apply_patch cancelled',
         [],
@@ -361,7 +372,7 @@ async function runPlan(plan: ReadyPlan, signal?: AbortSignal) {
       changes.push(toChange(action));
     } catch (error) {
       if (error instanceof PatchMutationUncertainError) {
-        return result(
+        return fail(
           changes,
           error.message,
           [],
@@ -372,7 +383,7 @@ async function runPlan(plan: ReadyPlan, signal?: AbortSignal) {
       const outcome = await readOutcome(plan, action);
       if (outcome === 'completed') changes.push(toChange(action));
       const uncertain = outcome === 'uncertain' ? [action.path] : [];
-      return result(
+      return fail(
         changes,
         error instanceof Error ? error.message : String(error),
         outcome === 'unchanged' ? [action.path] : [],
@@ -384,12 +395,36 @@ async function runPlan(plan: ReadyPlan, signal?: AbortSignal) {
   return result(changes);
 }
 
+function peekApplyPatchInput(params: unknown): string | undefined {
+  try {
+    return requireApplyPatchInput(params);
+  } catch {
+    if (!params || typeof params !== 'object' || Array.isArray(params)) return undefined;
+    const input = (params as Record<string, unknown>).input;
+    return typeof input === 'string' && input.length > 0 ? input : undefined;
+  }
+}
+
 export function executeApplyPatch(
   cwd: string,
   params: unknown,
   options: { io?: PatchIo; signal?: AbortSignal } = {}
 ): Promise<{ content: Array<{ type: 'text'; text: string }>; details: ApplyPatchDetails }> {
-  return enqueue(async () =>
-    runPlan(await buildPlan(cwd, params, options.io, options.signal), options.signal)
-  );
+  return enqueue(async () => {
+    try {
+      return await runPlan(
+        await buildPlan(cwd, params, options.io, options.signal),
+        options.signal
+      );
+    } catch (error) {
+      return result(
+        [],
+        error instanceof Error ? error.message : String(error),
+        [],
+        [],
+        [],
+        peekApplyPatchInput(params)
+      );
+    }
+  });
 }

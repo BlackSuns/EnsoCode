@@ -294,6 +294,7 @@ describe('projectMessage', () => {
         applied: ['src/a.ts', 'old.ts', 'new.ts'],
         failed: ['failed.ts'],
         error: 'source delete failed',
+        input: '*** Begin Patch\n*** End Patch',
         unattempted: ['later.ts'],
         uncertain: [],
       },
@@ -310,6 +311,7 @@ describe('projectMessage', () => {
       applied: ['src/a.ts', 'old.ts', 'new.ts'],
       failed: ['failed.ts'],
       error: 'source delete failed',
+      input: '*** Begin Patch\n*** End Patch',
       unattempted: ['later.ts'],
       uncertain: [],
     });

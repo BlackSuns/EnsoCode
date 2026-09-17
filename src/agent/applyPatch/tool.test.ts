@@ -50,15 +50,18 @@ describe('apply_patch tool 与 SSH IO', () => {
 
   it('execute 也走同一归一且拒绝混入 path/edits', async () => {
     const tool = createApplyPatchTool({ cwd: '/tmp' });
-    await expect(
-      tool.execute(
-        'call',
-        { input, edits: [] } as never,
-        new AbortController().signal,
-        undefined,
-        undefined as never
-      )
-    ).rejects.toThrow();
+    const result = await tool.execute(
+      'call',
+      { input, edits: [] } as never,
+      new AbortController().signal,
+      undefined,
+      undefined as never
+    );
+    expect(result.details).toMatchObject({
+      status: 'failed',
+      error: 'apply_patch accepts exactly one string property: input',
+      input,
+    });
   });
 
   it('失败 details 用 kind discriminator，不自创 isError', () => {

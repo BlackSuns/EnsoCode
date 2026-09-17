@@ -46,6 +46,7 @@ export interface ApplyPatchDetails {
   applied: string[];
   failed: string[];
   error?: string;
+  input?: string;
   unattempted: string[];
   uncertain: string[];
 }

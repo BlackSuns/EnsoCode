@@ -110,6 +110,7 @@ export function formatApplyPatchOutcome(outcome: ProjectedApplyPatchOutcome): st
     list('Unattempted', outcome.unattempted),
     list('Uncertain', outcome.uncertain),
     ...(outcome.status === 'success' ? [] : ['Re-read failed or uncertain paths before retrying.']),
+    ...(outcome.input ? [`Input:\n${outcome.input}`] : []),
   ].join('\n');
 }
 

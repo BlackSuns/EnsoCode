@@ -1724,6 +1724,7 @@ describe('apply_patch timeline', () => {
             applied: changes.map((change) => change.path),
             failed: ['failed.ts'],
             error: 'source delete failed',
+            input: '*** Begin Patch\n*** Update File: src/a.ts\n*** End Patch',
             unattempted: ['later.ts'],
             uncertain: ['unknown.ts'],
           },
@@ -1744,6 +1745,9 @@ describe('apply_patch timeline', () => {
     });
     expect(timeline[0]).toMatchObject({
       output: expect.stringContaining('Uncertain:\n- unknown.ts'),
+    });
+    expect(timeline[0]).toMatchObject({
+      output: expect.stringContaining('Input:\n*** Begin Patch'),
     });
   });
 

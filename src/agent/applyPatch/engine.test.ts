@@ -27,11 +27,28 @@ async function text(relative: string): Promise<string> {
   return readFile(path.join(cwd, relative), 'utf8');
 }
 
+async function expectFailed(
+  promise: ReturnType<typeof executeApplyPatch>,
+  pattern?: RegExp | string
+) {
+  const result = await promise;
+  expect(result.details.status).toBe('failed');
+  if (pattern) expect(result.details.error ?? '').toMatch(pattern);
+  return result;
+}
+
 describe('apply_patch 引擎', () => {
-  it('空 envelope 在执行期拒绝且零写', async () => {
-    await expect(
-      executeApplyPatch(cwd, { input: '*** Begin Patch\n*** End Patch' })
-    ).rejects.toThrow('No files were modified.');
+  it('空 envelope 在执行期拒绝且零写，失败详情带回调用 input', async () => {
+    const input = '*** Begin Patch\n*** End Patch';
+    const result = await executeApplyPatch(cwd, { input });
+    expect(result.details).toMatchObject({
+      status: 'failed',
+      error: 'No files were modified.',
+      input,
+      applied: [],
+    });
+    expect(result.content[0]?.text).toContain('Input:');
+    expect(result.content[0]?.text).toContain(input);
   });
 
   it('一次预检后执行多文件 add/update/delete', async () => {
@@ -84,40 +101,47 @@ describe('apply_patch 引擎', () => {
   });
 
   it('新增内容含 NUL 时在 preflight 拒绝且保持 0 写', async () => {
-    await expect(
-      executeApplyPatch(cwd, patch('*** Add File: binary.txt', '+safe\0unsafe'))
-    ).rejects.toThrow(/binary/i);
+    await expectFailed(
+      executeApplyPatch(cwd, patch('*** Add File: binary.txt', '+safe\0unsafe')),
+      /binary/i
+    );
     await expect(text('binary.txt')).rejects.toThrow();
   });
 
   it('Update 生成内容含 NUL 时同样在 preflight 拒绝', async () => {
     await writeFile(path.join(cwd, 'text.txt'), 'old\n');
-    await expect(
-      executeApplyPatch(cwd, patch('*** Update File: text.txt', '@@', '-old', '+new\0binary'))
-    ).rejects.toThrow(/binary/i);
+    await expectFailed(
+      executeApplyPatch(cwd, patch('*** Update File: text.txt', '@@', '-old', '+new\0binary')),
+      /binary/i
+    );
     expect(await text('text.txt')).toBe('old\n');
   });
 
   it('Update 生成文件超过单文件预算时在写入前拒绝', async () => {
     await writeFile(path.join(cwd, 'limit.txt'), Buffer.alloc(4 * 1024 * 1024, 0x61));
-    await expect(
-      executeApplyPatch(cwd, patch('*** Update File: limit.txt', '@@', '+extra', '*** End of File'))
-    ).rejects.toThrow(/limit/i);
+    await expectFailed(
+      executeApplyPatch(
+        cwd,
+        patch('*** Update File: limit.txt', '@@', '+extra', '*** End of File')
+      ),
+      /limit/i
+    );
     expect((await readFile(path.join(cwd, 'limit.txt'))).length).toBe(4 * 1024 * 1024);
   });
 
   it('规范路径存在祖先冲突时 preflight 拒绝且保持 0 写', async () => {
-    await expect(
+    await expectFailed(
       executeApplyPatch(
         cwd,
         patch('*** Add File: node', '+file', '*** Add File: node/child.txt', '+child')
-      )
-    ).rejects.toThrow(/ancestor/i);
+      ),
+      /ancestor/i
+    );
     await expect(text('node')).rejects.toThrow();
   });
 
   it('祖先冲突检测不受中间字典序路径绕过', async () => {
-    await expect(
+    await expectFailed(
       executeApplyPatch(
         cwd,
         patch(
@@ -128,8 +152,9 @@ describe('apply_patch 引擎', () => {
           '*** Add File: a/b',
           '+child'
         )
-      )
-    ).rejects.toThrow(/ancestor/i);
+      ),
+      /ancestor/i
+    );
     for (const target of ['a', 'a.b', 'a/b']) await expect(text(target)).rejects.toThrow();
   });
 
@@ -138,14 +163,14 @@ describe('apply_patch 引擎', () => {
       patch('*** Add File: A', '+upper', '*** Add File: a', '+lower'),
       patch('*** Add File: Dir', '+parent', '*** Add File: dir/child', '+child'),
     ]) {
-      await expect(executeApplyPatch(cwd, params)).rejects.toThrow(/alias|ancestor/i);
+      await expectFailed(executeApplyPatch(cwd, params), /alias|ancestor/i);
     }
     for (const target of ['A', 'a', 'Dir', 'dir']) await expect(text(target)).rejects.toThrow();
   });
 
   it('后文件预检冲突时前文件保持 0 写', async () => {
     await writeFile(path.join(cwd, 'exists.txt'), 'keep\n');
-    await expect(
+    await expectFailed(
       executeApplyPatch(
         cwd,
         patch(
@@ -155,7 +180,7 @@ describe('apply_patch 引擎', () => {
           '+must conflict'
         )
       )
-    ).rejects.toThrow();
+    );
     await expect(text('first.txt')).rejects.toThrow();
     expect(await text('exists.txt')).toBe('keep\n');
   });
@@ -238,12 +263,13 @@ describe('apply_patch 引擎', () => {
     const existing = path.join(outside, 'existing.txt');
     try {
       await writeFile(existing, 'keep\n');
-      await expect(
+      await expectFailed(
         executeApplyPatch(
           cwd,
           patch('*** Add File: first.txt', '+first', `*** Add File: ${existing}`, '+conflict')
-        )
-      ).rejects.toThrow(/already exists/i);
+        ),
+        /already exists/i
+      );
       await expect(text('first.txt')).rejects.toThrow();
       expect(await readFile(existing, 'utf8')).toBe('keep\n');
     } finally {
@@ -253,29 +279,31 @@ describe('apply_patch 引擎', () => {
 
   it('相对与绝对路径指向同一文件时在写入前拒绝', async () => {
     const absolute = path.join(cwd, 'alias.txt');
-    await expect(
+    await expectFailed(
       executeApplyPatch(
         cwd,
         patch('*** Add File: alias.txt', '+relative', `*** Add File: ${absolute}`, '+absolute')
-      )
-    ).rejects.toThrow(/same target|more than once|alias/i);
+      ),
+      /same target|more than once|alias/i
+    );
     await expect(text('alias.txt')).rejects.toThrow();
   });
 
   it('相对目录与其绝对子路径构成祖先冲突时保持零写', async () => {
     const child = path.join(cwd, 'node/child.txt');
-    await expect(
+    await expectFailed(
       executeApplyPatch(
         cwd,
         patch('*** Add File: node', '+parent', `*** Add File: ${child}`, '+child')
-      )
-    ).rejects.toThrow(/ancestor/i);
+      ),
+      /ancestor/i
+    );
     await expect(text('node')).rejects.toThrow();
   });
 
   it('绝对目录在前、相对子路径在后时同样识别跨表示祖先冲突', async () => {
     const parent = path.join(cwd, 'reverse-node');
-    await expect(
+    await expectFailed(
       executeApplyPatch(
         cwd,
         patch(
@@ -284,20 +312,22 @@ describe('apply_patch 引擎', () => {
           '*** Add File: reverse-node/child.txt',
           '+child'
         )
-      )
-    ).rejects.toThrow(/ancestor/i);
+      ),
+      /ancestor/i
+    );
     await expect(text('reverse-node')).rejects.toThrow();
   });
 
   it('Move 两端以相对和绝对路径指向同一文件时保持源文件不变', async () => {
     const absolute = path.join(cwd, 'move-alias.txt');
     await writeFile(absolute, 'keep\n');
-    await expect(
+    await expectFailed(
       executeApplyPatch(
         cwd,
         patch('*** Update File: move-alias.txt', `*** Move to: ${absolute}`, '@@', ' keep')
-      )
-    ).rejects.toThrow(/same target|alias/i);
+      ),
+      /same target|alias/i
+    );
     expect(await text('move-alias.txt')).toBe('keep\n');
   });
 
@@ -306,12 +336,13 @@ describe('apply_patch 引擎', () => {
     ['NFC', 'café-alias.txt', 'café-alias.txt'],
   ])('canonical 统一后仍保守拒绝%s别名', async (_kind, relative, absoluteName) => {
     const absolute = path.join(cwd, absoluteName);
-    await expect(
+    await expectFailed(
       executeApplyPatch(
         cwd,
         patch(`*** Add File: ${relative}`, '+relative', `*** Add File: ${absolute}`, '+absolute')
-      )
-    ).rejects.toThrow(/alias|same target/i);
+      ),
+      /alias|same target/i
+    );
     await expect(text(relative)).rejects.toThrow();
     await expect(readFile(absolute, 'utf8')).rejects.toThrow();
   });
@@ -324,7 +355,7 @@ describe('apply_patch 引擎', () => {
     await symlink(actual, path.join(outside, 'linked'));
     await symlink(path.join(actual, 'victim.txt'), path.join(outside, 'leaf.txt'));
     try {
-      await expect(
+      await expectFailed(
         executeApplyPatch(
           cwd,
           patch(
@@ -333,11 +364,13 @@ describe('apply_patch 引擎', () => {
             '-safe',
             '+bad'
           )
-        )
-      ).rejects.toThrow(/symbolic|symlink|unsafe/i);
-      await expect(
-        executeApplyPatch(cwd, patch(`*** Delete File: ${path.join(outside, 'leaf.txt')}`))
-      ).rejects.toThrow(/symbolic|symlink|unsafe/i);
+        ),
+        /symbolic|symlink|unsafe/i
+      );
+      await expectFailed(
+        executeApplyPatch(cwd, patch(`*** Delete File: ${path.join(outside, 'leaf.txt')}`)),
+        /symbolic|symlink|unsafe/i
+      );
       expect(await readFile(path.join(actual, 'victim.txt'), 'utf8')).toBe('safe\n');
     } finally {
       await rm(outside, { recursive: true, force: true });
@@ -377,10 +410,10 @@ describe('apply_patch 引擎', () => {
       await writeFile(path.join(outside, 'victim.txt'), 'safe\n');
       await symlink(outside, path.join(cwd, 'linked'));
       await symlink(path.join(outside, 'victim.txt'), path.join(cwd, 'leaf.txt'));
-      await expect(
+      await expectFailed(
         executeApplyPatch(cwd, patch('*** Update File: linked/victim.txt', '@@', '-safe', '+bad'))
-      ).rejects.toThrow();
-      await expect(executeApplyPatch(cwd, patch('*** Delete File: leaf.txt'))).rejects.toThrow();
+      );
+      await expectFailed(executeApplyPatch(cwd, patch('*** Delete File: leaf.txt')));
       expect(await readFile(path.join(outside, 'victim.txt'), 'utf8')).toBe('safe\n');
     } finally {
       await rm(outside, { recursive: true, force: true });
@@ -411,13 +444,13 @@ describe('apply_patch 引擎', () => {
     await writeFile(path.join(cwd, 'invalid.txt'), Buffer.from([0xff]));
     await writeFile(path.join(cwd, 'large.txt'), Buffer.alloc(4 * 1024 * 1024 + 1, 0x61));
     for (const target of ['directory', 'binary.bin', 'invalid.txt', 'large.txt']) {
-      await expect(executeApplyPatch(cwd, patch(`*** Delete File: ${target}`))).rejects.toThrow();
+      await expectFailed(executeApplyPatch(cwd, patch(`*** Delete File: ${target}`)));
     }
   });
 
   it('拒绝规范化后重复路径及 move 别名冲突', async () => {
     await writeFile(path.join(cwd, 'a.txt'), 'a\n');
-    await expect(
+    await expectFailed(
       executeApplyPatch(
         cwd,
         patch(
@@ -429,7 +462,7 @@ describe('apply_patch 引擎', () => {
           '+b'
         )
       )
-    ).rejects.toThrow();
+    );
     expect(await text('a.txt')).toBe('a\n');
   });
 
@@ -456,7 +489,7 @@ describe('apply_patch 引擎', () => {
 
   it('EOF 模式不能越过当前匹配位置回头搜', async () => {
     await writeFile(path.join(cwd, 'anchor-eof.txt'), 'a\nanchor\n');
-    await expect(
+    await expectFailed(
       executeApplyPatch(
         cwd,
         patch(
@@ -467,8 +500,9 @@ describe('apply_patch 引擎', () => {
           '+x',
           '*** End of File'
         )
-      )
-    ).rejects.toThrow(/Failed to find expected lines/);
+      ),
+      /Failed to find expected lines/
+    );
     expect(await text('anchor-eof.txt')).toBe('a\nanchor\n');
   });
 

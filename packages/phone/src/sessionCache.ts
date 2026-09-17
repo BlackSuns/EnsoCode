@@ -543,7 +543,9 @@ function parseMessage(value: unknown): ProjectedMessage | null {
         outcome.status !== 'partial' &&
         outcome.status !== 'failed') ||
       !optional(outcome, 'error', isString) ||
-      (outcome.errorTruncated !== undefined && outcome.errorTruncated !== true)
+      !optional(outcome, 'input', isString) ||
+      (outcome.errorTruncated !== undefined && outcome.errorTruncated !== true) ||
+      (outcome.inputTruncated !== undefined && outcome.inputTruncated !== true)
     ) {
       return null;
     }
@@ -560,6 +562,8 @@ function parseMessage(value: unknown): ProjectedMessage | null {
       uncertain,
       ...(typeof outcome.error === 'string' ? { error: outcome.error } : {}),
       ...(outcome.errorTruncated === true ? { errorTruncated: true as const } : {}),
+      ...(typeof outcome.input === 'string' ? { input: outcome.input } : {}),
+      ...(outcome.inputTruncated === true ? { inputTruncated: true as const } : {}),
     };
   }
 

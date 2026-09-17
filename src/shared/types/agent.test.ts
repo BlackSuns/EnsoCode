@@ -1650,6 +1650,18 @@ describe('apply_patch fileChanges 事件收窄', () => {
         ...event,
         message: {
           ...event.message,
+          applyPatchOutcome: {
+            ...event.message.applyPatchOutcome,
+            input: '*** Begin Patch\n*** End Patch',
+          },
+        },
+      })
+    ).not.toBeNull();
+    expect(
+      parseAgentWorkerEvent({
+        ...event,
+        message: {
+          ...event.message,
           fileChanges: [{ ...event.message.fileChanges[0], oldText: 'a\n…', truncated: true }],
         },
       })
@@ -1685,6 +1697,8 @@ describe('apply_patch fileChanges 事件收窄', () => {
       { ...event.message.applyPatchOutcome, failed: ['x'.repeat(4_097)] },
       { ...event.message.applyPatchOutcome, extra: true },
       { ...event.message.applyPatchOutcome, errorTruncated: false },
+      { ...event.message.applyPatchOutcome, inputTruncated: false },
+      { ...event.message.applyPatchOutcome, input: '' },
     ]) {
       expect(
         parseAgentWorkerEvent({ ...event, message: { ...event.message, applyPatchOutcome } })

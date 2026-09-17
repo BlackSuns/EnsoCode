@@ -95,15 +95,21 @@ function projectApplyPatchOutcome(
     return null;
   }
   const error = typeof value.error === 'string' && value.error.length > 0 ? value.error : null;
+  const input = typeof value.input === 'string' && value.input.length > 0 ? value.input : null;
   if (
     (value.status === 'success' &&
-      (error !== null || failed.length > 0 || unattempted.length > 0 || uncertain.length > 0)) ||
+      (error !== null ||
+        input !== null ||
+        failed.length > 0 ||
+        unattempted.length > 0 ||
+        uncertain.length > 0)) ||
     (value.status === 'partial' && (applied.length === 0 || error === null)) ||
     (value.status === 'failed' && (applied.length > 0 || error === null))
   ) {
     return null;
   }
   const errorTruncated = error !== null && error.length > PROJECTED_TEXT_LIMIT;
+  const inputTruncated = input !== null && input.length > PROJECTED_TEXT_LIMIT;
   return {
     status: value.status,
     applied: [...applied],
@@ -112,6 +118,8 @@ function projectApplyPatchOutcome(
     uncertain: [...uncertain],
     ...(error !== null ? { error: capText(error) } : {}),
     ...(errorTruncated ? { errorTruncated: true as const } : {}),
+    ...(input !== null ? { input: capText(input) } : {}),
+    ...(inputTruncated ? { inputTruncated: true as const } : {}),
   };
 }
 

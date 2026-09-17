@@ -1223,6 +1223,8 @@ function parseProjectedApplyPatchOutcome(value: unknown): ProjectedApplyPatchOut
       'uncertain',
       'error',
       'errorTruncated',
+      'input',
+      'inputTruncated',
     ]) ||
     (value.status !== 'success' && value.status !== 'partial' && value.status !== 'failed')
   ) {
@@ -1243,6 +1245,7 @@ function parseProjectedApplyPatchOutcome(value: unknown): ProjectedApplyPatchOut
   const [applied, failed, unattempted, uncertain] = lists as string[][];
   const allPaths = [...applied, ...failed, ...unattempted, ...uncertain];
   const error = typeof value.error === 'string' && value.error.length > 0 ? value.error : null;
+  const input = typeof value.input === 'string' && value.input.length > 0 ? value.input : null;
   if (
     allPaths.length > PROJECTED_APPLY_PATCH_PATH_COUNT_LIMIT ||
     new Set(allPaths).size !== allPaths.length ||
@@ -1251,8 +1254,17 @@ function parseProjectedApplyPatchOutcome(value: unknown): ProjectedApplyPatchOut
     (value.errorTruncated === true &&
       (error === null || error.length > PROJECTED_FILE_TEXT_LIMIT + 2 || !error.endsWith('\n…'))) ||
     (value.errorTruncated !== true && error !== null && error.length > PROJECTED_FILE_TEXT_LIMIT) ||
+    (value.input !== undefined && input === null) ||
+    (value.inputTruncated !== undefined && value.inputTruncated !== true) ||
+    (value.inputTruncated === true &&
+      (input === null || input.length > PROJECTED_FILE_TEXT_LIMIT + 2 || !input.endsWith('\n…'))) ||
+    (value.inputTruncated !== true && input !== null && input.length > PROJECTED_FILE_TEXT_LIMIT) ||
     (value.status === 'success' &&
-      (error !== null || failed.length > 0 || unattempted.length > 0 || uncertain.length > 0)) ||
+      (error !== null ||
+        input !== null ||
+        failed.length > 0 ||
+        unattempted.length > 0 ||
+        uncertain.length > 0)) ||
     (value.status === 'partial' && (applied.length === 0 || error === null)) ||
     (value.status === 'failed' && (applied.length > 0 || error === null))
   ) {

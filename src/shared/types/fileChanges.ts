@@ -32,4 +32,6 @@ export interface ProjectedApplyPatchOutcome {
   uncertain: string[];
   error?: string;
   errorTruncated?: true;
+  input?: string;
+  inputTruncated?: true;
 }

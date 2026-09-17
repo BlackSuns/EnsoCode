@@ -10,6 +10,16 @@ const patch = (...body: string[]) => ({
   input: ['*** Begin Patch', ...body, '*** End Patch'].join('\n'),
 });
 
+async function expectFailed(
+  promise: ReturnType<typeof executeApplyPatch>,
+  pattern?: RegExp | string
+) {
+  const result = await promise;
+  expect(result.details.status).toBe('failed');
+  if (pattern) expect(result.details.error ?? '').toMatch(pattern);
+  return result;
+}
+
 interface RecordedCall {
   command: string[] | string;
   options?: SshExecOptions;
@@ -89,7 +99,7 @@ describe('远端 apply_patch IO', () => {
       expect(await readFile(target, 'utf8')).toBe('updated\n');
       await io.remove(target);
 
-      await expect(
+      await expectFailed(
         executeApplyPatch(
           root,
           patch(
@@ -99,8 +109,9 @@ describe('远端 apply_patch IO', () => {
             '+absolute'
           ),
           { io }
-        )
-      ).rejects.toThrow(/same target/i);
+        ),
+        /same target/i
+      );
       await expect(readFile(path.join(root, 'same.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -177,7 +188,7 @@ describe('远端 apply_patch IO', () => {
     } as unknown as SshExecutor;
     const io = createRemoteApplyPatchIo('/workspace', executor);
 
-    await expect(
+    await expectFailed(
       executeApplyPatch(
         '/workspace',
         patch(
@@ -187,8 +198,9 @@ describe('远端 apply_patch IO', () => {
           '+absolute'
         ),
         { io }
-      )
-    ).rejects.toThrow(/same target/i);
+      ),
+      /same target/i
+    );
     expect(calls.map((call) => (call.command as string[]).slice(4))).toEqual([
       ['/workspace', 'same.txt'],
       ['/', 'workspace/same.txt'],
