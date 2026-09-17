@@ -14,7 +14,7 @@ function compactHook() {
   return handlers.get('session_before_compact');
 }
 
-describe('continuous memory 3.0.4 wrapper', () => {
+describe('continuous memory 3.1.3 wrapper', () => {
   it('有观察时渲染 om.folded，不因覆盖缺口拒绝', async () => {
     const hook = compactHook();
     const branch = [

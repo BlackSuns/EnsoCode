@@ -1,6 +1,6 @@
-# pi-observational-memory 3.0.4
+# pi-observational-memory 3.1.3
 
-Vendored from `npm:pi-observational-memory@3.0.4` (MIT).
+Vendored from `npm:pi-observational-memory@3.1.3` (MIT).
 
 Do not edit `vendor/` to add Enso behavior. Wrap in `extension.ts`:
 - map Enso `smartCompactModel` onto `runtime.config.model`

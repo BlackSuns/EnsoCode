@@ -1,10 +1,10 @@
 import { agentLoop, type AgentContext, type AgentLoopConfig, type AgentTool } from "@earendil-works/pi-agent-core";
 import type { Message, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
-import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Static } from "typebox";
 import { hashId } from "../../ids.js";
 import { logAgentStreamError } from "../stream-errors.js";
+import { resolveWorkerStreamSimple, type StreamableModelRegistry, type WorkerStreamSimple } from "../worker-stream.js";
 import { AGENT_LOOP_MAX_TOKENS, boundedMaxTokens } from "../../model-budget.js";
 import { OBSERVER_SYSTEM } from "./prompts.js";
 import { nowTimestamp, truncateRecordContent } from "../../serialize.js";
@@ -15,6 +15,7 @@ interface RunObserverArgs {
 	model: Model<any>;
 	apiKey?: string;
 	headers?: Record<string, string>;
+	env?: Record<string, string>;
 	priorReflections: string[];
 	priorObservations: string[];
 	chunk: string;
@@ -22,7 +23,11 @@ interface RunObserverArgs {
 	signal?: AbortSignal;
 	agentLoop?: typeof agentLoop;
 	maxTurns?: number;
+	/** Maximum output tokens for the loop (defaults to {@link AGENT_LOOP_MAX_TOKENS}). */
+	maxOutputTokens?: number;
 	thinkingLevel?: ModelThinkingLevel;
+	modelRegistry?: StreamableModelRegistry;
+	streamSimple?: WorkerStreamSimple;
 }
 
 const RelevanceSchema = Type.Union([
@@ -99,7 +104,7 @@ export function normalizeSourceEntryIds(
 }
 
 export async function runObserver(args: RunObserverArgs): Promise<Observation[] | undefined> {
-	const { model, apiKey, headers, priorReflections, priorObservations, chunk, allowedSourceEntryIds, signal } = args;
+	const { model, apiKey, headers, env, priorReflections, priorObservations, chunk, allowedSourceEntryIds, signal } = args;
 	const conversation = chunk.trim();
 	if (!conversation) return undefined;
 
@@ -193,7 +198,8 @@ ${conversation}`;
 		model,
 		apiKey,
 		headers,
-		maxTokens: boundedMaxTokens(model, AGENT_LOOP_MAX_TOKENS),
+		env,
+		maxTokens: boundedMaxTokens(model, args.maxOutputTokens ?? AGENT_LOOP_MAX_TOKENS),
 		convertToLlm: (msgs) => msgs as Message[],
 		toolExecution: "sequential",
 		...(reasoning && thinkingLevel !== "off" ? { reasoning: thinkingLevel } : {}),
@@ -208,7 +214,13 @@ ${conversation}`;
 	};
 
 	const loop = args.agentLoop ?? agentLoop;
-	const stream = loop(prompts, context, config, signal, streamSimple);
+	const stream = loop(
+		prompts,
+		context,
+		config,
+		signal,
+		resolveWorkerStreamSimple(model, args.modelRegistry, args.streamSimple),
+	);
 	let streamError: { stopReason: string; errorMessage?: string } | undefined;
 	for await (const event of stream) {
 		// Drain events; the tool's execute already collects records.
