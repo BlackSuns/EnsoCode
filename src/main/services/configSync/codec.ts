@@ -198,6 +198,7 @@ const KEYBINDING_ACTIONS = [
   'open-settings',
   'switch-model',
   'focus-composer',
+  'send-message',
   'find-in-chat',
   'search-workspace',
   'new-conversation',

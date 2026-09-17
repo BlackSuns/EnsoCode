@@ -627,6 +627,7 @@ const DEFAULT_KEYBINDINGS: Record<string, string> = {
   'open-settings': 'mod+,',
   'switch-model': 'mod+.',
   'focus-composer': 'mod+l',
+  'send-message': 'enter',
   'find-in-chat': 'mod+f',
   'search-workspace': 'mod+k',
   'new-conversation': 'mod+n',

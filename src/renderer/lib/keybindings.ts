@@ -8,6 +8,7 @@ export const KEYBINDING_ACTIONS = [
   'open-settings',
   'switch-model',
   'focus-composer',
+  'send-message',
   'find-in-chat',
   'search-workspace',
   'new-conversation',
@@ -26,6 +27,7 @@ export const ACTION_LABEL_KEYS: Record<KeybindingAction, string> = {
   'open-settings': 'Open settings',
   'switch-model': 'Switch model',
   'focus-composer': 'Focus chat input',
+  'send-message': 'Send message',
   'find-in-chat': 'Find in conversation',
   'search-workspace': 'Search anything',
   'new-conversation': 'New conversation',
@@ -39,6 +41,7 @@ export const ACTION_LABEL_KEYS: Record<KeybindingAction, string> = {
 /** 仅部分动作需要补充生效范围，没有就不渲染 */
 export const ACTION_HINT_KEYS: Partial<Record<KeybindingAction, string>> = {
   'switch-model': 'Only when the chat input is focused',
+  'send-message': 'Only when the chat input is focused',
   'new-side-tab': 'New terminal when the side panel is focused; otherwise new conversation',
   'new-btw-tab': 'Open a Btw tab in the side panel',
 };
@@ -47,7 +50,10 @@ export function isEventInSidePanel(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest('[data-slot="side-panel"]') !== null;
 }
 
-export const IS_MAC = navigator.platform.startsWith('Mac');
+export const IS_MAC =
+  typeof navigator !== 'undefined' && typeof navigator.platform === 'string'
+    ? navigator.platform.startsWith('Mac')
+    : process.platform === 'darwin';
 
 export const DEFAULT_KEYBINDINGS: Record<KeybindingAction, string> = {
   'toggle-sidebar': 'mod+b',
@@ -56,6 +62,7 @@ export const DEFAULT_KEYBINDINGS: Record<KeybindingAction, string> = {
   'open-settings': 'mod+,',
   'switch-model': 'mod+.',
   'focus-composer': 'mod+l',
+  'send-message': 'enter',
   'find-in-chat': 'mod+f',
   'search-workspace': 'mod+k',
   'new-conversation': 'mod+n',
@@ -74,13 +81,17 @@ export function effectiveKeybindings(
   return { ...DEFAULT_KEYBINDINGS, ...overrides };
 }
 
-/** keydown 事件转绑定串;纯修饰键或无修饰的单键(避免劫持正常输入)返回 null */
-export function eventToBinding(e: KeyboardEvent | React.KeyboardEvent): string | null {
+/** keydown 事件转绑定串;纯修饰键返回 null。默认拒绝无修饰单键以免劫持输入;allowBare 仅放行 Enter。 */
+export function eventToBinding(
+  e: KeyboardEvent | React.KeyboardEvent,
+  options?: { allowBare?: boolean }
+): string | null {
   const key = e.key.toLowerCase();
   if (['meta', 'control', 'alt', 'shift'].includes(key)) return null;
   const mod = IS_MAC ? e.metaKey : e.ctrlKey;
   const ctrl = IS_MAC && e.ctrlKey;
-  if (!mod && !ctrl && !e.altKey) return null;
+  const hasNonShiftModifier = Boolean(mod || ctrl || e.altKey);
+  if (!hasNonShiftModifier && !(options?.allowBare && key === 'enter')) return null;
   const parts: string[] = [];
   if (mod) parts.push('mod');
   if (ctrl) parts.push('ctrl');

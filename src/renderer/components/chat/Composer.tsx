@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { flattenMentionRoot, useMentionSearch } from '@/hooks/useMentionSearch';
 import { useI18n } from '@/i18n';
-import { effectiveKeybindings, eventToBinding } from '@/lib/keybindings';
+import { effectiveKeybindings, eventToBinding, formatBinding } from '@/lib/keybindings';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import {
@@ -107,6 +107,8 @@ export function Composer({
   placeholder: placeholderText,
 }: ComposerProps) {
   const { t } = useI18n();
+  const keybindings = useSettingsStore((s) => s.keybindings);
+  const sendBinding = effectiveKeybindings(keybindings)['send-message'];
   const mentionPickerId = useId();
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [slash, setSlash] = useState<string | null>(null);
@@ -499,9 +501,12 @@ export function Composer({
       setRecipient(undefined);
       return;
     }
-    if (event.key === 'Enter' && !event.shiftKey && enterToSend) {
-      event.preventDefault();
-      handleSend();
+    if (enterToSend && !popupKind) {
+      const pressedSend = eventToBinding(event, { allowBare: true });
+      if (pressedSend === sendBinding) {
+        event.preventDefault();
+        handleSend();
+      }
     }
   };
 
@@ -742,7 +747,13 @@ export function Composer({
               onClick={handleSend}
               disabled={!hasContent || locked}
               aria-label={agentRecipient ? t('Send only to the selected Agent') : t('Send')}
-              title={agentRecipient ? t('Send only to the selected Agent') : t('Send')}
+              title={
+                agentRecipient
+                  ? t('Send only to the selected Agent')
+                  : enterToSend
+                    ? `${t('Send')} ${formatBinding(sendBinding)}`
+                    : t('Send')
+              }
             >
               <ArrowUp className="h-4 w-4" />
             </Button>

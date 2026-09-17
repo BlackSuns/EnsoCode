@@ -70,6 +70,7 @@ export const zhTranslations: Record<string, string> = {
   'No matching conversations': '没有匹配的会话',
   'Search messages...': '搜索消息...',
   'Only when the chat input is focused': '仅在输入框聚焦时生效',
+  'Send message': '发送消息',
   'Next coworker tab': '下一个 coworker 标签',
   'Previous coworker tab': '上一个 coworker 标签',
   'Press shortcut…': '按下新快捷键…',

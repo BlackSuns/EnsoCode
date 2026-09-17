@@ -69,6 +69,7 @@ const MAPPED_I18N_KEYS = [
   'Focus chat input',
   'Find in conversation',
   'Only when the chat input is focused',
+  'Send message',
   'New conversation',
   'Next coworker tab',
   'Previous coworker tab',
