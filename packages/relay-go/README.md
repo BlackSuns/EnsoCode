@@ -6,7 +6,7 @@ Single-process relay, **protocol-compatible** with the `packages/relay` Cloudfla
 
 **Recommended self-hosting is still the Cloudflare Worker.** Use this binary when you do not have (or do not want) Cloudflare. Full guide: [`../relay/README.md`](../relay/README.md).
 
-Linux amd64 / arm64 builds are attached to each [GitHub Release](https://github.com/J3n5en/EnsoCode/releases/latest) after the app release is published.
+Linux amd64 / arm64 builds are attached to each [GitHub Release](https://github.com/J3n5en/EnsoCode/releases/latest).
 
 ## Run
 

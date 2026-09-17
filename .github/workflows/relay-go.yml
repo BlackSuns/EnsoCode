@@ -1,8 +1,6 @@
 name: Relay Go
 
 on:
-  release:
-    types: [published]
   pull_request:
     paths:
       - 'packages/relay-go/**'
@@ -24,7 +22,7 @@ permissions:
 
 jobs:
   test:
-    if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -42,7 +40,7 @@ jobs:
         run: go test -count=1 ./...
 
   build:
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

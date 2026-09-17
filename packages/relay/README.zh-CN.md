@@ -39,7 +39,7 @@ pnpm --filter @enso/relay release:dev      # 开发副本 enso-relay-dev.j3.do
 
 ## 方式二：Go 单二进制
 
-适合没有 Cloudflare 的机器。应用 Release 发布后会再构建中继，并挂到同一个 [GitHub Release](https://github.com/J3n5en/EnsoCode/releases/latest)：
+适合没有 Cloudflare 的机器。中继二进制随应用 [GitHub Release](https://github.com/J3n5en/EnsoCode/releases/latest) 一起发布：
 
 - `enso-relay-linux-amd64`（x86_64）
 - `enso-relay-linux-arm64`（aarch64）

@@ -6,7 +6,7 @@
 
 **自建仍推荐 Cloudflare Worker。** 没有或不想用 CF 时再用本二进制。完整说明见 [`../relay/README.zh-CN.md`](../relay/README.zh-CN.md)。
 
-Linux amd64 / arm64 会在应用 [GitHub Release](https://github.com/J3n5en/EnsoCode/releases/latest) 发布后再构建，并挂到同一个 Release。
+Linux amd64 / arm64 随应用 [GitHub Release](https://github.com/J3n5en/EnsoCode/releases/latest) 一起构建，并挂到同一个 Release。
 
 ## 运行
 
