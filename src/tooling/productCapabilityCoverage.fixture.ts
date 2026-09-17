@@ -48,9 +48,6 @@ export const SETTINGS_DATA_COVERAGE = {
   ),
   memoryDistillEnabled: excluded('Memory auto-distillation preference; not an Enso capability.'),
   memoryKgEnabled: excluded('Memory entity-graph extraction preference; not an Enso capability.'),
-  bashInterceptEnabled: excluded(
-    'Bash intercept is a desktop session preference, not an Enso capability.'
-  ),
   editMode: excluded('File edit mode is a desktop session preference, not an Enso capability.'),
   compactStrategy: excluded('Context compaction is a desktop session preference.'),
   smartCompactEnabled: excluded(
@@ -152,9 +149,6 @@ export const SETTINGS_ACTION_COVERAGE = {
   setMemoryDistillEnabled: excluded('Memory auto-distillation preference; not an Enso capability.'),
   setMemoryKgEnabled: excluded(
     'Memory entity-graph extraction preference; not an Enso capability.'
-  ),
-  setBashInterceptEnabled: excluded(
-    'Bash intercept is a desktop session preference, not an Enso capability.'
   ),
   setEditMode: excluded('File edit mode is a desktop session preference, not an Enso capability.'),
   setCompactStrategy: excluded('Context compaction is a desktop session preference.'),
@@ -317,6 +311,10 @@ export const IPC_PRODUCT_COVERAGE = {
   WINDOW_POPUP_MENU: excluded('Native application menu popup; renderer chrome only.'),
   APP_CLOSE_REQUEST: excluded('Main-to-renderer quit confirm handshake.'),
   APP_CLOSE_RESPONSE: excluded('Renderer-to-main quit confirm handshake.'),
+  APP_FLUSH_PERSIST_REQUEST: excluded(
+    'Main-to-renderer persist flush before destroying the window.'
+  ),
+  APP_FLUSH_PERSIST_RESPONSE: excluded('Renderer-to-main persist flush ack.'),
   PROVIDERS_SCAN_LOCAL: surfaces('providers.import-local'),
   PROVIDERS_COLLECT_IMPORT: excluded('Second phase of the reviewed provider import flow.'),
   PROVIDERS_LIST_MODELS: surfaces('providers.fetch-models'),

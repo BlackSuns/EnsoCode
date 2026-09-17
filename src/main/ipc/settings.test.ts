@@ -60,12 +60,12 @@ describe('settings广播策略', () => {
     const { patchSettingsState, readSettings } = await import('./settings');
     expect(patchSettingsState('hashlineEditEnabled', true)).toMatchObject({
       ok: true,
-      value: 'hashline',
+      value: 'apply_patch',
     });
     const persisted = readSettings()?.['enso-settings'] as
       | { state?: Record<string, unknown> }
       | undefined;
-    expect(persisted?.state).toMatchObject({ editMode: 'hashline' });
+    expect(persisted?.state).toMatchObject({ editMode: 'apply_patch' });
     expect(persisted?.state).not.toHaveProperty('hashlineEditEnabled');
   });
 

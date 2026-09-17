@@ -562,9 +562,7 @@ export type AgentCommand =
       loadHarnessAssets?: boolean;
       /** 探后折叠工具 + context 折叠 */
       exploreFoldEnabled?: boolean;
-      /** 拦截 cat/grep/sed -i 等，强制走 read/grep/edit/write/find；缺省关 */
-      bashInterceptEnabled?: boolean;
-      /** 文件编辑工具模式；缺省 replace */
+      /** 文件编辑工具模式；缺省 apply_patch */
       editMode?: EditMode;
       /** @deprecated 仅用于读取旧 Main 命令；新代码发送 editMode。 */
       hashlineEditEnabled?: boolean;
@@ -2041,7 +2039,6 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
           'loadLocalSkills',
           'loadHarnessAssets',
           'exploreFoldEnabled',
-          'bashInterceptEnabled',
           'editMode',
           'hashlineEditEnabled',
           'compactStrategy',
@@ -2071,8 +2068,6 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
             value.windowsLocalShell as string
           )) ||
         (value.exploreFoldEnabled !== undefined && typeof value.exploreFoldEnabled !== 'boolean') ||
-        (value.bashInterceptEnabled !== undefined &&
-          typeof value.bashInterceptEnabled !== 'boolean') ||
         (value.editMode !== undefined && !isEditMode(value.editMode)) ||
         (value.hashlineEditEnabled !== undefined &&
           typeof value.hashlineEditEnabled !== 'boolean') ||

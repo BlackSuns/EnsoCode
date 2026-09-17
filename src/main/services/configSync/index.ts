@@ -65,7 +65,6 @@ export const CONFIG_SYNC_FIELD_POLICY = {
   loadHarnessAssets: { mode: 'portable' },
   windowsLocalShell: { mode: 'excluded', reason: 'platform-specific shell selection' },
   exploreFoldEnabled: { mode: 'portable' },
-  bashInterceptEnabled: { mode: 'portable' },
   editMode: { mode: 'portable' },
   hashlineEditEnabled: { mode: 'excluded', reason: 'legacy read-only edit mode migration' },
   compactStrategy: { mode: 'portable' },
@@ -187,6 +186,7 @@ function portableState(state: Record<string, unknown>): Record<string, unknown> 
     result.editMode = resolveEditMode(state.editMode, state.hashlineEditEnabled);
     delete result.hashlineEditEnabled;
   }
+  delete result.bashInterceptEnabled;
   for (const field of [
     'providers',
     'skills',

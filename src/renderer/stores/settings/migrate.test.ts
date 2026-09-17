@@ -47,7 +47,7 @@ describe('设置持久化迁移', () => {
     expect(migrateSettings(v1, 1)).toEqual({
       ...v1,
       defaultModel: null,
-      editMode: 'replace',
+      editMode: 'apply_patch',
       titleSummaryEnabled: false,
       titleSummaryModel: null,
       approvalReviewer: null,
@@ -80,7 +80,7 @@ describe('设置持久化迁移', () => {
     const v2 = { theme: 'dark', defaultModel: { providerId: 'p', modelId: 'm' } };
     expect(migrateSettings(v2, 2)).toEqual({
       ...v2,
-      editMode: 'replace',
+      editMode: 'apply_patch',
       titleSummaryEnabled: false,
       titleSummaryModel: null,
       approvalReviewer: null,
@@ -97,7 +97,7 @@ describe('设置持久化迁移', () => {
     expect(migrateSettings(v3, 3)).toEqual({
       ...v3,
       approvalReviewer: null,
-      editMode: 'replace',
+      editMode: 'apply_patch',
       lastApprovalMode: null,
     });
   });
@@ -106,7 +106,7 @@ describe('设置持久化迁移', () => {
     const v4 = { theme: 'dark', approvalReviewer: { providerId: 'p', modelId: 'm' } };
     expect(migrateSettings(v4, 4)).toEqual({
       ...v4,
-      editMode: 'replace',
+      editMode: 'apply_patch',
       lastApprovalMode: null,
     });
   });
@@ -117,7 +117,7 @@ describe('设置持久化迁移', () => {
       providers: [legacyProvider],
       lastApprovalMode: 'full',
       customFutureKey: { kept: true },
-      editMode: 'replace',
+      editMode: 'apply_patch',
     };
     const previous = {
       ...preserved,
@@ -134,26 +134,26 @@ describe('设置持久化迁移', () => {
     expect(migrateSettings({ theme: 'dark', disabledBuiltinTools: [] }, 7)).toEqual({
       theme: 'dark',
       disabledBuiltinTools: ['memory'],
-      editMode: 'replace',
+      editMode: 'apply_patch',
     });
   });
 
   it('v7 → v8 已有其它禁用项时只追加 memory，不覆盖用户选择', () => {
     expect(migrateSettings({ disabledBuiltinTools: ['browser'] }, 7)).toEqual({
       disabledBuiltinTools: ['browser', 'memory'],
-      editMode: 'replace',
+      editMode: 'apply_patch',
     });
   });
 
   it('v7 → v8 已经关掉 memory 则不重复追加', () => {
     const state = { disabledBuiltinTools: ['memory', 'browser'] };
-    expect(migrateSettings(state, 7)).toEqual({ ...state, editMode: 'replace' });
+    expect(migrateSettings(state, 7)).toEqual({ ...state, editMode: 'apply_patch' });
   });
 
   it('v7 没有 disabledBuiltinTools 字段时不捏造（缺字段走 initialState 默认）', () => {
     expect(migrateSettings({ theme: 'dark' }, 7)).toEqual({
       theme: 'dark',
-      editMode: 'replace',
+      editMode: 'apply_patch',
     });
   });
 
@@ -186,28 +186,46 @@ describe('设置持久化迁移', () => {
   });
 
   it('v9 → v10 把旧 hashline 开关迁为 canonical editMode，合法新枚举优先', () => {
-    expect(migrateSettings({ hashlineEditEnabled: true }, 9)).toEqual({ editMode: 'hashline' });
-    expect(migrateSettings({ hashlineEditEnabled: false }, 9)).toEqual({ editMode: 'replace' });
-    expect(migrateSettings({}, 9)).toEqual({ editMode: 'replace' });
+    expect(migrateSettings({ hashlineEditEnabled: true }, 9)).toEqual({ editMode: 'apply_patch' });
+    expect(migrateSettings({ hashlineEditEnabled: false }, 9)).toEqual({ editMode: 'apply_patch' });
+    expect(migrateSettings({}, 9)).toEqual({ editMode: 'apply_patch' });
     expect(migrateSettings({ editMode: 'apply_patch', hashlineEditEnabled: true }, 9)).toEqual({
       editMode: 'apply_patch',
     });
     expect(migrateSettings({ editMode: 'broken', hashlineEditEnabled: true }, 9)).toEqual({
-      editMode: 'hashline',
+      editMode: 'apply_patch',
     });
     expect(migrateSettings(migrateSettings({ hashlineEditEnabled: true }, 9), 9)).toEqual({
-      editMode: 'hashline',
+      editMode: 'apply_patch',
+    });
+  });
+
+  it('v10 → v11 去掉 bash 拦截并把 hashline 回落，再经 v12 落到 apply_patch', () => {
+    expect(migrateSettings({ editMode: 'hashline', bashInterceptEnabled: true }, 10)).toEqual({
+      editMode: 'apply_patch',
+    });
+    expect(migrateSettings({ editMode: 'apply_patch', bashInterceptEnabled: false }, 10)).toEqual({
+      editMode: 'apply_patch',
+    });
+  });
+
+  it('v11 → v12 把已有 replace 一并切到 apply_patch', () => {
+    expect(migrateSettings({ editMode: 'replace' }, 11)).toEqual({ editMode: 'apply_patch' });
+    expect(migrateSettings({ editMode: 'apply_patch' }, 11)).toEqual({ editMode: 'apply_patch' });
+    expect(migrateSettings({ theme: 'dark' }, 11)).toEqual({
+      theme: 'dark',
+      editMode: 'apply_patch',
     });
   });
 
   it('hydrate 收窄当前版本坏枚举、移除旧布尔，partial 缺编辑字段时保留内存模式', () => {
     const current = { editMode: 'apply_patch' as const, theme: 'dark' };
     expect(mergeSettingsState({ editMode: 'broken' }, current)).toEqual({
-      editMode: 'replace',
+      editMode: 'apply_patch',
       theme: 'dark',
     });
     expect(mergeSettingsState({ hashlineEditEnabled: true }, current)).toEqual({
-      editMode: 'hashline',
+      editMode: 'apply_patch',
       theme: 'dark',
     });
     expect(mergeSettingsState({ theme: 'light' }, current)).toEqual({
@@ -227,7 +245,7 @@ describe('设置持久化迁移', () => {
       providers: null,
       theme: 'dark',
       defaultModel: null,
-      editMode: 'replace',
+      editMode: 'apply_patch',
       titleSummaryEnabled: false,
       titleSummaryModel: null,
       approvalReviewer: null,

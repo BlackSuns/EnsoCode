@@ -21,9 +21,8 @@ import {
 } from './OccupancyMark';
 
 const EDIT_MODE_LABEL: Record<EditMode, string> = {
-  replace: 'Text replacement (default)',
-  hashline: 'Hashline',
-  apply_patch: 'Apply patch',
+  replace: 'Text replacement',
+  apply_patch: 'Apply patch (default)',
 };
 
 export function BuiltinToolsSettings() {
@@ -32,8 +31,6 @@ export function BuiltinToolsSettings() {
   const toggle = useSettingsStore((state) => state.toggleBuiltinTool);
   const exploreFoldEnabled = useSettingsStore((state) => state.exploreFoldEnabled);
   const setExploreFoldEnabled = useSettingsStore((state) => state.setExploreFoldEnabled);
-  const bashInterceptEnabled = useSettingsStore((state) => state.bashInterceptEnabled);
-  const setBashInterceptEnabled = useSettingsStore((state) => state.setBashInterceptEnabled);
   const editMode = useSettingsStore((state) => state.editMode);
   const setEditMode = useSettingsStore((state) => state.setEditMode);
   const occupancy = useOccupancyRows(
@@ -95,28 +92,13 @@ export function BuiltinToolsSettings() {
         <Switch checked={exploreFoldEnabled} onCheckedChange={setExploreFoldEnabled} />
       </div>
 
-      <div
-        className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5"
-        data-settings-row="tools.bashInterceptEnabled"
-      >
-        <div>
-          <p className="font-medium text-sm">{t('Force read/find tools')}</p>
-          <p className="text-muted-foreground text-xs">
-            {t(
-              'Block cat/head/grep/sed -i in the shell and require the dedicated file tools. Off by default. Takes effect on the next session.'
-            )}
-          </p>
-        </div>
-        <Switch checked={bashInterceptEnabled} onCheckedChange={setBashInterceptEnabled} />
-      </div>
-
       <div className="space-y-2 rounded-lg border px-3 py-2.5" data-settings-row="tools.editMode">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="font-medium text-sm">{t('File edit mode')}</p>
             <p className="text-muted-foreground text-xs">
               {t(
-                'Choose how files are modified. Text replacement is the default. New and cold-restored sessions use this mode; already warm sessions keep their current mode.'
+                'Choose how files are modified. Apply patch is the default. New and cold-restored sessions use this mode; already warm sessions keep their current mode.'
               )}
             </p>
           </div>
@@ -139,13 +121,6 @@ export function BuiltinToolsSettings() {
             </SelectPopup>
           </Select>
         </div>
-        {editMode === 'hashline' && !bashInterceptEnabled ? (
-          <p className="text-muted-foreground text-xs">
-            {t(
-              'Also turn on Force read/find tools so the model uses tagged reads more consistently.'
-            )}
-          </p>
-        ) : null}
       </div>
 
       <div className="rounded-md border px-3 py-2.5">

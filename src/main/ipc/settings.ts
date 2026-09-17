@@ -44,7 +44,6 @@ export const SETTINGS_STATE_FIELDS = [
   'loadHarnessAssets',
   'windowsLocalShell',
   'exploreFoldEnabled',
-  'bashInterceptEnabled',
   'editMode',
   'hashlineEditEnabled',
   'compactStrategy',

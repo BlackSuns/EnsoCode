@@ -119,8 +119,7 @@ const initialState = {
   loadHarnessAssets: false,
   windowsLocalShell: 'auto' as const,
   exploreFoldEnabled: false,
-  bashInterceptEnabled: false,
-  editMode: 'replace' as import('@shared/types').EditMode,
+  editMode: 'apply_patch' as import('@shared/types').EditMode,
   compactStrategy: 'standard' as import('@shared/compactStrategy').CompactStrategy,
   smartCompactEnabled: false,
   smartCompactModel: null as import('@shared/defaultModel').DefaultModelRef | null,
@@ -264,7 +263,6 @@ export const useSettingsStore = create<SettingsState>()(
         set({ memoryEmbeddingRemoteProviderId }),
       setMemoryDistillEnabled: (memoryDistillEnabled) => set({ memoryDistillEnabled }),
       setMemoryKgEnabled: (memoryKgEnabled) => set({ memoryKgEnabled }),
-      setBashInterceptEnabled: (bashInterceptEnabled) => set({ bashInterceptEnabled }),
       setEditMode: (editMode) => set({ editMode }),
       setCompactStrategy: (compactStrategy) =>
         set({ compactStrategy, smartCompactEnabled: compactStrategy === 'smart' }),

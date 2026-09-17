@@ -183,7 +183,7 @@ async function textOf(
 /** 常规起手式：spawn 一个父会话 + 一个名为 bob 的 coworker（首轮任务不驱动完成态）。 */
 async function spawnParentAndCoworker(
   events: AgentWorkerEvent[],
-  editMode?: 'replace' | 'hashline' | 'apply_patch'
+  editMode?: 'replace' | 'apply_patch'
 ) {
   const supervisor = new SessionSupervisor({
     emit: (event) => events.push(event),
@@ -267,7 +267,6 @@ describe('SessionSupervisor coworker wait/report', () => {
 
   it.each([
     ['replace', ['edit', 'write'], ['apply_patch']],
-    ['hashline', ['edit', 'write'], ['apply_patch']],
     ['apply_patch', ['apply_patch'], ['edit', 'write']],
   ] as const)(
     '%s 模式传给工具直雇 coworker，子会话写工具保持互斥',

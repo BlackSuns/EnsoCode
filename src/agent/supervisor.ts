@@ -83,7 +83,6 @@ import {
   withBackground,
   withTaskReminders,
 } from './backgroundTasks';
-import { withBashInterception } from './bashInterceptor';
 import { CheckpointManager, withCheckpoint } from './checkpoint/manager';
 import { createRemoteCheckpointHost } from './checkpoint/remoteHost';
 import {
@@ -116,11 +115,6 @@ import { createExploreFoldState, createExploreFoldTools } from './exploreFold';
 import { OperationGate } from './gate';
 import { createGoalTools } from './goal';
 import { readHarnessRuleFiles, resolveHarnessSkillRoots } from './harnessAssets';
-import { createHashlineIo } from './hashline/io';
-import { applyHashlineSessionTools } from './hashline/sessionTools';
-import { InMemorySnapshotStore } from './hashline/snapshots';
-import { wrapHashlineEditDefinition } from './hashline/tools';
-import { withHashlineWrite } from './hashline/withWrite';
 import { type ContextMessage, sanitizeContextMessages } from './imageContext';
 import { createIsolatedSandboxTool } from './isolatedSandbox';
 import { McpManager } from './mcp';
@@ -920,7 +914,6 @@ export class SessionSupervisor {
           command.loadHarnessAssets,
           command.windowsLocalShell,
           command.exploreFoldEnabled,
-          command.bashInterceptEnabled,
           command.hashlineEditEnabled,
           resolveCompactStrategy(command.compactStrategy, command.smartCompactEnabled),
           command.smartCompactSummaryModel,
@@ -1327,7 +1320,6 @@ export class SessionSupervisor {
     loadHarnessAssets = false,
     windowsLocalShell?: WindowsLocalShell,
     exploreFoldEnabled = false,
-    bashInterceptEnabled = false,
     hashlineEditEnabled = false,
     compactStrategy: CompactStrategy = 'standard',
     smartCompactSummaryModel?: SpawnModelConfig,
@@ -1460,37 +1452,24 @@ export class SessionSupervisor {
     // 只读探索四件套(read/grep/find/ls,免审):readonly 子代理的全部工具,也是 base 的底座。
     // 远程会话经 operations 注入落到 ssh(grep 无注入点,换整个定义)
     const structuredById = new Map<string, unknown>();
-    const hashlineStore = new InMemorySnapshotStore();
-    const hashlineIo = createHashlineIo({
-      cwd,
-      remote: remoteOps
-        ? { readFile: remoteOps.read.readFile, writeFile: remoteOps.edit.writeFile }
-        : undefined,
-    });
     const wrapRead = (definition: Def): Def =>
       withReadTruncationMeta(withAgentRead(definition, () => structuredById));
-    const applyHashline = <T extends Def>(tools: { read: T; grep: T; edit?: T }) =>
-      applyHashlineSessionTools({
-        enabled: sessionEditMode === 'hashline',
-        store: hashlineStore,
-        io: hashlineIo,
-        wrapOuterRead: wrapRead,
-        ...tools,
-      });
     const readOnlyTools = (): Def[] => {
       const stock =
         remoteOps && sshExecutor
           ? {
-              read: createReadToolDefinition(cwd, {
-                operations: remoteOps.read,
-              }) as unknown as Def,
+              read: wrapRead(
+                createReadToolDefinition(cwd, {
+                  operations: remoteOps.read,
+                }) as unknown as Def
+              ),
               grep: createRemoteGrepToolDefinition(cwd, sshExecutor) as unknown as Def,
             }
           : {
-              read: createReadToolDefinition(cwd) as unknown as Def,
+              read: wrapRead(createReadToolDefinition(cwd) as unknown as Def),
               grep: createGrepToolDefinition(cwd) as unknown as Def,
             };
-      const { read, grep } = applyHashline(stock);
+      const { read, grep } = stock;
       return remoteOps && sshExecutor
         ? [
             read,
@@ -1530,12 +1509,6 @@ export class SessionSupervisor {
           return { command: sshCommand, cwd: process.cwd() };
         }
       : undefined;
-    const mutationToolNames =
-      sessionEditMode === 'apply_patch'
-        ? ['read', 'grep', 'find', 'apply_patch']
-        : ['read', 'grep', 'find', 'edit', 'write'];
-    const maybeInterceptBash = (definition: Def): Def =>
-      bashInterceptEnabled ? withBashInterception(definition, mutationToolNames) : definition;
     const buildBaseTools = (
       toolGate: ApprovalGate,
       cp?: CheckpointManager,
@@ -1577,25 +1550,7 @@ export class SessionSupervisor {
                   validateApplyPatchTargets(cwd, params, patchIo, signal)
               ),
             ]
-          : [
-              scoped(
-                'file-edit',
-                sessionEditMode === 'hashline'
-                  ? wrapHashlineEditDefinition(stockEdit, {
-                      store: hashlineStore,
-                      readText: hashlineIo.readText,
-                      writeText: hashlineIo.writeText,
-                      strictMode: true,
-                    })
-                  : stockEdit
-              ),
-              scoped(
-                'file-write',
-                sessionEditMode === 'hashline'
-                  ? withHashlineWrite(stockWrite, hashlineStore)
-                  : stockWrite
-              ),
-            ];
+          : [scoped('file-edit', stockEdit), scoped('file-write', stockWrite)];
       return [
         ...readOnlyTools(),
         withApproval(
@@ -1603,14 +1558,12 @@ export class SessionSupervisor {
           'command',
           guarded(
             withBackground(
-              maybeInterceptBash(
-                createSessionCommandTool({
-                  cwd,
-                  remote: Boolean(remoteOps),
-                  preference: windowsLocalShell,
-                  operations: remoteOps?.bash,
-                }) as unknown as Def
-              ),
+              createSessionCommandTool({
+                cwd,
+                remote: Boolean(remoteOps),
+                preference: windowsLocalShell,
+                operations: remoteOps?.bash,
+              }) as unknown as Def,
               this.bgTasks,
               sessionId,
               cwd,
@@ -1729,7 +1682,6 @@ export class SessionSupervisor {
                     createIsolatedSandboxTool({
                       getTools: () => childSandboxCatalog.current,
                       store: new Map(),
-                      hashlineMode: sessionEditMode === 'hashline',
                     }),
                   ]
                 : []),
@@ -1973,7 +1925,6 @@ export class SessionSupervisor {
             createIsolatedSandboxTool({
               getTools: () => catalogRef.current,
               store: sandboxStore,
-              hashlineMode: sessionEditMode === 'hashline',
             }),
           ]
         : []),

@@ -496,7 +496,6 @@ export function spawnSession(
   const loadHarnessAssets = state?.loadHarnessAssets === true;
   const windowsLocalShell = parseWindowsLocalShell(state?.windowsLocalShell);
   const exploreFoldEnabled = state?.exploreFoldEnabled === true;
-  const bashInterceptEnabled = state?.bashInterceptEnabled === true;
   const editMode = resolveEditMode(state?.editMode, state?.hashlineEditEnabled);
   const compactStrategy = resolveCompactStrategy(
     state?.compactStrategy,
@@ -532,7 +531,6 @@ export function spawnSession(
     ...(loadHarnessAssets ? { loadHarnessAssets: true } : {}),
     ...(windowsLocalShell !== 'auto' ? { windowsLocalShell } : {}),
     ...(exploreFoldEnabled ? { exploreFoldEnabled: true } : {}),
-    ...(bashInterceptEnabled ? { bashInterceptEnabled: true } : {}),
     editMode,
     ...(compactStrategy !== 'standard' ? { compactStrategy } : {}),
     ...(smartCompactEnabled ? { smartCompactEnabled: true } : {}),

@@ -186,18 +186,11 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
   },
   { id: 'tools.root', category: 'tools', title: 'Built-in tools' },
   {
-    id: 'tools.bashInterceptEnabled',
-    category: 'tools',
-    title: 'Force read/find tools',
-    description:
-      'Block cat/head/grep/sed -i in the shell and require the dedicated file tools. Off by default. Takes effect on the next session.',
-  },
-  {
     id: 'tools.editMode',
     category: 'tools',
     title: 'File edit mode',
     description:
-      'Choose how files are modified. Text replacement is the default. New and cold-restored sessions use this mode; already warm sessions keep their current mode.',
+      'Choose how files are modified. Apply patch is the default. New and cold-restored sessions use this mode; already warm sessions keep their current mode.',
   },
   { id: 'skills.root', category: 'skills', title: 'Skills' },
   { id: 'mcp.root', category: 'mcp', title: 'MCP Servers' },

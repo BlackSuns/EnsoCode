@@ -13,7 +13,7 @@ import { type EditMode, resolveEditMode } from '@shared/types';
  */
 
 /** 当前持久化数据版本；改数据形状时 +1 并在 `migrateSettings` 里加一段 */
-export const SETTINGS_VERSION = 10;
+export const SETTINGS_VERSION = 12;
 
 export function mergeSettingsState<T extends { editMode: EditMode }>(
   persisted: unknown,
@@ -21,11 +21,12 @@ export function mergeSettingsState<T extends { editMode: EditMode }>(
 ): T {
   if (!persisted || typeof persisted !== 'object' || Array.isArray(persisted)) return current;
   const source = persisted as Record<string, unknown>;
-  const { hashlineEditEnabled, ...rest } = source;
+  const { hashlineEditEnabled, bashInterceptEnabled, ...rest } = source;
   const editMode =
     'editMode' in source || 'hashlineEditEnabled' in source
       ? resolveEditMode(source.editMode, hashlineEditEnabled)
       : current.editMode;
+  void bashInterceptEnabled;
   return { ...current, ...rest, editMode } as T;
 }
 
@@ -40,6 +41,8 @@ export function mergeSettingsState<T extends { editMode: EditMode }>(
  * 只是 memory 加进默认关名单之前就写下的「全开」。补上 memory，缺字段不动（initialState 已是关）。
  * v8 → v9：压缩策略改为互斥枚举；旧 `smartCompactEnabled` 布尔迁为 `compactStrategy`，缺字段不动。
  * v9 → v10：文件编辑模式改为互斥枚举；旧 hashline 开关迁移后删除。
+ * v10 → v11：移除 Hashline 与 bash 拦截；hashline 回落 replace。
+ * v11 → v12：默认编辑模式改为 apply_patch，已有 replace 一并切过去。
  */
 export function migrateSettings(persisted: unknown, version: number): unknown {
   if (version >= SETTINGS_VERSION) return persisted;
@@ -97,6 +100,17 @@ export function migrateSettings(persisted: unknown, version: number): unknown {
       ...rest,
       editMode: resolveEditMode(state.editMode, hashlineEditEnabled),
     };
+  }
+  if (version < 11) {
+    const { bashInterceptEnabled, ...rest } = state;
+    state = {
+      ...rest,
+      editMode: resolveEditMode(state.editMode),
+    };
+    void bashInterceptEnabled;
+  }
+  if (version < 12) {
+    state = { ...state, editMode: 'apply_patch' };
   }
   return state;
 }

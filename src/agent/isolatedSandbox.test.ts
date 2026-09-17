@@ -1,8 +1,5 @@
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it } from 'vitest';
-import { computeFileHash, formatHashlineHeader } from './hashline/format';
-import { InMemorySnapshotStore } from './hashline/snapshots';
-import { withHashlineRead } from './hashline/withRead';
 import {
   createIsolatedSandboxTool,
   guestCallableName,
@@ -78,7 +75,7 @@ describe('createIsolatedSandboxTool', () => {
     expect(mentioned.details.value).toBe(envelope.length);
   });
 
-  it('非 hashline 模式的 prompt 不展示 snapshot 专属说明，其他约束保留', () => {
+  it('prompt 保留约束且不含 hashline snapshot 说明', () => {
     const tool = createIsolatedSandboxTool({ getTools: () => [] });
     const text = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join(
       '\n'
@@ -95,14 +92,6 @@ describe('createIsolatedSandboxTool', () => {
     expect(text).toMatch(/isError: true/i);
     expect(text).toMatch(/listTools/i);
     expect(tool.promptSnippet).toMatch(/Do not spawn a subagent for this/i);
-  });
-
-  it('hashline 模式才提示 nested read 不产生父级 snapshot', () => {
-    const tool = createIsolatedSandboxTool({ getTools: () => [], hashlineMode: true });
-    const text = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join(
-      '\n'
-    );
-    expect(text).toMatch(/parent hashline snapshot/i);
   });
 
   it('guestCallableName 把 MCP 名收成合法标识符且不撞名', () => {
@@ -314,25 +303,6 @@ describe('createIsolatedSandboxTool', () => {
       hits: 0,
       names: 1,
     });
-  });
-
-  it('hashline 包装的 read 把文件头和行号带回 guest', async () => {
-    const path = '/tmp/a.ts';
-    const body = 'alpha\nbeta\n';
-    const store = new InMemorySnapshotStore();
-    const raw = mockTool('read', async () => ({
-      content: [{ type: 'text', text: body }],
-      details: { raw: true },
-    }));
-    const read = withHashlineRead(raw, store) as unknown as ToolDefinition;
-    const result = await run(`return (await read({ path: ${JSON.stringify(path)} })).content;`, [
-      read,
-    ]);
-    const content = result.details.value;
-    expect(typeof content).toBe('string');
-    expect(content).toContain(formatHashlineHeader(path, computeFileHash(body)));
-    expect(content).toContain('1:alpha');
-    expect(content).toContain('2:beta');
   });
 
   it('Promise.all 超出预算在 enqueue 时失败，且不执行已入队调用', async () => {

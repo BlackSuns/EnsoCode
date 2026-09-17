@@ -210,7 +210,6 @@ describe('buildSettingsCatalog', () => {
     'agents.root',
     'agents.maxActiveCoworkers',
     'tools.root',
-    'tools.bashInterceptEnabled',
     'tools.editMode',
     'skills.root',
     'mcp.root',

@@ -110,10 +110,7 @@ export interface SettingsState {
   /** 探后折叠：模型可 explore_mark / explore_fold；缺省关 */
   exploreFoldEnabled: boolean;
 
-  /** 强制用 read/grep/edit/write/find 替代 cat/grep/sed -i 等 shell 读写；缺省关 */
-  bashInterceptEnabled: boolean;
-
-  /** 文件编辑工具模式；缺省 replace，新建或冷恢复会话生效。 */
+  /** 文件编辑工具模式；缺省 apply_patch，新建或冷恢复会话生效。 */
   editMode: EditMode;
 
   /** 上下文压缩策略；缺省 standard，新会话生效。 */
@@ -277,7 +274,6 @@ export interface SettingsState {
   setMemoryEmbeddingRemoteProviderId: (value: string | null) => void;
   setMemoryDistillEnabled: (value: boolean) => void;
   setMemoryKgEnabled: (value: boolean) => void;
-  setBashInterceptEnabled: (value: boolean) => void;
   setEditMode: (value: EditMode) => void;
   setCompactStrategy: (value: CompactStrategy) => void;
   setSmartCompactEnabled: (value: boolean) => void;

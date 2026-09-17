@@ -39,7 +39,6 @@ describe('config sync portable preference contract', () => {
       'loadLocalSkills',
       'loadHarnessAssets',
       'exploreFoldEnabled',
-      'bashInterceptEnabled',
       'editMode',
       'smartCompactEnabled',
       'smartCompactModel',
@@ -80,6 +79,7 @@ describe('config sync portable preference contract', () => {
       reason: expect.stringContaining('legacy'),
     });
     expect(SYNC_FIELDS).not.toContain('hashlineEditEnabled');
+    expect(SYNC_FIELDS).not.toContain('bashInterceptEnabled');
     expect(CONFIG_SYNC_FIELD_POLICY.backgroundImageEnabled).toEqual({
       mode: 'excluded',
       reason: expect.stringContaining('appearance'),
@@ -143,13 +143,12 @@ describe('config sync portable preference contract', () => {
     expect(validateBundle(input).state).toMatchObject(input.state);
   });
 
-  it('接受 bash 拦截开关和运行时定义的全部智能压缩档位', () => {
+  it('接受运行时定义的全部智能压缩档位，并丢弃已移除的 bash 拦截开关', () => {
     for (const smartCompactMode of SMART_COMPACT_MODES) {
       const input = bundle({ bashInterceptEnabled: true, smartCompactMode });
-      expect(validateBundle(input).state).toMatchObject({
-        bashInterceptEnabled: true,
-        smartCompactMode,
-      });
+      const state = validateBundle(input).state;
+      expect(state).toMatchObject({ smartCompactMode });
+      expect(state).not.toHaveProperty('bashInterceptEnabled');
     }
   });
 
@@ -191,26 +190,23 @@ describe('config sync portable preference contract', () => {
     }
   });
 
-  it('合并 bash 拦截开关和智能压缩档位并计入设置摘要', () => {
+  it('合并智能压缩档位并计入设置摘要，丢弃已移除的 bash 拦截开关', () => {
     const result = planImport(
       {
         ...baseState(),
-        bashInterceptEnabled: false,
         smartCompactMode: 'auto',
       },
       bundle({ bashInterceptEnabled: true, smartCompactMode: 'thorough' }),
       'merge'
     );
 
-    expect(result.state).toMatchObject({
-      bashInterceptEnabled: true,
-      smartCompactMode: 'thorough',
-    });
+    expect(result.state).toMatchObject({ smartCompactMode: 'thorough' });
+    expect(result.state).not.toHaveProperty('bashInterceptEnabled');
     expect(result.summary).toContainEqual(
       expect.objectContaining({
         category: 'settings',
-        updated: 2,
-        fields: expect.arrayContaining(['bashInterceptEnabled', 'smartCompactMode']),
+        updated: 1,
+        fields: expect.arrayContaining(['smartCompactMode']),
       })
     );
   });
@@ -218,7 +214,7 @@ describe('config sync portable preference contract', () => {
   it('旧 hashline 开关载荷经 codec 迁移后覆盖 canonical 模式，新枚举优先', () => {
     const current = { ...baseState(), editMode: 'apply_patch' };
     const legacy = validateBundle(bundle({ hashlineEditEnabled: true }));
-    expect(planImport(current, legacy, 'merge').state).toMatchObject({ editMode: 'hashline' });
+    expect(planImport(current, legacy, 'merge').state).toMatchObject({ editMode: 'apply_patch' });
 
     const mixed = validateBundle(bundle({ editMode: 'replace', hashlineEditEnabled: true }));
     expect(planImport(current, mixed, 'merge').state).toMatchObject({ editMode: 'replace' });
@@ -260,7 +256,7 @@ describe('config sync portable preference contract', () => {
   it('不含编辑设置的载荷保留本机模式，并把本机旧开关收敛成 canonical 单状态', () => {
     const current = { ...baseState(), hashlineEditEnabled: true } as Record<string, unknown>;
     const result = planImport(current, bundle({ theme: 'light' }), 'merge');
-    expect(result.state.editMode).toBe('hashline');
+    expect(result.state.editMode).toBe('apply_patch');
     expect(result.state).not.toHaveProperty('hashlineEditEnabled');
   });
 
@@ -272,7 +268,7 @@ describe('config sync portable preference contract', () => {
       keybindings: { 'open-settings': 'mod+,' },
       usageModelPricing: { local: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } },
       backgroundOpacity: 0.9,
-      editMode: 'hashline',
+      editMode: 'replace',
     } as Record<string, unknown>;
     const result = planImport(
       current,
@@ -286,7 +282,7 @@ describe('config sync portable preference contract', () => {
       keybindings: { 'open-settings': 'mod+shift+o' },
       usageModelPricing: current.usageModelPricing,
       backgroundOpacity: 0.9,
-      editMode: 'hashline',
+      editMode: 'replace',
     });
     expect(result.summary).toContainEqual(
       expect.objectContaining({ category: 'settings', updated: 2 })

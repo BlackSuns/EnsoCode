@@ -1274,20 +1274,15 @@ export const zhTranslations: Record<string, string> = {
   'Explore fold': '探后折叠',
   'Let the agent mark exploratory reads and keep only a short report in later model context. Timeline stays intact.':
     '让模型在探仓库前打点，探完只把报告留在后续模型上下文里；时间线仍完整。',
-  'Force read/find tools': '强制走 read/find 工具',
-  'Block cat/head/grep/sed -i in the shell and require the dedicated file tools. Off by default. Takes effect on the next session.':
-    '拦截 shell 里的 cat/head/grep/sed -i，要求改用专用文件工具。默认关。下次开会话生效。',
   'File edit mode': '文件编辑模式',
-  'Choose how files are modified. Text replacement is the default. New and cold-restored sessions use this mode; already warm sessions keep their current mode.':
-    '选择文件修改方式。默认为文本替换。新建和冷恢复的会话使用此模式；已在内存中的会话保持原模式。',
-  'Text replacement (default)': '文本替换（默认）',
-  Hashline: 'Hashline 行锚点',
+  'Choose how files are modified. Apply patch is the default. New and cold-restored sessions use this mode; already warm sessions keep their current mode.':
+    '选择文件修改方式。默认为应用补丁。新建和冷恢复的会话使用此模式；已在内存中的会话保持原模式。',
+  'Text replacement': '文本替换',
   'Apply patch': '应用补丁',
+  'Apply patch (default)': '应用补丁（默认）',
   'Truncated preview': '截断预览',
   'Diff unavailable because the original snapshot was truncated.':
     '原始快照已截断，无法显示完整差异。',
-  'Also turn on Force read/find tools so the model uses tagged reads more consistently.':
-    '建议同时打开强制走 read/find 工具，让模型更稳定地使用带标签的 read。',
   'Load project harness assets': '加载项目内其它工具目录',
   'Also load skills from .claude/.codex/.cursor and rule files (.cursorrules, .cursor/rules, .claude/rules) in the project':
     '同时加载项目内 .claude/.codex/.cursor 下的 skills，以及规则文件（.cursorrules、.cursor/rules、.claude/rules）',

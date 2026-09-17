@@ -91,10 +91,10 @@ describe('config sync codec schema and crypto boundaries', () => {
   });
 
   it('编辑模式新枚举优先，旧开关按存在性迁为 canonical 字段，完全缺省则不捏造', () => {
-    for (const editMode of ['replace', 'hashline', 'apply_patch'] as const) {
+    for (const editMode of ['replace', 'apply_patch'] as const) {
       const input = minimalBundle();
       input.state.editMode = editMode;
-      input.state.hashlineEditEnabled = editMode !== 'hashline';
+      input.state.hashlineEditEnabled = true;
       const state = validateBundle(input).state;
       expect(state.editMode).toBe(editMode);
       expect(state).not.toHaveProperty('hashlineEditEnabled');
@@ -102,9 +102,9 @@ describe('config sync codec schema and crypto boundaries', () => {
 
     const legacy = minimalBundle();
     legacy.state.hashlineEditEnabled = true;
-    expect(validateBundle(legacy).state).toMatchObject({ editMode: 'hashline' });
+    expect(validateBundle(legacy).state).toMatchObject({ editMode: 'apply_patch' });
     legacy.state.hashlineEditEnabled = false;
-    expect(validateBundle(legacy).state).toMatchObject({ editMode: 'replace' });
+    expect(validateBundle(legacy).state).toMatchObject({ editMode: 'apply_patch' });
     expect(validateBundle(minimalBundle()).state).not.toHaveProperty('editMode');
   });
 

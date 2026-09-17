@@ -1,8 +1,6 @@
 import path from 'node:path';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { getApplyPatchPaths } from './applyPatch';
-import { classifyEditArgs } from './hashline/classify';
-import { parseHashlineHeader } from './hashline/patch';
 /** 极简 glob → RegExp：`**` 任意层级（含空）、`*` 段内任意、`?` 单字符；匹配整段 posix 相对路径 */
 export function globToRegExp(glob: string): RegExp {
   let out = '';
@@ -29,18 +27,15 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${out}$`);
 }
 
-/** replace/write 走 path；有实质 input 时按真实 Hashline 分流与文件头确定目标 */
+/** replace/write 走 path；带 input 的旧 Hashline 形状不再当写目标。 */
 export function extractEditTargetPath(params: unknown): string | undefined {
   if (!params || typeof params !== 'object' || Array.isArray(params)) return undefined;
   const record = params as Record<string, unknown>;
-  if (typeof record.input === 'string' && record.input.length > 0) {
-    if (classifyEditArgs(record).kind !== 'hashline') return undefined;
-    return parseHashlineHeader(record.input).path;
-  }
+  if (typeof record.input === 'string' && record.input.length > 0) return undefined;
   return typeof record.path === 'string' && record.path.length > 0 ? record.path : undefined;
 }
 
-/** 按工具协议提取全部真实写目标；apply_patch 必须优先走自身 parser，避免与 Hashline 串台。 */
+/** 按工具协议提取全部真实写目标；apply_patch 必须优先走自身 parser。 */
 export function extractWriteTargetPaths(toolName: string, params: unknown): string[] {
   if (toolName === 'apply_patch') return getApplyPatchPaths(params);
   const target = extractEditTargetPath(params);

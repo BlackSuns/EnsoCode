@@ -378,23 +378,9 @@ describe('parent/child commands', () => {
     expect(parseAgentCommand({ type: 'set-max-active-coworkers' })).toBeNull();
   });
 
-  it('spawn-parent 携 bashInterceptEnabled:合法通过,脏值拒绝', () => {
-    const base = { type: 'spawn-parent', identity: parent, cwd: '/repo', model };
-    expect(parseAgentCommand({ ...base, bashInterceptEnabled: true })).toEqual({
-      ...base,
-      bashInterceptEnabled: true,
-    });
-    expect(parseAgentCommand({ ...base, bashInterceptEnabled: false })).toEqual({
-      ...base,
-      bashInterceptEnabled: false,
-    });
-    expect(parseAgentCommand({ ...base, bashInterceptEnabled: 'true' })).toBeNull();
-    expect(parseAgentCommand({ ...base, bashInterceptEnabled: 1 })).toBeNull();
-  });
-
   it('spawn-parent 携 editMode:仅接受三个互斥模式', () => {
     const base = { type: 'spawn-parent', identity: parent, cwd: '/repo', model };
-    for (const editMode of ['replace', 'hashline', 'apply_patch'] as const) {
+    for (const editMode of ['replace', 'apply_patch'] as const) {
       expect(parseAgentCommand({ ...base, editMode })).toEqual({ ...base, editMode });
     }
     expect(parseAgentCommand({ ...base, editMode: 'patch' })).toBeNull();

@@ -979,6 +979,7 @@ export function validateBundle(value: unknown): ConfigSyncBundle {
     canonicalState.editMode = resolveEditMode(state.editMode, state.hashlineEditEnabled);
     delete canonicalState.hashlineEditEnabled;
   }
+  delete canonicalState.bashInterceptEnabled;
   return {
     format: ENVELOPE_FORMAT,
     version: VERSION,

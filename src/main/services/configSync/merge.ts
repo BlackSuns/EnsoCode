@@ -45,7 +45,6 @@ const SCALAR_SETTING_KEYS = [
   'loadLocalSkills',
   'loadHarnessAssets',
   'exploreFoldEnabled',
-  'bashInterceptEnabled',
   'editMode',
   'openChangesOnFileEdit',
   'compactReadOnlyTools',
@@ -624,6 +623,7 @@ export function planImport(
     state.editMode = resolveEditMode(state.editMode, state.hashlineEditEnabled);
     delete state.hashlineEditEnabled;
   }
+  delete state.bashInterceptEnabled;
   const incoming = {
     providers: sourceRecords(bundle, 'providers'),
     skills: sourceRecords(bundle, 'skills'),
@@ -750,7 +750,6 @@ export function planImport(
     'loadLocalSkills',
     'loadHarnessAssets',
     'exploreFoldEnabled',
-    'bashInterceptEnabled',
     'editMode',
     'titleSummaryEnabled',
     'compactStrategy',

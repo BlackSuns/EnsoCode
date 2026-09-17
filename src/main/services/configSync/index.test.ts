@@ -521,7 +521,7 @@ describe('config sync sender-bound import flow', () => {
 
     expect([...CONFIG_SYNC_COMMIT_FIELDS].sort()).toEqual(sync);
     expect(listFrom('src/main/services/configSync/codec.ts', 'STATE_KEYS')).toEqual(
-      [...sync, 'hashlineEditEnabled'].sort()
+      [...sync, 'hashlineEditEnabled', 'bashInterceptEnabled'].sort()
     );
     expect(listFrom('src/main/services/configSync/merge.ts', 'SCALAR_SETTING_KEYS')).toEqual(
       sync.filter((field) => !collections.includes(field))

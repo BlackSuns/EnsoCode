@@ -5,8 +5,6 @@ import { describe, expect, it } from 'vitest';
 import type { JsonSchema } from '../shared/capabilities/types';
 import { matchesJsonSchema } from '../tooling/productCapabilityCoverage.fixture';
 import { createNormalizedEditTool, normalizeEditArguments } from './editTool';
-import { InMemorySnapshotStore } from './hashline/snapshots';
-import { wrapHashlineEditDefinition } from './hashline/tools';
 
 const block = { oldText: 'a', newText: 'b' };
 
@@ -100,16 +98,9 @@ describe('normalizeEditArguments', () => {
   });
 });
 
-describe.each([false, true])('edit 工具完整契约（Hashline=%s）', (hashline) => {
+describe('edit 工具完整契约', () => {
   function toolFor(cwd: string) {
-    const stock = createNormalizedEditTool(cwd);
-    return hashline
-      ? wrapHashlineEditDefinition(stock, {
-          store: new InMemorySnapshotStore(),
-          readText: (path) => readFile(path, 'utf8'),
-          writeText: (path, text) => writeFile(path, text),
-        })
-      : stock;
+    return createNormalizedEditTool(cwd);
   }
 
   it('公开schema接受单次和批量形式，批量项必须有两个字符串字段', () => {

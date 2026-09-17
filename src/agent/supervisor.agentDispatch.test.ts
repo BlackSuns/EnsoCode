@@ -165,7 +165,6 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
 
   it.each([
     ['replace', ['edit', 'write'], ['apply_patch']],
-    ['hashline', ['edit', 'write'], ['apply_patch']],
     ['apply_patch', ['apply_patch'], ['edit', 'write']],
   ] as const)(
     '%s 模式只装配互斥写工具，且所有普通 ResourceLoader 注册 patch 结果 hook',
@@ -182,7 +181,6 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
         cwd: '/workspace',
         model,
         editMode,
-        hashlineEditEnabled: true,
       });
       await waitFor(events, 'parent-ready');
       const options = mocks.createAgentSession.mock.calls.at(-1)?.[0] as {
@@ -201,13 +199,6 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
         ).toBeGreaterThan(0);
       }
       for (const name of excluded) expect(names).not.toContain(name);
-      if (editMode === 'hashline') {
-        const edit = options.customTools.find((tool) => tool.name === 'edit');
-        expect(Object.keys(edit?.parameters?.properties ?? {})).toEqual(['input']);
-        expect([edit?.description, ...(edit?.promptGuidelines ?? [])].join('\n')).not.toMatch(
-          /\breplace\b|\bedits\b/i
-        );
-      }
       if (editMode === 'apply_patch') {
         const patch = options.customTools.find((tool) => tool.name === 'apply_patch');
         expect(Object.keys(patch?.parameters?.properties ?? {})).toEqual(['input']);
@@ -258,7 +249,7 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it('旧 hashline bool 仍解析为 strict hashline，warm 同 generation 不被后续模式改写', async () => {
+  it('旧 hashline bool 回落 apply_patch，warm 同 generation 不被后续模式改写', async () => {
     const events: AgentWorkerEvent[] = [];
     const supervisor = new SessionSupervisor({
       emit: (event) => events.push(event),
@@ -276,11 +267,9 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
     const first = mocks.createAgentSession.mock.calls.at(-1)?.[0] as {
       customTools: Array<{ name: string; parameters?: { properties?: Record<string, unknown> } }>;
     };
-    expect(
-      Object.keys(
-        first.customTools.find((tool) => tool.name === 'edit')?.parameters?.properties ?? {}
-      )
-    ).toEqual(['input']);
+    expect(first.customTools.some((tool) => tool.name === 'apply_patch')).toBe(true);
+    expect(first.customTools.some((tool) => tool.name === 'edit')).toBe(false);
+    expect(first.customTools.some((tool) => tool.name === 'write')).toBe(false);
     const creates = mocks.createAgentSession.mock.calls.length;
     supervisor.handleCommand({
       type: 'spawn-parent',
@@ -291,8 +280,8 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
     });
     await settle();
     expect(mocks.createAgentSession).toHaveBeenCalledTimes(creates);
-    expect(first.customTools.some((tool) => tool.name === 'write')).toBe(true);
-    expect(first.customTools.some((tool) => tool.name === 'apply_patch')).toBe(false);
+    expect(first.customTools.some((tool) => tool.name === 'apply_patch')).toBe(true);
+    expect(first.customTools.some((tool) => tool.name === 'write')).toBe(false);
     await supervisor.shutdown();
   });
 
