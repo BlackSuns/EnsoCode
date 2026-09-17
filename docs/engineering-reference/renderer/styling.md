@@ -57,6 +57,10 @@ className={cn('text-sm font-medium', !enabled && 'text-muted-foreground line-thr
 **配色方案选择器只在 `sync-terminal` 模式下影响界面外观**。
 在 `system`/`light`/`dark` 下改配色方案看不到界面变化，这是设计如此，不是 bug。
 
+`html.dark` 只切换语义色变量，不会自动把 Chromium 原生控件（`<select>` 弹出层、滚动条）切到深色。
+`:root` 必须设 `color-scheme: light`，`.dark` 必须设 `color-scheme: dark`，否则 Windows 上原生下拉仍是白底。
+新下拉用 `components/ui/select`，不要再写裸 `<select>`。
+
 终端主题数据在 `src/renderer/data/terminal-themes.json`（438 个），
 由 `pnpm generate:themes` 生成，**不要手改**。
 

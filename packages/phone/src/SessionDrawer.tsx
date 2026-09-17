@@ -33,6 +33,13 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/time';
@@ -245,31 +252,46 @@ export function SessionDrawer({
         </div>
         {groups.length > 0 && (
           <div className="shrink-0 border-b px-3 py-2">
-            <select
-              className="h-8 w-full rounded-md border bg-background px-2 text-sm"
+            <Select
+              items={[
+                { value: ALL_GROUP_ID, label: '全部' },
+                ...groups
+                  .slice()
+                  .sort((a, b) => a.order - b.order)
+                  .map((group) => ({
+                    value: group.id,
+                    label: `${group.emoji ? `${group.emoji} ` : ''}${group.name}`,
+                  })),
+                { value: UNGROUPED_GROUP_ID, label: '未分组' },
+              ]}
               value={resolvedGroupId}
-              onChange={(event) => {
-                const next = event.target.value;
-                setSelectedGroupId(next);
+              onValueChange={(value) => {
+                if (!value) return;
+                setSelectedGroupId(value);
                 try {
-                  localStorage.setItem('enso-phone-selected-project-group', next);
+                  localStorage.setItem('enso-phone-selected-project-group', value);
                 } catch {
                   /* ignore */
                 }
               }}
             >
-              <option value={ALL_GROUP_ID}>全部</option>
-              {groups
-                .slice()
-                .sort((a, b) => a.order - b.order)
-                .map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.emoji ? `${group.emoji} ` : ''}
-                    {group.name}
-                  </option>
-                ))}
-              <option value={UNGROUPED_GROUP_ID}>未分组</option>
-            </select>
+              <SelectTrigger className="w-full" size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value={ALL_GROUP_ID}>全部</SelectItem>
+                {groups
+                  .slice()
+                  .sort((a, b) => a.order - b.order)
+                  .map((group) => (
+                    <SelectItem key={group.id} value={group.id}>
+                      {group.emoji ? `${group.emoji} ` : ''}
+                      {group.name}
+                    </SelectItem>
+                  ))}
+                <SelectItem value={UNGROUPED_GROUP_ID}>未分组</SelectItem>
+              </SelectPopup>
+            </Select>
           </div>
         )}
 

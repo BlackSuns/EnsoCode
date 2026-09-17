@@ -22,8 +22,16 @@ import {
 } from '@/components/ui/dialog';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { Z_INDEX } from '@/lib/z-index';
 import { useSessionsStore } from '@/stores/sessions';
 import { selectCoworkerTabConversations } from '@/stores/sessions/sidebarDirectory';
 import { useSettingsStore } from '@/stores/settings';
@@ -226,6 +234,10 @@ function HireCoworkerDialog({ parentId, onClose }: { parentId: string; onClose: 
     ).map((type) => type.name),
     ...agentTypes.map((entry) => entry.name),
   ];
+  const typeItems = [
+    { value: '', label: 'general' },
+    ...typeNames.map((typeName) => ({ value: typeName, label: typeName })),
+  ];
 
   const hire = async () => {
     const failed = await useSessionsStore
@@ -253,18 +265,22 @@ function HireCoworkerDialog({ parentId, onClose }: { parentId: string; onClose: 
           </Field>
           <Field>
             <FieldLabel>{t('Agent type')}</FieldLabel>
-            <select
+            <Select
+              items={typeItems}
               value={agentType}
-              onChange={(e) => setAgentType(e.target.value)}
-              className="h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none"
+              onValueChange={(value) => setAgentType(value ?? '')}
             >
-              <option value="">general</option>
-              {typeNames.map((typeName) => (
-                <option key={typeName} value={typeName}>
-                  {typeName}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
+                {typeItems.map((item) => (
+                  <SelectItem key={item.value || 'general'} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           </Field>
           {error && <p className="text-destructive text-xs">{error}</p>}
           <div className="h-1" />

@@ -360,19 +360,30 @@ export function AddProjectDialog({
                       {t('Add an SSH connection in Settings first.')}
                     </p>
                   ) : (
-                    <select
-                      className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    <Select
+                      items={[
+                        { value: '', label: t('Select an SSH connection') },
+                        ...connections.map((connection) => ({
+                          value: connection.id,
+                          label: `${connection.name} (${connection.user ? `${connection.user}@` : ''}${connection.host})`,
+                        })),
+                      ]}
                       value={sshConnectionId}
-                      onChange={(event) => setSshConnectionId(event.target.value)}
+                      onValueChange={(value) => setSshConnectionId(value ?? '')}
                     >
-                      <option value="">{t('Select an SSH connection')}</option>
-                      {connections.map((connection) => (
-                        <option key={connection.id} value={connection.id}>
-                          {connection.name} ({connection.user ? `${connection.user}@` : ''}
-                          {connection.host})
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
+                        <SelectItem value="">{t('Select an SSH connection')}</SelectItem>
+                        {connections.map((connection) => (
+                          <SelectItem key={connection.id} value={connection.id}>
+                            {connection.name} ({connection.user ? `${connection.user}@` : ''}
+                            {connection.host})
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
                   )}
                 </Field>
                 <Field className="w-full">

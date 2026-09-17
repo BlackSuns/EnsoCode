@@ -13,7 +13,15 @@ import {
 } from '@/components/ui/dialog';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useI18n } from '@/i18n';
+import { Z_INDEX } from '@/lib/z-index';
 
 export function SshSettings() {
   const { t } = useI18n();
@@ -224,14 +232,22 @@ export function SshSettings() {
               </Field>
               <Field>
                 <FieldLabel>{t('Authentication')}</FieldLabel>
-                <select
-                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                <Select
+                  items={[
+                    { value: 'key', label: t('Key / agent') },
+                    { value: 'password', label: t('Password') },
+                  ]}
                   value={auth}
-                  onChange={(event) => setAuth(event.target.value as SshAuth)}
+                  onValueChange={(value) => setAuth(value as SshAuth)}
                 >
-                  <option value="key">{t('Key / agent')}</option>
-                  <option value="password">{t('Password')}</option>
-                </select>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
+                    <SelectItem value="key">{t('Key / agent')}</SelectItem>
+                    <SelectItem value="password">{t('Password')}</SelectItem>
+                  </SelectPopup>
+                </Select>
               </Field>
               {auth === 'password' && (
                 <Field>

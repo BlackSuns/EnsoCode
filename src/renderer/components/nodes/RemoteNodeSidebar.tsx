@@ -15,6 +15,13 @@ import type { RemoteNodeStatus } from '@shared/types/nodes';
 import { Archive, ChevronDown, ChevronRight, Pin, Search, SquarePen } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
@@ -154,22 +161,36 @@ export function RemoteNodeSidebar({
       </div>
       {groups.length > 0 && (
         <div className="shrink-0 border-b px-2 py-2">
-          <select
-            className="h-8 w-full rounded-md border bg-background px-2 text-xs"
+          <Select
+            items={[
+              { value: ALL_GROUP_ID, label: t('All') },
+              ...groups
+                .slice()
+                .sort((a, b) => a.order - b.order)
+                .map((group) => ({ value: group.id, label: group.name })),
+              { value: UNGROUPED_GROUP_ID, label: t('Ungrouped') },
+            ]}
             value={resolvedGroupId}
-            onChange={(event) => setSelectedGroupId(event.target.value)}
+            onValueChange={(value) => {
+              if (value) setSelectedGroupId(value);
+            }}
           >
-            <option value={ALL_GROUP_ID}>{t('All')}</option>
-            {groups
-              .slice()
-              .sort((a, b) => a.order - b.order)
-              .map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
-                </option>
-              ))}
-            <option value={UNGROUPED_GROUP_ID}>{t('Ungrouped')}</option>
-          </select>
+            <SelectTrigger className="w-full" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value={ALL_GROUP_ID}>{t('All')}</SelectItem>
+              {groups
+                .slice()
+                .sort((a, b) => a.order - b.order)
+                .map((group) => (
+                  <SelectItem key={group.id} value={group.id}>
+                    {group.name}
+                  </SelectItem>
+                ))}
+              <SelectItem value={UNGROUPED_GROUP_ID}>{t('Ungrouped')}</SelectItem>
+            </SelectPopup>
+          </Select>
         </div>
       )}
 

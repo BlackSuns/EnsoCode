@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/i18n';
+import { Z_INDEX } from '@/lib/z-index';
 import { useSettingsStore } from '@/stores/settings';
 import { DetailRows, PickList, setFilteredIds } from './PresetsSettings';
 
@@ -381,85 +382,137 @@ export function AgentTypeEditDialog({
           </Field>
           <Field>
             <FieldLabel>{t('Model selection')}</FieldLabel>
-            <select
+            <Select
+              items={[
+                {
+                  value: 'agent_pick',
+                  label: `${t('Must be picked by main agent')}${
+                    !hasSubagentModels ? ` (${t('Follows the conversation model')})` : ''
+                  }`,
+                },
+                { value: 'follow', label: t('Follow conversation') },
+                { value: 'fixed', label: t('Fixed model') },
+              ]}
               value={modelMode}
-              onChange={(e) => setModelMode(e.target.value as AgentTypeModelMode)}
-              className="h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none"
+              onValueChange={(value) => setModelMode(value as AgentTypeModelMode)}
             >
-              <option value="agent_pick">
-                {t('Must be picked by main agent')}
-                {!hasSubagentModels ? ` (${t('Follows the conversation model')})` : ''}
-              </option>
-              <option value="follow">{t('Follow conversation')}</option>
-              <option value="fixed">{t('Fixed model')}</option>
-            </select>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
+                <SelectItem value="agent_pick">
+                  {t('Must be picked by main agent')}
+                  {!hasSubagentModels ? ` (${t('Follows the conversation model')})` : ''}
+                </SelectItem>
+                <SelectItem value="follow">{t('Follow conversation')}</SelectItem>
+                <SelectItem value="fixed">{t('Fixed model')}</SelectItem>
+              </SelectPopup>
+            </Select>
           </Field>
           {modelMode === 'fixed' && (
             <div className="grid grid-cols-3 gap-3">
               <Field>
                 <FieldLabel>{t('Provider (optional)')}</FieldLabel>
-                <select
+                <Select
+                  items={[
+                    { value: '', label: t('Select provider') || '选择服务商' },
+                    ...providers
+                      .filter((p) => p.enabled && hasProviderCredentials(p))
+                      .map((p) => ({ value: p.id, label: p.name })),
+                  ]}
                   value={providerId}
-                  onChange={(e) => {
-                    setProviderId(e.target.value);
+                  onValueChange={(value) => {
+                    setProviderId(value ?? '');
                     setModelId('');
                   }}
-                  className="h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none"
                 >
-                  <option value="">{t('Select provider') || '选择服务商'}</option>
-                  {providers
-                    .filter((p) => p.enabled && hasProviderCredentials(p))
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                </select>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
+                    <SelectItem value="">{t('Select provider') || '选择服务商'}</SelectItem>
+                    {providers
+                      .filter((p) => p.enabled && hasProviderCredentials(p))
+                      .map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                  </SelectPopup>
+                </Select>
               </Field>
               <Field>
                 <FieldLabel>{t('Model')}</FieldLabel>
-                <select
-                  value={modelId}
-                  onChange={(e) => setModelId(e.target.value)}
+                <Select
                   disabled={!providerId}
-                  className="h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none disabled:opacity-50"
+                  items={[
+                    { value: '', label: providerId ? t('Select model') : '—' },
+                    ...models.map((m) => ({ value: m.id, label: m.id })),
+                  ]}
+                  value={modelId}
+                  onValueChange={(value) => setModelId(value ?? '')}
                 >
-                  <option value="">{providerId ? t('Select model') : '—'}</option>
-                  {models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.id}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
+                    <SelectItem value="">{providerId ? t('Select model') : '—'}</SelectItem>
+                    {models.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.id}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
               </Field>
               <Field>
                 <FieldLabel>{t('Thinking level')}</FieldLabel>
-                <select
+                <Select
+                  items={[
+                    { value: '', label: t('Follow conversation') },
+                    { value: 'off', label: t('Off') },
+                    ...MODEL_THINKING_LEVEL_OVERRIDES.map((level) => ({
+                      value: level,
+                      label: level,
+                    })),
+                  ]}
                   value={thinking}
-                  onChange={(e) => setThinking(e.target.value as ThinkingChoice)}
-                  className="h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none"
+                  onValueChange={(value) => setThinking((value ?? '') as ThinkingChoice)}
                 >
-                  <option value="">{t('Follow conversation')}</option>
-                  <option value="off">{t('Off')}</option>
-                  {MODEL_THINKING_LEVEL_OVERRIDES.map((level) => (
-                    <option key={level} value={level}>
-                      {level}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
+                    <SelectItem value="">{t('Follow conversation')}</SelectItem>
+                    <SelectItem value="off">{t('Off')}</SelectItem>
+                    {MODEL_THINKING_LEVEL_OVERRIDES.map((level) => (
+                      <SelectItem key={level} value={level}>
+                        {level}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
               </Field>
             </div>
           )}
           <Field>
             <FieldLabel>{t('Toolset')}</FieldLabel>
-            <select
+            <Select
+              items={[
+                { value: 'all', label: t('All tools (bash/edit/write)') },
+                { value: 'readonly', label: t('Read-only (read/grep/find/ls)') },
+              ]}
               value={tools}
-              onChange={(e) => setTools(e.target.value as 'all' | 'readonly')}
-              className="h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none"
+              onValueChange={(value) => setTools(value as 'all' | 'readonly')}
             >
-              <option value="all">{t('All tools (bash/edit/write)')}</option>
-              <option value="readonly">{t('Read-only (read/grep/find/ls)')}</option>
-            </select>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
+                <SelectItem value="all">{t('All tools (bash/edit/write)')}</SelectItem>
+                <SelectItem value="readonly">{t('Read-only (read/grep/find/ls)')}</SelectItem>
+              </SelectPopup>
+            </Select>
           </Field>
           <PickList
             title={t('Skills')}
