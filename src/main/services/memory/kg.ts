@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   KG_DEFAULT_ENTITY_TYPE,
   KG_DEFAULT_RELATION_TYPE,
+  KG_EXTRACT_MAX_TOKENS,
   KG_MAX_ATTEMPTS,
   KG_MAX_DESCRIPTION_CHARS,
   KG_MAX_ENTITIES,
@@ -9,7 +10,7 @@ import {
   KG_MAX_RELATIONS,
 } from '@shared/memory/constants';
 import { normalizeEntityName, normalizeKgLabel } from '@shared/memory/entityNormalize';
-import { kgExtractLevel1Prompt } from '@shared/memory/prompts';
+import { KG_EXTRACT_SYSTEM, kgExtractLevel1Prompt } from '@shared/memory/prompts';
 import type Database from 'better-sqlite3';
 import { contentHash } from './contentHash';
 import { type Complete, looseParse, redactSecrets } from './distill';
@@ -65,33 +66,73 @@ const arr = (o: Record<string, unknown>, ...keys: string[]): unknown[] => {
   return [];
 };
 
+const ENTITY_LIST_KEYS = ['entities', 'entity_list', '实体'];
+const ENTITY_NAME_KEYS = ['name', 'entity', 'entity_name', 'text', '名称', '名字'];
+
+function firstArray(o: Record<string, unknown>, keys: readonly string[]): unknown[] | null {
+  for (const k of keys) if (Array.isArray(o[k])) return o[k] as unknown[];
+  return null;
+}
+
+function entityName(item: unknown): string | null {
+  if (typeof item === 'string') return str(item);
+  if (!item || typeof item !== 'object') return null;
+  const e = item as Record<string, unknown>;
+  for (const k of ENTITY_NAME_KEYS) {
+    const name = str(e[k]);
+    if (name) return name;
+  }
+  return null;
+}
+
+function toEntity(item: unknown): Omit<KgEntity, 'aliases'> | null {
+  const name = entityName(item);
+  if (!name) return null;
+  if (typeof item === 'string') {
+    return { name, type: '', description: null, confidence: DEFAULT_CONFIDENCE };
+  }
+  const e = item as Record<string, unknown>;
+  return {
+    name,
+    type: str(e.type) ?? str(e.entity_type) ?? str(e.类型) ?? '',
+    description: str(e.description),
+    confidence: num(e.confidence) ?? DEFAULT_CONFIDENCE,
+  };
+}
+
 /**
  * 兼容形状 `{"entities":[{name,type,description,confidence}],"relationships":[{source,target,relation,confidence}]}`。
- * 容错解析复用 distill.looseParse；不是 JSON 对象返回 null（与「模型正常返回但没有实体」区分）。
+ * 容错：字符串实体、中文键、顶层数组、think 残片；蒸馏形状（memories）返回 null，不当作抽空成功。
  * 输出已经过 normalizeExtraction（去重、截断、关系校验）。
  */
 export function parseKgResponse(raw: string): KgExtraction | null {
   const parsed = looseParse(raw);
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  if (parsed === null || typeof parsed !== 'object') return null;
+  if (Array.isArray(parsed)) {
+    const entities = parsed.map(toEntity).filter((e): e is NonNullable<typeof e> => e !== null);
+    return entities.length === 0 ? null : normalizeExtraction({ entities, relations: [] });
+  }
   const o = parsed as Record<string, unknown>;
+  const entityItems = firstArray(o, ENTITY_LIST_KEYS);
   const entities: KgEntity[] = [];
-  for (const item of arr(o, 'entities')) {
-    if (!item || typeof item !== 'object') continue;
-    const e = item as Record<string, unknown>;
-    const name = str(e.name);
-    if (!name) continue;
-    entities.push({
-      name,
-      type: str(e.type) ?? str(e.entity_type) ?? '',
-      description: str(e.description),
-      confidence: num(e.confidence) ?? DEFAULT_CONFIDENCE,
-      aliases: arr(e, 'aliases')
-        .map(str)
-        .filter((a): a is string => a !== null),
-    });
+  for (const item of entityItems ?? []) {
+    const entity = toEntity(item);
+    if (!entity) continue;
+    const extra =
+      item && typeof item === 'object'
+        ? arr(item as Record<string, unknown>, 'aliases')
+            .map(str)
+            .filter((a): a is string => a !== null)
+        : [];
+    entities.push({ ...entity, aliases: extra });
+  }
+  if (!entityItems) {
+    const single = toEntity(o);
+    if (!single) return null;
+    return normalizeExtraction({ entities: [single], relations: [] });
   }
   const relations: KgRelation[] = [];
-  for (const item of arr(o, 'relationships', 'relations')) {
+  for (const item of arr(o, 'relationships', 'relations', '关系')) {
     if (!item || typeof item !== 'object') continue;
     const r = item as Record<string, unknown>;
     const source = str(r.source);
@@ -165,9 +206,13 @@ export function normalizeExtraction(x: {
   return { entities: [...byKey.values()], relations };
 }
 
-/** Level 1：整段提示词作 user 消息，system 留空；模型输出不可解析即抛，由任务层按暂时性失败处理 */
+/** Level 1：schema 在 system、正文在 user；模型输出不可解析即抛，由任务层按暂时性失败处理 */
 export const extractLevel1: KgExtractor = async (text, complete) => {
-  const parsed = parseKgResponse(await complete('', kgExtractLevel1Prompt(text)));
+  const parsed = parseKgResponse(
+    await complete(KG_EXTRACT_SYSTEM, kgExtractLevel1Prompt(text), {
+      maxTokens: KG_EXTRACT_MAX_TOKENS,
+    })
+  );
   if (!parsed) throw new Error('model output is not parseable JSON');
   return parsed;
 };
@@ -348,7 +393,8 @@ const toJob = (r: JobRow): KgJob => ({
 });
 
 export function kgFingerprint(memoryId: string, content: string): string {
-  return `${memoryId}#${contentHash(content)}`;
+  // r2：解析器能吃小模型脏 JSON 之后，旧的「抽空成功」任务不能再挡住补抽
+  return `${memoryId}#${contentHash(content)}#r2`;
 }
 
 /**
@@ -402,6 +448,16 @@ export function listKgJobs(db: Database.Database, limit = 50): KgJob[] {
       .prepare('SELECT * FROM memory_jobs WHERE kind = ? ORDER BY id DESC LIMIT ?')
       .all(KIND, Math.max(1, Math.floor(limit))) as JobRow[]
   ).map(toJob);
+}
+
+/** 最新活动记忆若还没有当前指纹的任务，就建 pending。开库 / 打开开关时补抽用。 */
+export function ensurePendingKgJobs(db: Database.Database): number {
+  const ids = db
+    .prepare(`SELECT id FROM memories WHERE is_latest = 1 AND lifecycle_state = 'active'`)
+    .all() as { id: string }[];
+  let n = 0;
+  for (const { id } of ids) if (ensureKgJob(db, id)) n++;
+  return n;
 }
 
 export interface RunKgOptions {

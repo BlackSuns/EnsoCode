@@ -529,14 +529,31 @@ describe('memoryHost KG 抽取接线', () => {
     expect(getMemoryKgJobs()).toEqual([]);
   });
 
+  it('开关关闭时写入的记忆，打开 KG 并重开库后补抽', async () => {
+    closeMemoryDb();
+    configureMemoryEmbedding({ modelId: 'none' });
+    configureMemoryDistill({ enabled: false });
+    configureMemoryKg({ enabled: false, complete: null });
+    await capture('We provision infra with Terraform.');
+    await awaitMemoryKg();
+    expect(entityNames()).toEqual([]);
+    const complete = vi.fn(async () => kgJson(['Terraform']));
+    configureMemoryKg({ enabled: true, complete: () => complete });
+    closeMemoryDb();
+    await invokeMemory('search', { query: 'terraform', limit: 5, spaceId: 'global' }, null);
+    await awaitMemoryKg();
+    expect(complete).toHaveBeenCalled();
+    expect(entityNames()).toContain('Terraform');
+  });
+
   it('syncMemoryKgFromSettings 按 unknown 收窄：非布尔 true 视为关', async () => {
     const complete = vi.fn(async () => kgJson(['X']));
     configureMemoryKg({ complete: () => complete });
     syncMemoryKgFromSettings({ memoryKgEnabled: 'true' });
-    await capture('Vault stores our secrets.');
+    const r = await capture('Vault stores our secrets.');
     await awaitMemoryKg();
     expect(complete).not.toHaveBeenCalled();
-    expect(getMemoryKgJobs()).toEqual([]);
+    expect(getMemoryKgJobs().some((j) => j.memoryId === r.memory.id)).toBe(false);
   });
 
   it('开关打开：capture 后异步抽实体；hash 去重的重复 capture 不再调 LLM', async () => {
@@ -566,7 +583,7 @@ describe('memoryHost KG 抽取接线', () => {
     configureMemoryKg({ complete: () => complete });
     await invokeMemory('search', { query: 'ansible', limit: 5, spaceId: 'global' }, null);
     await awaitMemoryKg();
-    expect(complete).toHaveBeenCalledTimes(1);
+    expect(complete).toHaveBeenCalled();
     expect(entityNames()).toContain('Ansible');
   });
 

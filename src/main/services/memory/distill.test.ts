@@ -183,6 +183,10 @@ describe('parseDistillOutput（容错 JSON）', () => {
         temporal: null,
       },
     ]);
+    // 思维链里的残缺 JSON 不能挡住后面真正的 memories 对象
+    expect(
+      parseDistillOutput(`<think>plan {"memories":[{"title":"wrong"\n</think>\n${json([one])}`)
+    ).toEqual([one]);
   });
 });
 

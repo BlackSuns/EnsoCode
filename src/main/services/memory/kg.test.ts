@@ -4,10 +4,12 @@ import path from 'node:path';
 import { KG_MAX_ATTEMPTS, KG_MAX_ENTITIES, KG_MAX_RELATIONS } from '@shared/memory/constants';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { contentHash } from './contentHash';
 import { cleanupOrphanMentions, openMemoryDb } from './db';
 import {
   applyExtraction,
   ensureKgJob,
+  ensurePendingKgJobs,
   extractLevel1,
   findMemoriesByEntity,
   type KgExtraction,
@@ -79,6 +81,27 @@ describe('parseKgResponse / normalizeExtraction', () => {
     expect(parseKgResponse(truncated)?.entities.map((e) => e.name)).toEqual(['Redis']);
     expect(parseKgResponse('I cannot do that')).toBeNull();
     expect(parseKgResponse('[]')).toBeNull();
+  });
+
+  it('小模型脏形状：think 残片、字符串实体、中文键、entity_name；蒸馏形状不当成功', () => {
+    const think = `<think>draft {"entities":[]}\n</think>\n{"entities":[{"name":"Redis","type":"TOOL"}],"relationships":[]}`;
+    expect(parseKgResponse(think)?.entities.map((e) => e.name)).toEqual(['Redis']);
+    expect(
+      parseKgResponse('{"entities":["Redis","Memcached"],"relationships":[]}')?.entities.map(
+        (e) => e.name
+      )
+    ).toEqual(['Redis', 'Memcached']);
+    expect(parseKgResponse('{"实体":[{"名称":"Redis","类型":"TOOL"}]}')?.entities[0]?.name).toBe(
+      'Redis'
+    );
+    expect(
+      parseKgResponse('{"entities":[{"entity_name":"Redis","entity_type":"TOOL"}]}')?.entities[0]
+        ?.name
+    ).toBe('Redis');
+    expect(parseKgResponse('[{"name":"Redis"}]')?.entities[0]?.name).toBe('Redis');
+    expect(
+      parseKgResponse('{"memories":[{"title":"t","content":"c","importance":0.8}]}')
+    ).toBeNull();
   });
 
   it('归一：type/relation 转 UPPER_SNAKE，非法回退缺省；缺 confidence 给缺省', () => {
@@ -276,6 +299,26 @@ describe('kg 任务：幂等、续跑、失败不影响记忆', () => {
     expect(ensureKgJob(db, 'nope')).toBeNull();
   });
 
+  it('旧指纹抽空成功不挡住补抽；ensurePendingKgJobs 给最新记忆建任务', async () => {
+    const m = await create('Sarah uses Kubernetes with Docker.');
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO memory_jobs (kind, target, status, cursor, total, done, failed, created_at, updated_at)
+       VALUES ('kg', ?, 'done', 1, 0, 0, 0, ?, ?)`
+    ).run(`${m.id}#${contentHash(m.content)}`, now, now);
+    const job = ensureKgJob(db, m.id);
+    expect(job?.fingerprint).toBe(kgFingerprint(m.id, m.content));
+    expect(job?.fingerprint).not.toBe(`${m.id}#${contentHash(m.content)}`);
+    expect(job?.status).toBe('pending');
+    await runKgJob(db, job as NonNullable<typeof job>, {
+      complete: completeWith(json({ entities: [entity('Kubernetes')], relationships: [] })),
+    });
+    expect(ensurePendingKgJobs(db)).toBe(0);
+    const extra = await create('Helm charts package the deployment.');
+    expect(ensurePendingKgJobs(db)).toBe(1);
+    expect(ensureKgJob(db, extra.id)?.memoryId).toBe(extra.id);
+  });
+
   it('runKgJob：提示词含记忆正文、密钥已打码；实体名里不出现密钥；写入实体与关系', async () => {
     const m = await create(
       'Sarah uses Kubernetes with Docker. token: sk-abcdefghijklmnopqrstuvwxyz1234'
@@ -338,16 +381,18 @@ describe('kg 任务：幂等、续跑、失败不影响记忆', () => {
     expect(done.status).toBe('done');
     expect(listResumableKgJobs(db)).toEqual([]);
   });
-
-  it('extractLevel1 用 Level 1 提示词，system 为空', async () => {
+  it('extractLevel1 用 system schema，正文在 user，并限制 maxTokens', async () => {
     let system: string | null = null;
-    const x = await extractLevel1('Sarah uses Docker.', async (s, u) => {
+    let maxTokens: number | undefined;
+    const x = await extractLevel1('Sarah uses Docker.', async (s, u, opts) => {
       system = s;
-      expect(u).toContain('DIRECTLY OUTPUT THE JSON, NO THINKING');
-      expect(u).toContain('Text: Sarah uses Docker.');
+      maxTokens = opts?.maxTokens;
+      expect(u).toContain('Sarah uses Docker.');
+      expect(u).not.toContain('DIRECTLY OUTPUT THE JSON');
       return sample;
     });
-    expect(system).toBe('');
+    expect(system).toContain('"entities"');
+    expect(maxTokens).toBeGreaterThanOrEqual(1024);
     expect(x.entities).toHaveLength(3);
   });
 });

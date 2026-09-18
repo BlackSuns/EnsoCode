@@ -142,23 +142,20 @@ Do not invent dates. Fill temporal only when the chunk explicitly states a date;
 Output ONLY JSON:
 {"memories":[{"title":"max 12 words","content":"context + reasoning","importance":0.0-1.0,"confidence":0.0-1.0,"unit_type":"fact|preference|decision|plan|procedure|learning|context|event","temporal":{"type":"exact","start":null,"end":null,"confidence":0.9,"context":"past"}|null}]}`;
 }
+// schema 放 system、正文放 user：本地小模型把规则和思维链写进 user 时，looseParse 会切到错误的大括号。
+export const KG_EXTRACT_SYSTEM = `Extract entities and relationships from the text. Reply with JSON only — no thinking, no markdown.
 
-// 实体抽取 Level 1：只替换文本占位。整段作为 user 消息发送，system 留空
-export function kgExtractLevel1Prompt(memoryText: string): string {
-  return `Extract entities and relationships from text. Return only valid JSON.
-
-RULES:
-- Extract meaningful entities: tools, technologies, concepts, people,
-  organizations, methods, etc.
-- Keep entity names in their ORIGINAL LANGUAGE (don't translate)
+Rules:
+- Keep entity names in their original language
 - Use English for type and relation fields
-- For relationships, both source and target must be extracted entities
-- Include context showing how entities connect
-- DIRECTLY OUTPUT THE JSON, NO THINKING
+- Both relationship ends must be extracted entities
 - Up to 10 entities and 20 relationships
 
-Text: ${memoryText}
-JSON:`;
+Example:
+{"entities":[{"name":"Kubernetes","type":"TOOL","description":"container orchestrator","confidence":0.9},{"name":"Sarah","type":"PERSON","description":null,"confidence":0.8}],"relationships":[{"source":"Sarah","target":"Kubernetes","relation":"USES","confidence":0.8}]}`;
+
+export function kgExtractLevel1Prompt(memoryText: string): string {
+  return memoryText;
 }
 
 export function distillConsolidatePrompt(numMemories: number, memoriesText: string): string {

@@ -31,7 +31,14 @@ import {
 } from './memory/embedding/registry';
 import type { RemoteEmbeddingOptions } from './memory/embedding/remote';
 import type { EmbeddingModelSpec, EmbeddingProvider } from './memory/embedding/types';
-import { ensureKgJob, type KgJob, listKgJobs, listResumableKgJobs, runKgJob } from './memory/kg';
+import {
+  ensureKgJob,
+  ensurePendingKgJobs,
+  type KgJob,
+  listKgJobs,
+  listResumableKgJobs,
+  runKgJob,
+} from './memory/kg';
 import { getReembedJob, type ReembedJob, runReembedJob } from './memory/reembed';
 import { type Embedder, GLOBAL_SPACE, type Memory, projectSpaceId } from './memory/types';
 
@@ -366,7 +373,10 @@ export function configureMemoryKg(next: Partial<MemoryKgConfig>): void {
 }
 
 export function syncMemoryKgFromSettings(state: Record<string, unknown>): void {
-  configureMemoryKg({ enabled: state.memoryKgEnabled === true });
+  const enabled = state.memoryKgEnabled === true;
+  const turningOn = enabled && !kgConfig.enabled;
+  configureMemoryKg({ enabled });
+  if (turningOn && db) resumeMemoryKg();
 }
 
 /**
@@ -420,6 +430,7 @@ async function runOneKg(job: KgJob): Promise<void> {
 /** 开库时把上次没跑完的抽取接上；内容已变 / 已删除的由 runKgJob 标 cancelled */
 function resumeMemoryKg(): void {
   if (!kgConfig.enabled || !db) return;
+  ensurePendingKgJobs(db);
   const jobs = listResumableKgJobs(db);
   if (jobs.length === 0) return;
   void enqueueLlmJob(async () => {

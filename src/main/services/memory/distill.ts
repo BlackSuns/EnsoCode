@@ -153,20 +153,49 @@ export function chunkTranscript(
 // 容错 JSON 解析
 // ---------------------------------------------------------------------------
 
-/** 去围栏、取最外层大括号、去尾逗号，仍失败则补全截断的引号 / 括号（模型输出被 max_tokens 截断很常见）。kg.ts 复用。 */
-export function looseParse(raw: string): unknown {
-  let text = raw.replace(/```(?:json)?/gi, '').trim();
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
+/** 先剥 think / 围栏再取括号：思维链里的残缺 JSON 不能挡住后面真正的对象。kg.ts 复用。 */
+function stripThinkAndFences(raw: string): string {
+  return raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+    .replace(/```(?:json)?/gi, '')
+    .trim();
+}
+
+function sliceBalanced(text: string, open: string, close: string): string | null {
+  const start = text.indexOf(open);
   if (start < 0) return null;
-  text = end > start ? text.slice(start, end + 1) : text.slice(start);
-  const attempts = [text, stripTrailingCommas(text), stripTrailingCommas(closeTruncated(text))];
+  const end = text.lastIndexOf(close);
+  return end > start ? text.slice(start, end + 1) : text.slice(start);
+}
+
+function parseSlicedJson(text: string): unknown {
+  const brace = text.indexOf('{');
+  const bracket = text.indexOf('[');
+  const sliced =
+    bracket >= 0 && (brace < 0 || bracket < brace)
+      ? sliceBalanced(text, '[', ']')
+      : sliceBalanced(text, '{', '}');
+  if (sliced === null) return undefined;
+  const attempts = [
+    sliced,
+    stripTrailingCommas(sliced),
+    stripTrailingCommas(closeTruncated(sliced)),
+  ];
   for (const t of attempts) {
     try {
       return JSON.parse(t);
     } catch {
       /* next */
     }
+  }
+  return undefined;
+}
+
+export function looseParse(raw: string): unknown {
+  for (const text of [stripThinkAndFences(raw), raw.replace(/```(?:json)?/gi, '').trim()]) {
+    const parsed = parseSlicedJson(text);
+    if (parsed !== undefined) return parsed;
   }
   return null;
 }
@@ -206,6 +235,10 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? 
 
 /** 解析不出任何 JSON 结构时返回 null（模型异常 / 截断到无法修复），与“模型正常返回但没有值得记的东西”区分 */
 function hasCompleteJsonObject(raw: string): boolean {
+  return jsonObjectClosed(stripThinkAndFences(raw)) || jsonObjectClosed(raw);
+}
+
+function jsonObjectClosed(raw: string): boolean {
   const start = raw.indexOf('{');
   if (start < 0) return false;
   let depth = 0;
