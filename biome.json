@@ -66,7 +66,8 @@
       "!!.zvec-grep",
       "!.hce",
       "!temp",
-      "!src/agent/continuousMemory/vendor"
+      "!src/agent/continuousMemory/vendor",
+      "!src/shared/providers/devin/vendor"
     ]
   }
 }

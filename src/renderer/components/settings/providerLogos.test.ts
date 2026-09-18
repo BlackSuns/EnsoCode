@@ -26,6 +26,7 @@ describe('向导厂商 logo', () => {
     expect(resolveProviderLogo('kimi-coding', 'Kimi')).toEqual(moonshot);
     expect(resolveProviderLogo('github-copilot', 'GitHub Copilot')?.kind).toBe('mark');
     expect(resolveProviderLogo('cursor', 'Cursor')?.kind).toBe('mark');
+    expect(resolveProviderLogo('devin', 'Devin')?.kind).toBe('mark');
     expect(resolveProviderLogo('zai', 'Z.AI')).toEqual(resolveProviderLogo('zhipu', 'Zhipu AI'));
   });
 

@@ -32,6 +32,7 @@ import {
 import { ensureAccountProvider } from '@shared/piAccounts';
 import { resolvePiProviderBaseUrl } from '@shared/providerCatalog';
 import { ANTIGRAVITY_PROVIDER_ID, antigravityProviderConfig } from '@shared/providers/antigravity';
+import { DEVIN_PROVIDER_ID, devinProviderConfig } from '@shared/providers/devin';
 import type { SmartCompactMode } from '@shared/smartCompactMode';
 import { buildSshShellCommand, shellQuote } from '@shared/ssh';
 import type {
@@ -497,12 +498,14 @@ async function refreshWorkerProviderModels(
 export async function initializeWorkerRuntime(runtime: ModelRuntime): Promise<ModelRuntime> {
   // 推理发生在本进程：Main 侧注册过不算，worker 不注册就会以「未知 provider」流不起来
   runtime.registerProvider(ANTIGRAVITY_PROVIDER_ID, antigravityProviderConfig());
+  runtime.registerProvider(DEVIN_PROVIDER_ID, devinProviderConfig());
   await loadCursorProvider(runtime);
   // registerProvider 只触发 allowNetwork:false 的 refresh，拿到的是兜底清单；Main 侧界面
   // 展示的却是联网发现结果。必须拆成两次并各自吞错，避免一个 provider 的发现服务异常
   // 连带另一个拿不到清单；失败方只回退自己的兜底，worker 仍能启动。
   // await 而非 fire-and-forget：resolveBaseModel 紧接着就要用这份清单。
   await refreshWorkerProviderModels(runtime, ANTIGRAVITY_PROVIDER_ID);
+  await refreshWorkerProviderModels(runtime, DEVIN_PROVIDER_ID);
   await refreshWorkerProviderModels(runtime, CURSOR_PROVIDER_ID);
   return runtime;
 }

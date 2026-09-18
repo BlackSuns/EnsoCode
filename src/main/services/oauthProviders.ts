@@ -22,6 +22,7 @@ import {
   parseAntigravityApiKey,
   sanitizeUpstreamBody,
 } from '@shared/providers/antigravity';
+import { DEVIN_PROVIDER_ID, devinProviderConfig, fetchDevinUsage } from '@shared/providers/devin';
 import type {
   OauthAccount,
   OauthAccountUsage,
@@ -47,7 +48,7 @@ const authPath = (): string => path.join(app.getPath('userData'), 'agent', 'pi-a
 // 与 agent worker 共用同一 auth.json（pi CredentialStore 文件锁保证跨进程互斥），
 // 登录/退出在 Main 完成后，worker 侧请求时经 getAuth 直接读到新凭证
 let runtimePromise: Promise<ModelRuntimeType> | null = null;
-const onlineCatalogProviderIds = new Set<string>([ANTIGRAVITY_PROVIDER_ID]);
+const onlineCatalogProviderIds = new Set<string>([ANTIGRAVITY_PROVIDER_ID, DEVIN_PROVIDER_ID]);
 const onlineCatalogRefreshes = new Map<string, Promise<boolean>>();
 
 /** 订阅设置与模型元数据查询共用同一份 Main 侧 runtime（catalog + auth.json） */
@@ -64,6 +65,7 @@ export function getRuntime(): Promise<ModelRuntimeType> {
     // Antigravity / Cursor 都不在 pi 内置 catalog 里，先注册基础 provider 再对齐账号克隆；
     // Cursor 的合成账号会由 syncAccountProviders 按单账号能力显式排除
     runtime.registerProvider(ANTIGRAVITY_PROVIDER_ID, antigravityProviderConfig());
+    runtime.registerProvider(DEVIN_PROVIDER_ID, devinProviderConfig());
     const { CURSOR_PROVIDER_ID, loadCursorProvider } = await import(
       '../../agent/cursor/loadProvider'
     );
@@ -71,9 +73,10 @@ export function getRuntime(): Promise<ModelRuntimeType> {
     await loadCursorProvider(runtime);
     await syncAccountProviders(runtime);
     // registerProvider 内部只会跑一次 allowNetwork:false 的 refresh（拿到的是兜底清单）。
-    // 两个扩展 provider 分开预热；单路发现服务失败不会影响另一条，也不阻塞设置页首开。
+    // 扩展 provider 分开预热；单路发现服务失败不会影响另一条，也不阻塞设置页首开。
     // 元数据查询会 await 同一份 promise，避免首次查询抢在预热前把 unknown 永久写进缓存。
     void ensureProviderModelsRefreshed(runtime, ANTIGRAVITY_PROVIDER_ID);
+    void ensureProviderModelsRefreshed(runtime, DEVIN_PROVIDER_ID);
     void ensureProviderModelsRefreshed(runtime, CURSOR_PROVIDER_ID);
     return runtime;
   })();
@@ -939,6 +942,15 @@ async function antigravityProbe(apiKeyRaw: string): Promise<AccountProbe> {
   return probe;
 }
 
+async function devinProbe(token: string): Promise<AccountProbe> {
+  const result = await fetchDevinUsage({ apiKey: token });
+  return {
+    windows: result.windows,
+    ...(result.email ? { email: result.email } : {}),
+    ...(result.plan ? { plan: result.plan } : {}),
+  };
+}
+
 /** 按基础 provider 分派探测；未接入额度端点的 provider 返回空窗口而不是报错 */
 async function probeAccount(runtime: ModelRuntimeType, accountKey: string): Promise<AccountProbe> {
   ensureAccountProvider(runtime, accountKey);
@@ -968,7 +980,9 @@ async function probeAccount(runtime: ModelRuntimeType, accountKey: string): Prom
             ? await cursorProbe(token)
             : providerId === ANTIGRAVITY_PROVIDER_ID
               ? await antigravityProbe(token)
-              : { windows: [] as OauthUsageWindow[] };
+              : providerId === DEVIN_PROVIDER_ID
+                ? await devinProbe(token)
+                : { windows: [] as OauthUsageWindow[] };
   // 网络结果优先，缺的字段用 token 里读到的兜底
   return sanitizeAccountProbe({ ...fromToken, ...probe });
 }

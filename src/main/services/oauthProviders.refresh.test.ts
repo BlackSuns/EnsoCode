@@ -65,6 +65,9 @@ describe('extension model catalog refresh', () => {
     mocks.refresh.mockImplementation(({ providers }: { providers: readonly string[] }) => {
       const providerId = providers[0];
       if (providerId === 'cursor') return cursorFirst.promise;
+      if (providerId !== ANTIGRAVITY_PROVIDER_ID) {
+        return Promise.resolve({ aborted: false, errors: new Map() });
+      }
       return callsFor(ANTIGRAVITY_PROVIDER_ID) === 1
         ? antigravityFirst.promise
         : antigravityRetry.promise;

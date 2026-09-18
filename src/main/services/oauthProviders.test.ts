@@ -256,6 +256,15 @@ describe('listOauthProviders 的账号枚举', () => {
     expect(antigravity?.models.length).toBeGreaterThan(0);
   });
 
+  it('Devin 已注册进 runtime，作为可登录的订阅 provider 出现', async () => {
+    const { listOauthProviders } = await import('./oauthProviders');
+    const providers = await listOauthProviders();
+    const devin = providers.find((provider) => provider.id === 'devin');
+    expect(devin).toBeDefined();
+    expect(devin?.name).toBe('Devin');
+    expect(devin?.accounts).toEqual([]);
+  });
+
   it('Antigravity 的 email 直接来自凭证，列表不必等网络', async () => {
     const { listOauthProviders } = await import('./oauthProviders');
     const providers = await listOauthProviders();
@@ -755,6 +764,52 @@ describe('Cursor 额度探测', () => {
         { label: 'auto', usedPercent: 8, resetsAt: 1_771_077_734_000 },
         { label: 'api', usedPercent: 21, resetsAt: 1_771_077_734_000 },
       ]);
+    } finally {
+      fetchSpy.mockRestore();
+      restore();
+    }
+  });
+});
+
+describe('Devin 额度探测', () => {
+  it('打 SeatManagement GetUserStatus，映射日窗口与套餐名', async () => {
+    const restore = withAuthJson((parsed) => {
+      parsed.devin = {
+        type: 'oauth',
+        access: fakeJwt({ email: 'devin@example.com' }),
+        refresh: 'rd',
+        expires,
+      };
+    });
+    const { create, GetUserStatusResponseSchema, toBinary } = await import(
+      '@shared/providers/devin/proto'
+    );
+    const payload = toBinary(
+      GetUserStatusResponseSchema,
+      create(GetUserStatusResponseSchema, {
+        userStatus: {
+          email: 'devin@example.com',
+          planStatus: {
+            dailyQuotaRemainingPercent: 40,
+            dailyQuotaResetAtUnix: 1_800_000_000n,
+          },
+        },
+        planInfo: { planName: 'Pro' },
+      })
+    );
+    const seen: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      seen.push(String(input));
+      return new Response(Buffer.from(payload), { status: 200 });
+    });
+    try {
+      const { getOauthAccountUsage } = await import('./oauthProviders');
+      const usage = await getOauthAccountUsage('devin');
+      expect(usage.error).toBeUndefined();
+      expect(usage.windows).toEqual([
+        { label: 'Daily', usedPercent: 60, resetsAt: 1_800_000_000_000 },
+      ]);
+      expect(seen.some((url) => url.includes('SeatManagementService/GetUserStatus'))).toBe(true);
     } finally {
       fetchSpy.mockRestore();
       restore();
