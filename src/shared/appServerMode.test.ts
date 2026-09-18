@@ -4,6 +4,7 @@ import {
   firstExistingPath,
   isTrayTemplatePath,
   shouldStayAliveOnWindowAllClosed,
+  trayClickAction,
   trayIconCandidates,
 } from './appServerMode';
 
@@ -17,6 +18,13 @@ describe('shouldStayAliveOnWindowAllClosed', () => {
     expect(shouldStayAliveOnWindowAllClosed({ serverMode: false, platform: 'darwin' })).toBe(true);
     expect(shouldStayAliveOnWindowAllClosed({ serverMode: false, platform: 'win32' })).toBe(false);
     expect(shouldStayAliveOnWindowAllClosed({ serverMode: false, platform: 'linux' })).toBe(false);
+  });
+});
+
+describe('trayClickAction', () => {
+  it('hides to tray when the window is showing, and shows when already in tray', () => {
+    expect(trayClickAction(false)).toBe('hide');
+    expect(trayClickAction(true)).toBe('show');
   });
 });
 

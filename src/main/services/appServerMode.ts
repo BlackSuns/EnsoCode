@@ -5,6 +5,7 @@ import {
   firstExistingPath,
   isTrayTemplatePath,
   shouldStayAliveOnWindowAllClosed,
+  trayClickAction,
   trayIconCandidates,
 } from '@shared/appServerMode';
 import { IPC_CHANNELS } from '@shared/types';
@@ -70,6 +71,11 @@ function trayIcon() {
   return image;
 }
 
+function trayToggleLabel(zh: boolean): string {
+  if (trayClickAction(active) === 'show') return zh ? '打开 EnsoCode' : 'Show EnsoCode';
+  return zh ? '最小化到托盘' : 'Minimize to tray';
+}
+
 function rebuildTrayMenu(): void {
   if (!tray) return;
   const zh = languageIsZh();
@@ -77,10 +83,8 @@ function rebuildTrayMenu(): void {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
-        label: zh ? '打开 EnsoCode' : 'Show EnsoCode',
-        click: () => {
-          leaveServerMode();
-        },
+        label: trayToggleLabel(zh),
+        click: () => handleTrayActivate(),
       },
       { type: 'separator' },
       {
@@ -113,13 +117,18 @@ function rebuildTrayMenu(): void {
   tray.setToolTip('EnsoCode');
 }
 
-function ensureTray(): void {
+function handleTrayActivate(): void {
+  if (trayClickAction(active) === 'show') leaveServerMode();
+  else void enterServerMode();
+}
+
+export function ensureTray(): void {
   if (tray && !tray.isDestroyed()) {
     rebuildTrayMenu();
     return;
   }
   tray = new Tray(trayIcon());
-  tray.on('click', () => leaveServerMode());
+  tray.on('click', () => handleTrayActivate());
   rebuildTrayMenu();
 }
 
@@ -176,7 +185,6 @@ export async function enterServerMode(): Promise<void> {
 }
 
 export function leaveServerMode(): void {
-  const wasActive = active;
   active = false;
   setPairHeadless(false);
   flushSettings();
@@ -188,7 +196,7 @@ export function leaveServerMode(): void {
     win.show();
     win.focus();
   }
-  if (wasActive) ensureTray();
+  ensureTray();
 }
 
 export function quitFromTray(): void {

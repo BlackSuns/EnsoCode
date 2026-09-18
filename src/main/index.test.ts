@@ -74,6 +74,7 @@ vi.mock('./windows/MainWindow', () => ({
   getMainWindow: vi.fn(() => null),
 }));
 vi.mock('./services/appServerMode', () => ({
+  ensureTray: vi.fn(() => mocks.order.push('tray')),
   leaveServerMode: vi.fn(),
   restoreFromSecondInstance: vi.fn(),
   shouldQuitOnWindowAllClosed: () => false,
@@ -108,13 +109,13 @@ describe('Main startup order', () => {
     await import('./index');
     await Promise.resolve();
 
-    expect(mocks.order).toEqual(['ipc', 'window']);
+    expect(mocks.order).toEqual(['ipc', 'window', 'tray']);
     expect(mocks.startAgentWorker).not.toHaveBeenCalled();
 
     await new Promise<void>((resolve) => setImmediate(resolve));
     // pair 不依赖代理；worker 等 whenReady 后再 fork，所以排在 pair 之后。
     await Promise.resolve();
-    expect(mocks.order).toEqual(['ipc', 'window', 'pair', 'worker']);
+    expect(mocks.order).toEqual(['ipc', 'window', 'tray', 'pair', 'worker']);
     expect(mocks.createMainWindow).toHaveBeenCalledOnce();
     expect(mocks.startAgentWorker).toHaveBeenCalledOnce();
     expect(mocks.scheduleReenter).not.toHaveBeenCalled();

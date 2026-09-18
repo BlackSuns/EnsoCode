@@ -8,6 +8,13 @@ export function shouldStayAliveOnWindowAllClosed(input: {
   return input.serverMode || input.platform === 'darwin';
 }
 
+export type TrayClickAction = 'show' | 'hide';
+
+/** 托盘左键：窗口在前时进托盘，已在托盘时唤回。 */
+export function trayClickAction(serverMode: boolean): TrayClickAction {
+  return serverMode ? 'show' : 'hide';
+}
+
 const TRAY_ICON_RELATIVE = [
   path.join('build', 'icons', '32x32.png'),
   path.join('build', 'icons', '16x16.png'),
