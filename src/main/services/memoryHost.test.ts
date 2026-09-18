@@ -235,6 +235,24 @@ describe('memoryHost 会话结束蒸馏接线', () => {
     expect((await search('pnpm')).results).toEqual([]);
   });
 
+  it('关掉内置 memory 工具后，即使自动蒸馏开着也不写', async () => {
+    closeMemoryDb();
+    configureMemoryEmbedding({ modelId: 'none' });
+    const readTranscript = vi.fn(async () => messages);
+    const complete = vi.fn(llm('pnpm workspaces chosen for monorepo'));
+    syncMemoryDistillFromSettings({
+      memoryDistillEnabled: true,
+      disabledBuiltinTools: ['memory'],
+    });
+    configureMemoryDistill({ readTranscript, complete: () => complete });
+    await scheduleMemoryDistill(payload);
+    await awaitMemoryDistill();
+    expect(readTranscript).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect((await search('pnpm')).results).toEqual([]);
+    configureMemoryDistill({ enabled: false });
+  });
+
   it('memoryLanguage 真的进了模型收到的 system prompt，非法值回退英文', async () => {
     closeMemoryDb();
     configureMemoryEmbedding({ modelId: 'none' });
@@ -248,7 +266,11 @@ describe('memoryHost 会话结束蒸馏接线', () => {
       });
     });
     const run = async (language: unknown, sessionId: string) => {
-      syncMemoryDistillFromSettings({ memoryDistillEnabled: true, memoryLanguage: language });
+      syncMemoryDistillFromSettings({
+        memoryDistillEnabled: true,
+        memoryLanguage: language,
+        disabledBuiltinTools: [],
+      });
       configureMemoryDistill({
         readTranscript: async () => [{ role: 'user' as const, text: 'we picked redis for cache' }],
         complete: () => complete,
@@ -275,7 +297,11 @@ describe('memoryHost 会话结束蒸馏接线', () => {
     const transcript = [{ role: 'user' as const, text: 'we picked redis for cache' }];
 
     // 第一次：provider 不可用 → 任务留 pending
-    syncMemoryDistillFromSettings({ memoryDistillEnabled: true, memoryLanguage: 'en' });
+    syncMemoryDistillFromSettings({
+      memoryDistillEnabled: true,
+      memoryLanguage: 'en',
+      disabledBuiltinTools: [],
+    });
     configureMemoryDistill({ readTranscript: async () => transcript, complete: () => null });
     await distillSessionNow(payload);
     await awaitMemoryDistill();
@@ -288,7 +314,11 @@ describe('memoryHost 会话结束蒸馏接线', () => {
       return JSON.stringify({ memories: [{ title: 't', content: 'redis', importance: 0.8 }] });
     });
     closeMemoryDb();
-    syncMemoryDistillFromSettings({ memoryDistillEnabled: true, memoryLanguage: 'zh' });
+    syncMemoryDistillFromSettings({
+      memoryDistillEnabled: true,
+      memoryLanguage: 'zh',
+      disabledBuiltinTools: [],
+    });
     configureMemoryDistill({
       readTranscript: async () => transcript,
       complete: () => complete,
@@ -314,7 +344,11 @@ describe('memoryHost 会话结束蒸馏接线', () => {
     });
     const payload = { sessionId: 'lang-flip', sessionFile: '/fake/lf.jsonl', projectId: null };
     const setLanguage = (language: string) => {
-      syncMemoryDistillFromSettings({ memoryDistillEnabled: true, memoryLanguage: language });
+      syncMemoryDistillFromSettings({
+        memoryDistillEnabled: true,
+        memoryLanguage: language,
+        disabledBuiltinTools: [],
+      });
       configureMemoryDistill({
         readTranscript: async () => [{ role: 'user' as const, text: 'we picked redis' }],
         complete: () => complete,

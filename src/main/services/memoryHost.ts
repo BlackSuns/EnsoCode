@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { ChildSessionIdentity, SessionIdentity } from '@shared/builtinAgents';
 import { normalizeMemoryModelIdleMinutes } from '@shared/memory/modelIdle';
+import { effectiveDisabledBuiltinTools } from '@shared/types';
 import type { MemoryOp } from '@shared/types/agent';
 import { hasProviderCredentials, type ModelProvider } from '@shared/types/llm';
 import type Database from 'better-sqlite3';
@@ -196,7 +197,10 @@ export function configureMemoryDistill(next: Partial<MemoryDistillConfig>): void
 
 export function syncMemoryDistillFromSettings(state: Record<string, unknown>): void {
   configureMemoryDistill({
-    enabled: state.memoryDistillEnabled === true,
+    // 内置工具关掉后记忆分页会隐藏，自动蒸馏必须一起停，否则会话结束仍会写库。
+    enabled:
+      state.memoryDistillEnabled === true &&
+      !effectiveDisabledBuiltinTools(state.disabledBuiltinTools).includes('memory'),
     language: typeof state.memoryLanguage === 'string' ? state.memoryLanguage : 'en',
   });
 }

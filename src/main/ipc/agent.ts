@@ -3,7 +3,11 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { ChildSessionIdentity, SessionIdentity } from '@shared/builtinAgents';
 import { resolveSshTarget } from '@shared/ssh';
-import { IPC_CHANNELS } from '@shared/types';
+import {
+  IPC_CHANNELS,
+  projectDisabledBuiltinTools,
+  resolveDisabledBuiltinTools,
+} from '@shared/types';
 import type {
   AgentActionResult,
   AgentRemoteConfig,
@@ -771,7 +775,19 @@ export function registerAgentHandlers(): void {
       // 项目 space 只认 Main 权威：worker 不上报 projectId，也不上报路径
       const conversation = sourceAuthority?.conversation(rootSessionId(identity));
       const project = conversation ? sourceAuthority?.project(conversation.projectId) : undefined;
-      void invokeMemory(op, params, project?.state === 'active' ? project.projectId : null).then(
+      const projectId = project?.state === 'active' ? project.projectId : null;
+      const state = readSettingsState() ?? {};
+      const disabled = resolveDisabledBuiltinTools(state.disabledBuiltinTools, {
+        disabledBuiltinTools: projectDisabledBuiltinTools(state.projects, projectId ?? undefined),
+      });
+      if (disabled.includes('memory')) {
+        sendMemoryResultToSession(identity, requestId, {
+          ok: false,
+          error: 'Memory tool is disabled',
+        });
+        return;
+      }
+      void invokeMemory(op, params, projectId).then(
         (result) => sendMemoryResultToSession(identity, requestId, { ok: true, result }),
         (error: unknown) =>
           sendMemoryResultToSession(identity, requestId, {
