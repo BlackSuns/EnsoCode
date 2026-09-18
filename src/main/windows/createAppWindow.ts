@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { is } from '@electron-toolkit/utils';
+import { firstExistingPath } from '@shared/appServerMode';
 import {
   app,
   BrowserWindow,
@@ -12,6 +13,12 @@ import {
 } from 'electron';
 import { shouldReloadRenderer } from './rendererGone';
 import { attachPinnedWorkbenchBoundsSync, attachWindowsRestoreWake } from './win32Restore';
+import {
+  resolveWindowsAppUserModelId,
+  shouldSetWindowIcon,
+  windowIconCandidates,
+  windowsTaskbarAppDetails,
+} from './windowIcon';
 
 export interface CreateWindowOptions {
   /** renderer 入口 html 文件名（不含扩展名），对应 electron.vite renderer input */
@@ -169,6 +176,27 @@ function saveWindowState(win: BrowserWindow, stateFile: string): void {
 /** macOS 红绿灯自定义位置（按 44px 标题栏垂直居中） */
 export const TRAFFIC_LIGHT_POSITION = { x: 16, y: 16 };
 
+function resolveWindowIcon(): string | undefined {
+  if (
+    !shouldSetWindowIcon({
+      platform: process.platform,
+      isPackaged: app.isPackaged,
+    })
+  ) {
+    return undefined;
+  }
+  return (
+    firstExistingPath(
+      windowIconCandidates({
+        resourcesPath: process.resourcesPath,
+        appPath: app.getAppPath(),
+        cwd: process.cwd(),
+      }),
+      existsSync
+    ) ?? undefined
+  );
+}
+
 /**
  * 通用无边框窗口创建：
  * - macOS: hiddenInset 保留 traffic lights
@@ -181,6 +209,7 @@ export function createAppWindow(options: CreateWindowOptions): BrowserWindow {
   const defaults: WindowState = { width: options.width, height: options.height };
   const state = options.stateFile ? loadWindowState(options.stateFile, defaults) : defaults;
 
+  const icon = resolveWindowIcon();
   const win = new BrowserWindow({
     width: state.width,
     height: state.height,
@@ -194,9 +223,32 @@ export function createAppWindow(options: CreateWindowOptions): BrowserWindow {
     ...(isMac && { trafficLightPosition: TRAFFIC_LIGHT_POSITION }),
     ...(isWindows && { thickFrame: true }),
     show: false,
+    ...(icon ? { icon } : {}),
     ...(options.pinWorkbenchView ? { transparent: true, backgroundColor: '#00000000' } : {}),
     webPreferences: webPreferences(),
   });
+
+  if (icon) win.setIcon(icon);
+
+  // Taskbar icon is keyed by AUMID → Start Menu shortcut. win-unpacked must
+  // use a distinct AUMID or Windows keeps painting the installed square plate.
+  if (isWindows) {
+    try {
+      const appId = resolveWindowsAppUserModelId({
+        execPath: process.execPath,
+        isPackaged: app.isPackaged,
+      });
+      win.setAppDetails(
+        windowsTaskbarAppDetails({
+          execPath: process.execPath,
+          appId,
+          displayName: app.getName(),
+        })
+      );
+    } catch (error) {
+      console.warn('[window] setAppDetails failed', error);
+    }
+  }
 
   if (state.isMaximized) {
     win.maximize();

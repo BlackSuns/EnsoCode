@@ -9,6 +9,11 @@ extraResources:
     to: trayTemplate@2x.png
   - from: build/icons/32x32.png
     to: tray-icon.png
+  # Windows BrowserWindow/taskbar: multi-size ICO (BMP ≤128). PNG alone → square plate.
+  - from: build/icon.ico
+    to: icon.ico
+  - from: build/icon-win.png
+    to: icon-win.png
 files:
   - out/**
   - '!**/.vscode/*'

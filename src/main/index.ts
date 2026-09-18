@@ -33,6 +33,7 @@ import { getProxyConfig } from './services/proxyConfig';
 import { hydrateShellPath, seedProcessPath } from './services/shellPath';
 import { disposeAllTerminals, hasPendingPtys, waitPtyQuitIdle } from './services/terminalService';
 import { createMainWindow, getMainWindow } from './windows/MainWindow';
+import { resolveWindowsAppUserModelId } from './windows/windowIcon';
 import { applyWindowsChromiumSwitches } from './windows/win32Restore';
 
 // 仅开发环境开放 CDP 端口，便于调试；打包后不开，避免暴露远程调试。
@@ -80,7 +81,12 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(() => {
-    electronApp.setAppUserModelId('com.j3n5en.enso-code');
+    electronApp.setAppUserModelId(
+      resolveWindowsAppUserModelId({
+        execPath: process.execPath,
+        isPackaged: app.isPackaged,
+      })
+    );
 
     // dev 下 dock 显示 Electron 默认图标；手动设为 app 图标（打包由 electron-builder 处理）
     if (!app.isPackaged && process.platform === 'darwin') {
