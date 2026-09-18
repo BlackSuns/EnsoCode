@@ -63,6 +63,48 @@ describe('apply_patch 参数和语法', () => {
     );
   });
 
+  it('多个完整信封首尾相接时合并为一次解析', () => {
+    expect(
+      parseApplyPatch(
+        `${envelope('*** Add File: a.txt\n+a')}\n${envelope('*** Add File: b.txt\n+b')}`
+      )
+    ).toEqual([
+      { type: 'add', path: 'a.txt', content: 'a\n' },
+      { type: 'add', path: 'b.txt', content: 'b\n' },
+    ]);
+  });
+
+  it('文件段落之间多写的 End Patch 不截断后续文件', () => {
+    expect(
+      parseApplyPatch(
+        `${envelope('*** Add File: a.txt\n+a')}\n*** Add File: b.txt\n+b\n*** End Patch`
+      )
+    ).toEqual([
+      { type: 'add', path: 'a.txt', content: 'a\n' },
+      { type: 'add', path: 'b.txt', content: 'b\n' },
+    ]);
+  });
+
+  it('中途装饰过的 End/Begin 仍合并后续信封', () => {
+    expect(
+      parseApplyPatch(
+        '*** Begin Patch\n*** Add File: a.txt\n+a\n*** End Patch ***\n*** Begin Patch ***\n*** Add File: b.txt\n+b\n*** End Patch'
+      )
+    ).toEqual([
+      { type: 'add', path: 'a.txt', content: 'a\n' },
+      { type: 'add', path: 'b.txt', content: 'b\n' },
+    ]);
+  });
+
+  it('结束后的重复 End Patch 可忽略；非文件头垃圾仍拒绝', () => {
+    expect(parseApplyPatch(`${envelope('*** Add File: a.txt\n+a')}\n*** End Patch`)).toEqual([
+      { type: 'add', path: 'a.txt', content: 'a\n' },
+    ]);
+    expect(() => parseApplyPatch(`${envelope('*** Add File: a.txt\n+a')}\njunk`)).toThrow(
+      /last line of the patch must be/
+    );
+  });
+
   it('空 envelope 解析为空操作；空 Update 与 rename-only 拒绝', () => {
     expect(parseApplyPatch('*** Begin Patch\n*** End Patch')).toEqual([]);
     expect(() => parseApplyPatch(envelope('*** Update File: a.txt'))).toThrow(

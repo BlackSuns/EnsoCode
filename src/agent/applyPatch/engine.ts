@@ -1,4 +1,5 @@
 import type { AppliedFileChange } from '@shared/types/fileChanges';
+import { APPLY_PATCH_NO_EDITS_HINT } from './guidance';
 import { createLocalApplyPatchIo, normalizePatchPath } from './localIo';
 import { parseApplyPatch, requireApplyPatchInput } from './parser';
 import { applyUpdateChunks, decodePatchText, type MatchBudget } from './text';
@@ -311,6 +312,7 @@ function result(
           `Unattempted: ${unattempted.length ? unattempted.join(', ') : '(none)'}`,
           `Uncertain: ${uncertain.length ? uncertain.join(', ') : '(none)'}`,
           'Re-read failed or uncertain paths before retrying.',
+          ...(error?.includes("has no '-'/'+' edits") ? [APPLY_PATCH_NO_EDITS_HINT] : []),
           ...(input ? ['Input:', input] : []),
         ];
   return { content: [{ type: 'text', text: lines.join('\n') }], details };

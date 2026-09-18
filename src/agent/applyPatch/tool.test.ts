@@ -19,8 +19,9 @@ describe('apply_patch tool 与 SSH IO', () => {
     expect(tool.description).toContain(
       'You must prefix new lines with `+` even when creating a new file'
     );
-    expect(tool.description).toContain('add_hunk: "*** Add File: " filename LF add_line+');
-    expect(tool.description).toContain('start: begin_patch hunk+ end_patch');
+    expect(tool.description).not.toContain('start: begin_patch hunk+ end_patch');
+    expect(tool.description).not.toContain('add_hunk:');
+    expect(tool.description).not.toMatch(/%import common\.LF/);
     expect(tool.description?.match(/\*\*\* Begin Patch/g)?.length).toBeGreaterThanOrEqual(2);
     expect(tool.parameters).toMatchObject({
       type: 'object',
@@ -41,6 +42,12 @@ describe('apply_patch tool 与 SSH IO', () => {
     expect(tool.description).toContain('not a git unified diff');
     expect(tool.description).toContain('Do not emit git hunk headers');
     expect(tool.description).toContain('Every Update must contain `-` or `+` lines');
+    expect(tool.promptGuidelines?.join('\n')).toContain(
+      'Every Update must contain `-` or `+` lines'
+    );
+    expect(tool.promptGuidelines?.join('\n')).toContain('exactly `*** Begin Patch`');
+    expect(tool.promptGuidelines?.join('\n')).toContain('not a git unified diff');
+    expect(tool.promptGuidelines?.join('\n')).toContain('do not close it between files');
     expect(
       (tool.parameters as { properties: { input: { description: string } } }).properties.input
         .description

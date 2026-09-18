@@ -122,6 +122,14 @@ function isEofMarker(line: string): boolean {
   return line === EOF || line === EOF_DECORATED;
 }
 
+function isBeginMarker(line: string): boolean {
+  return line === BEGIN || line === BEGIN_DECORATED;
+}
+
+function isEndMarker(line: string): boolean {
+  return line === END || line === END_DECORATED;
+}
+
 function chunkHasEdits(chunk: ApplyPatchChunk): boolean {
   if (chunk.oldLines.length !== chunk.newLines.length) return true;
   if (chunk.contextLineIndices.length !== chunk.oldLines.length) return true;
@@ -166,7 +174,7 @@ function ensureUpdateNotEmpty(
     }
     return;
   }
-  if (line === END) invalidHunk(lineNumber, 'Update hunk does not contain any lines');
+  if (isEndMarker(line)) invalidHunk(lineNumber, 'Update hunk does not contain any lines');
   invalidHunk(
     lineNumber,
     `Unexpected line found in update hunk: '${line}'. Every line should start with ' ' (context line), '+' (added line), or '-' (removed line)`
@@ -209,7 +217,7 @@ function handleHeader(
     environmentId.value = value;
     return mode;
   }
-  if (trimmed === END) {
+  if (isEndMarker(trimmed)) {
     ensureUpdateNotEmpty(operations, mode, hunkLineNumber, trimmed, lineNumber);
     return 'ended';
   }
@@ -248,7 +256,7 @@ function processLine(
 ): { mode: Mode; hunkLineNumber: number } {
   const trimmed = line.trim();
   if (mode === 'notStarted') {
-    if (trimmed === BEGIN) return { mode: 'started', hunkLineNumber };
+    if (isBeginMarker(trimmed)) return { mode: 'started', hunkLineNumber };
     invalidPatch("The first line of the patch must be '*** Begin Patch'");
   }
   if (mode === 'started') {
@@ -375,7 +383,19 @@ function processLine(
     );
   }
   if (mode === 'ended') {
-    if (trimmed.length === 0) return { mode, hunkLineNumber };
+    if (trimmed.length === 0 || isEndMarker(trimmed)) return { mode, hunkLineNumber };
+    if (isBeginMarker(trimmed)) return { mode: 'started', hunkLineNumber };
+    const next = handleHeader(
+      trimmed,
+      operations,
+      'started',
+      hunkLineNumber,
+      lineNumber,
+      environmentId
+    );
+    if (next && next !== 'ended') {
+      return { mode: next, hunkLineNumber: next === 'update' ? lineNumber : hunkLineNumber };
+    }
     invalidPatch("The last line of the patch must be '*** End Patch'");
   }
   invalidPatch("The last line of the patch must be '*** End Patch'");

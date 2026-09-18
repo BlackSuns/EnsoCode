@@ -77,6 +77,24 @@ describe('apply_patch 引擎', () => {
     await expect(text('delete.txt')).rejects.toThrow();
   });
 
+  it('首尾相接的两个信封仍写入全部文件', async () => {
+    const first = patch('*** Add File: a.txt', '+a').input;
+    const second = patch('*** Add File: b.txt', '+b').input;
+    const result = await executeApplyPatch(cwd, { input: `${first}\n${second}` });
+    expect(result.details.status).toBe('success');
+    expect(await text('a.txt')).toBe('a\n');
+    expect(await text('b.txt')).toBe('b\n');
+  });
+
+  it('文件之间多写的 End Patch 不丢后续文件', async () => {
+    const result = await executeApplyPatch(cwd, {
+      input: `${patch('*** Add File: a.txt', '+a').input}\n*** Add File: b.txt\n+b\n*** End Patch`,
+    });
+    expect(result.details.status).toBe('success');
+    expect(await text('a.txt')).toBe('a\n');
+    expect(await text('b.txt')).toBe('b\n');
+  });
+
   it('Update 中只有上下文的定位 hunk 被忽略，实质改动仍写入', async () => {
     await writeFile(path.join(cwd, 'update.txt'), 'one\ntwo\nthree\n');
     await executeApplyPatch(
@@ -98,10 +116,14 @@ describe('apply_patch 引擎', () => {
 
   it('纯定位 Update 在解析期拒绝且零写', async () => {
     await writeFile(path.join(cwd, 'a.txt'), 'one\ntwo\n');
-    await expectFailed(
+    const result = await expectFailed(
       executeApplyPatch(cwd, patch('*** Update File: a.txt', '@@ locate', ' one')),
       /has no '-'\/'\+' edits/
     );
+    expect(result.content[0]?.text).toContain("Retry with '-' and '+' lines");
+    expect(result.content[0]?.text).toContain('-old line');
+    expect(result.content[0]?.text).toContain('+new line');
+    expect(result.details.input).toContain('*** Update File: a.txt');
     expect(await text('a.txt')).toBe('one\ntwo\n');
   });
 
