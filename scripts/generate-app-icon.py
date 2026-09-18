@@ -24,6 +24,7 @@ STROKE = 118
 GAP_DEG = 34.0
 GAP_CENTER = 47.5
 CANVAS = 1024
+WIN_CORNER = 0.22
 
 
 def _params(size: int) -> tuple[float, float, float]:
@@ -68,6 +69,19 @@ def render(size: int) -> Image.Image:
         x, y = pt(ang)
         d.ellipse((x - cap_r, y - cap_r, x + cap_r, y + cap_r), fill=FG)
     return im.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def with_windows_corners(im: Image.Image) -> Image.Image:
+    size = im.size[0]
+    radius = max(1, round(size * WIN_CORNER))
+    ss = 8 if size <= 64 else 4
+    S = size * ss
+    mask = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, S - 1, S - 1), radius=radius * ss, fill=255)
+    mask = mask.resize((size, size), Image.Resampling.LANCZOS)
+    out = im.convert("RGBA")
+    out.putalpha(mask)
+    return out
 
 
 def write_svg(path: Path) -> None:
@@ -126,7 +140,7 @@ def write_ico(master_sizes: dict[int, Image.Image], dest: Path) -> None:
         files: list[str] = []
         for size in ico_sizes:
             file = Path(raw) / f"{size}.png"
-            master_sizes[size].save(file, format="PNG")
+            with_windows_corners(master_sizes[size]).save(file, format="PNG")
             files.append(str(file))
         subprocess.run([magick, *files, str(dest)], check=True)
 
