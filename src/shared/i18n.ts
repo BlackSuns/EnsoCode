@@ -892,7 +892,7 @@ export const zhTranslations: Record<string, string> = {
   'Downloading…': '下载中…',
   'Semantic search stays off until the model is on disk.': '模型落盘前语义检索不会生效。',
   Download: '下载',
-  'Embedding provider': '嵌入服务商',
+  'Remote model': '远程模型',
   'Credentials stay in the main process and are never sent to the renderer.':
     '凭证只留在主进程,不会下发到渲染层。',
   'Unload automatically when idle': '空闲自动卸载',

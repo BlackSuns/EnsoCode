@@ -37,7 +37,15 @@ import {
 } from '@/stores/oauthCredentials';
 import { useSettingsStore } from '@/stores/settings';
 import { type JobKind, toJobRows } from './memoryJobRows';
-import { embeddingModelLabel } from './memoryModelItems';
+import {
+  embeddingBackendSelectValue,
+  embeddingModelLabel,
+  isRemoteEmbeddingId,
+  nextEmbeddingBackend,
+  REMOTE_EMBEDDING_BACKEND_ID,
+  remoteEmbeddingModelId,
+  toRemoteEmbeddingId,
+} from './memoryModelItems';
 
 /**
  * 记忆设置分页。开关写 settings.json（Main 侧 notifyMemoryEmbeddingSettings 会同步到 memoryHost），
@@ -59,8 +67,6 @@ const EMPTY_JOBS: MemoryJobsSnapshot = { distill: [], kg: [], reembed: null };
 
 // 模型清单来自 Main 的注册表（registry.ts），不在渲染层重写一份：
 // 手写副本一旦 id 对不上，选中后会静默回落默认模型，用户完全看不出来
-const REMOTE_MODEL_ID = 'remote:openai-compatible';
-
 /**
  * 批量提炼前的分支：范围内全部未提炼 → 直接跑；有已提炼的 → 先问。
  * 抽成纯函数以便直接断言（SSR 渲染下拿不到弹窗交互）。
@@ -217,6 +223,13 @@ export function MemorySettings({ onLibraryChanged }: { onLibraryChanged?: () => 
   const distillModelEntry = distillProvider?.models.find(
     (entry) => entry.id === distillModel?.modelId
   );
+  const remoteEmbeddingModel = remoteEmbeddingModelId(embeddingModel);
+  const embeddingProvider = remoteProviderId
+    ? modelCandidates.find((entry) => entry.id === remoteProviderId)
+    : undefined;
+  const embeddingRemoteEntry = embeddingProvider?.models.find(
+    (entry) => entry.id === remoteEmbeddingModel
+  );
 
   const memoryEnabled = !disabledBuiltinTools.includes('memory');
   const [stats, setStats] = React.useState<MemoryStats | null>(null);
@@ -349,12 +362,8 @@ export function MemorySettings({ onLibraryChanged }: { onLibraryChanged?: () => 
   }));
   const modelItems = [
     ...models.map((model) => ({ value: model.id, label: embeddingModelLabel(model) })),
-    { value: REMOTE_MODEL_ID, label: t('Remote (OpenAI-compatible)') },
+    { value: REMOTE_EMBEDDING_BACKEND_ID, label: t('Remote (OpenAI-compatible)') },
   ];
-  const providerItems = providers.map((provider) => ({
-    value: provider.id,
-    label: provider.name,
-  }));
   const modelIdleItems = MEMORY_MODEL_IDLE_MINUTES.map((minutes) => ({
     value: String(minutes),
     label: minutes === 0 ? t('Never') : t('{{count}} min', { count: minutes }),
@@ -365,7 +374,7 @@ export function MemorySettings({ onLibraryChanged }: { onLibraryChanged?: () => 
     { value: 'auto', label: t('Follow conversation') },
   ];
   const showRemotePicker =
-    embeddingModel.startsWith('remote:') || selectedModel?.runtime === 'openai-compatible';
+    isRemoteEmbeddingId(embeddingModel) || selectedModel?.runtime === 'openai-compatible';
   const jobRows = React.useMemo(() => toJobRows(jobs), [jobs]);
 
   return (
@@ -428,7 +437,10 @@ export function MemorySettings({ onLibraryChanged }: { onLibraryChanged?: () => 
         >
           <div className="min-w-0">
             <p className="text-sm">
-              {selectedModel ? embeddingModelLabel(selectedModel) : embeddingModel}
+              {selectedModel
+                ? embeddingModelLabel(selectedModel)
+                : (remoteEmbeddingModel ??
+                  (showRemotePicker ? t('Remote (OpenAI-compatible)') : embeddingModel))}
             </p>
             <p className="text-xs text-muted-foreground">
               {selectedModel
@@ -439,14 +451,20 @@ export function MemorySettings({ onLibraryChanged }: { onLibraryChanged?: () => 
                   ]
                     .filter(Boolean)
                     .join(' · ')
-                : t('Unknown model; the default is used instead.')}
+                : showRemotePicker
+                  ? 'openai-compatible'
+                  : t('Unknown model; the default is used instead.')}
             </p>
           </div>
           {/* items 必传：base-ui 靠它把 value 映射成 label，否则触发器显示原始 id */}
           <Select
-            value={embeddingModel}
+            value={embeddingBackendSelectValue(embeddingModel)}
             items={modelItems}
-            onValueChange={(value) => setEmbeddingModel(String(value))}
+            onValueChange={(value) => {
+              if (value !== null) {
+                setEmbeddingModel(nextEmbeddingBackend(embeddingModel, String(value)));
+              }
+            }}
             disabled={!memoryEnabled}
           >
             <SelectTrigger className="w-56">
@@ -530,31 +548,35 @@ export function MemorySettings({ onLibraryChanged }: { onLibraryChanged?: () => 
         {showRemotePicker && (
           <div
             className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
-            data-settings-row="memory.remoteProvider"
+            data-settings-row="memory.remoteModel"
           >
             <div className="min-w-0">
-              <p className="text-sm">{t('Embedding provider')}</p>
+              <p className="text-sm">{t('Remote model')}</p>
               <p className="text-xs text-muted-foreground">
                 {t('Credentials stay in the main process and are never sent to the renderer.')}
               </p>
             </div>
-            <Select
-              value={remoteProviderId ?? ''}
-              items={providerItems}
-              onValueChange={(value) => setRemoteProviderId(value ? String(value) : null)}
-              disabled={!memoryEnabled}
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectPopup>
-                {providerItems.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
+            {modelCandidates.length > 0 && (
+              <div className="w-56 shrink-0">
+                <ModelPicker
+                  providers={modelCandidates}
+                  providerId={embeddingProvider?.id ?? remoteProviderId ?? ''}
+                  modelId={embeddingRemoteEntry?.id ?? remoteEmbeddingModel ?? ''}
+                  reasoningEnabled={false}
+                  thinkingLevel="medium"
+                  showReasoningControls={false}
+                  emptyLabel={t('Select model')}
+                  side="bottom"
+                  triggerClassName={MODEL_PICKER_FORM_TRIGGER_CLASS}
+                  onSelect={(providerId, modelId) => {
+                    setRemoteProviderId(providerId);
+                    setEmbeddingModel(toRemoteEmbeddingId(modelId));
+                  }}
+                  onReasoningChange={() => {}}
+                  onThinkingChange={() => {}}
+                />
+              </div>
+            )}
           </div>
         )}
 

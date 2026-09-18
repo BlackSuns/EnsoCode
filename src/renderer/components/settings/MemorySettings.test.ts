@@ -23,6 +23,7 @@ const harness = vi.hoisted(() => ({
   jobs: { distill: [], kg: [], reembed: null } as MemoryJobsSnapshot,
   models: [] as EmbeddingModelDto[],
   download: vi.fn(() => Promise.resolve(true)),
+  pickerProps: null as Record<string, unknown> | null,
 }));
 
 function model(overrides: Partial<EmbeddingModelDto> = {}): EmbeddingModelDto {
@@ -51,6 +52,16 @@ vi.mock('@/i18n', async () => {
 vi.mock('@/stores/settings', () => ({
   useSettingsStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector(harness.state),
+}));
+
+vi.mock('@/components/chat/ModelPicker', () => ({
+  MODEL_PICKER_FORM_TRIGGER_CLASS: 'form-trigger',
+  ModelPicker: (props: Record<string, unknown>) => {
+    harness.pickerProps = props;
+    return createElement('i', {
+      'data-model-picker': `${String(props.providerId)}/${String(props.modelId)}`,
+    });
+  },
 }));
 
 function setState(overrides: Record<string, unknown> = {}) {
@@ -82,6 +93,7 @@ beforeEach(() => {
   harness.jobs = { distill: [], kg: [], reembed: null };
   harness.models = [model()];
   harness.download.mockClear();
+  harness.pickerProps = null;
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
@@ -270,13 +282,46 @@ describe('MemorySettings', () => {
     expect(html).toContain('only fetched when you press Download');
   });
 
-  it('hides the provider picker unless the remote model is selected', () => {
-    expect(renderToStaticMarkup(createElement(MemorySettings))).not.toContain('Embedding provider');
+  it('hides the remote model picker unless a remote embedding backend is selected', () => {
+    expect(renderToStaticMarkup(createElement(MemorySettings))).not.toContain('Remote model');
     setState({ memoryEmbeddingModel: 'remote:openai-compatible' });
     const html = renderToStaticMarkup(createElement(MemorySettings));
-    expect(html).toContain('Embedding provider');
-    expect(html).toContain('data-settings-row="memory.remoteProvider"');
+    expect(html).toContain('Remote model');
+    expect(html).toContain('data-settings-row="memory.remoteModel"');
     expect(html).toContain('Credentials stay in the main process');
+    expect(html).not.toContain('Unknown model; the default is used instead.');
+  });
+
+  it('lets the remote embedding row pick a provider model like distillation', () => {
+    const setMemoryEmbeddingModel = vi.fn();
+    const setMemoryEmbeddingRemoteProviderId = vi.fn();
+    setState({
+      memoryChatModel: 'local:e2b',
+      memoryEmbeddingModel: 'remote:openai/text-embedding-3-small',
+      memoryEmbeddingRemoteProviderId: 'p1',
+      setMemoryEmbeddingModel,
+      setMemoryEmbeddingRemoteProviderId,
+      providers: [
+        {
+          id: 'p1',
+          name: 'OpenRouter OAuth',
+          api: 'openai-completions',
+          apiKey: 'secret',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          enabled: true,
+          models: [{ id: 'openai/text-embedding-3-small', label: 'Embed small' }],
+        },
+      ],
+    });
+    const html = renderToStaticMarkup(createElement(MemorySettings));
+    expect(html).toContain('data-model-picker="p1/openai/text-embedding-3-small"');
+    expect(html).not.toContain('Unknown model; the default is used instead.');
+
+    const onSelect = harness.pickerProps?.onSelect;
+    expect(typeof onSelect).toBe('function');
+    if (typeof onSelect === 'function') onSelect('p1', 'openai/text-embedding-3-large');
+    expect(setMemoryEmbeddingRemoteProviderId).toHaveBeenCalledWith('p1');
+    expect(setMemoryEmbeddingModel).toHaveBeenCalledWith('remote:openai/text-embedding-3-large');
   });
 
   it('never silently downloads: the model list drives an explicit download row', () => {
