@@ -161,6 +161,7 @@ const initialState = {
   backgroundRefreshNonce: 0,
   providers: [] as import('@shared/types').ModelProvider[],
   defaultModel: null,
+  defaultModelFollowLast: false,
   titleSummaryEnabled: false,
   titleSummaryModel: null as import('@shared/defaultModel').DefaultModelRef | null,
   memoryDistillModel: null as import('@shared/defaultModel').DefaultModelRef | null,
@@ -355,7 +356,22 @@ export const useSettingsStore = create<SettingsState>()(
 
       setDefaultModel: (defaultModel) => {
         useDefaultModelRevalidationStore.setState({ latest: null });
-        set({ defaultModel });
+        set({ defaultModel, defaultModelFollowLast: false });
+      },
+
+      setDefaultModelFollowLast: (defaultModelFollowLast) => set({ defaultModelFollowLast }),
+
+      rememberDefaultModelFromSelection: (selection) => {
+        const state = get();
+        if (!state.defaultModelFollowLast) return;
+        if (
+          state.defaultModel?.providerId === selection.providerId &&
+          state.defaultModel?.modelId === selection.modelId
+        ) {
+          return;
+        }
+        useDefaultModelRevalidationStore.setState({ latest: null });
+        set({ defaultModel: selection });
       },
 
       setDefaultReasoningEnabled: (defaultReasoningEnabled) => set({ defaultReasoningEnabled }),

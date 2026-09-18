@@ -203,6 +203,8 @@ export interface SettingsState {
   providers: ModelProvider[];
   /** 尚未自选模型的新会话与 Enso 共用的全局默认；只保存 provider entry id + model id */
   defaultModel: DefaultModelRef | null;
+  /** 新会话跟随聊天里最后一次选的模型；缺省关（钉死当前 defaultModel） */
+  defaultModelFollowLast: boolean;
   /** 会话标题总结：首条用户消息后用小模型生成短标题；缺省关 */
   titleSummaryEnabled: boolean;
   /** 标题总结独立模型；null = 跟随全局默认模型 */
@@ -324,6 +326,10 @@ export interface SettingsState {
 
   /** 设置全局默认；只持久化 provider entry id + model id */
   setDefaultModel: (defaultModel: DefaultModelRef | null) => void;
+  /** 打开后，聊天里换模型会写回全局默认；在设置里再选具体模型则钉死 */
+  setDefaultModelFollowLast: (value: boolean) => void;
+  /** 仅 follow-last 开启时写回默认模型，不把模式切回钉死 */
+  rememberDefaultModelFromSelection: (selection: DefaultModelRef) => void;
   /** 用当前 OAuth 真凭证快照重校验；非 ready/stale 时绝不写回 */
   revalidateDefaultModel: (snapshot: OauthCredentialSnapshot) => DefaultModelRevalidation;
   setDefaultReasoningEnabled: (value: boolean) => void;

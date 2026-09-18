@@ -363,6 +363,8 @@ export const zhTranslations: Record<string, string> = {
   Local: '本地',
   'Default model': '默认模型',
   'Used for new conversations.': '用于普通新对话。',
+  'Follow last selection': '跟随最后一次选择',
+  'New conversations use the last model you picked.': '新对话使用你上次选择的模型。',
   'Used for new conversations in this project.': '用于本项目的新对话。',
   'Used for new conversations in this group.': '用于本组的新对话。',
   'Project settings': '项目设置',

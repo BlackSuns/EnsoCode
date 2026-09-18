@@ -220,4 +220,51 @@ describe('settings default model actions', () => {
       modelId: 'model',
     });
   });
+
+  it('setDefaultModelFollowLast stores the follow-last preference', () => {
+    settingsModule.useSettingsStore.getState().setDefaultModelFollowLast(true);
+    expect(settingsModule.useSettingsStore.getState().defaultModelFollowLast).toBe(true);
+    settingsModule.useSettingsStore.getState().setDefaultModelFollowLast(false);
+    expect(settingsModule.useSettingsStore.getState().defaultModelFollowLast).toBe(false);
+  });
+
+  it('setDefaultModel pins a model and turns off follow-last', () => {
+    settingsModule.useSettingsStore.setState({
+      defaultModelFollowLast: true,
+      defaultModel: { providerId: 'old', modelId: 'model' },
+    });
+    settingsModule.useSettingsStore.getState().setDefaultModel({
+      providerId: 'chosen',
+      modelId: 'next',
+    });
+    expect(settingsModule.useSettingsStore.getState()).toMatchObject({
+      defaultModel: { providerId: 'chosen', modelId: 'next' },
+      defaultModelFollowLast: false,
+    });
+  });
+
+  it('rememberDefaultModelFromSelection writes only while follow-last is on', () => {
+    settingsModule.useSettingsStore.setState({
+      defaultModelFollowLast: false,
+      defaultModel: { providerId: 'pinned', modelId: 'model' },
+    });
+    settingsModule.useSettingsStore.getState().rememberDefaultModelFromSelection({
+      providerId: 'next',
+      modelId: 'model',
+    });
+    expect(settingsModule.useSettingsStore.getState().defaultModel).toEqual({
+      providerId: 'pinned',
+      modelId: 'model',
+    });
+
+    settingsModule.useSettingsStore.setState({ defaultModelFollowLast: true });
+    settingsModule.useSettingsStore.getState().rememberDefaultModelFromSelection({
+      providerId: 'next',
+      modelId: 'model',
+    });
+    expect(settingsModule.useSettingsStore.getState()).toMatchObject({
+      defaultModel: { providerId: 'next', modelId: 'model' },
+      defaultModelFollowLast: true,
+    });
+  });
 });

@@ -79,6 +79,7 @@ export const SETTINGS_DATA_COVERAGE = {
   autoDeleteArchivedDays: excluded('Renderer sidebar archive preference; not an Enso capability.'),
   providers: surfaces('providers.list'),
   defaultModel: surfaces('providers.default-model'),
+  defaultModelFollowLast: surfaces('providers.default-model'),
   defaultReasoningEnabled: surfaces('providers.default-model'),
   defaultThinkingLevel: surfaces('providers.default-model'),
   titleSummaryEnabled: excluded('Conversation title summary preference; not an Enso capability.'),
@@ -189,6 +190,10 @@ export const SETTINGS_ACTION_COVERAGE = {
   setStatusLineSegments: surfaces('appearance.status-line-segments'),
   toggleStatusLineSegment: surfaces('appearance.status-line-segments'),
   setDefaultModel: surfaces('providers.default-model'),
+  setDefaultModelFollowLast: surfaces('providers.default-model'),
+  rememberDefaultModelFromSelection: excluded(
+    'Follow-last default model is updated from the chat picker.'
+  ),
   setDefaultReasoningEnabled: surfaces('providers.default-model'),
   setDefaultThinkingLevel: surfaces('providers.default-model'),
   setTitleSummaryEnabled: excluded(

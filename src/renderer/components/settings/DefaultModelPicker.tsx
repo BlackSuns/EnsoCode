@@ -3,6 +3,7 @@ import type { ModelProvider } from '@shared/types';
 import { CircleAlert, Server } from 'lucide-react';
 import { useMemo } from 'react';
 import { MODEL_PICKER_FORM_TRIGGER_CLASS, ModelPicker } from '@/components/chat/ModelPicker';
+import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
 import {
   usableProvidersForOauthSnapshot,
@@ -22,6 +23,8 @@ export function DefaultModelPicker() {
   const providers = useSettingsStore((state) => state.providers);
   const defaultModel = useSettingsStore((state) => state.defaultModel);
   const setDefaultModel = useSettingsStore((state) => state.setDefaultModel);
+  const defaultModelFollowLast = useSettingsStore((state) => state.defaultModelFollowLast);
+  const setDefaultModelFollowLast = useSettingsStore((state) => state.setDefaultModelFollowLast);
   const defaultReasoningEnabled = useSettingsStore((state) => state.defaultReasoningEnabled);
   const defaultThinkingLevel = useSettingsStore((state) => state.defaultThinkingLevel);
   const setDefaultReasoningEnabled = useSettingsStore((state) => state.setDefaultReasoningEnabled);
@@ -59,7 +62,13 @@ export function DefaultModelPicker() {
     <section className="space-y-2 rounded-lg border bg-card p-3">
       <div className="min-w-0">
         <h4 className="font-medium text-sm">{t('Default model')}</h4>
-        <p className="mt-0.5 text-muted-foreground text-xs">{t('Used for new conversations.')}</p>
+        <p className="mt-0.5 text-muted-foreground text-xs">
+          {t(
+            defaultModelFollowLast
+              ? 'New conversations use the last model you picked.'
+              : 'Used for new conversations.'
+          )}
+        </p>
       </div>
       {candidates.length > 0 && (
         <div className="w-full min-w-0">
@@ -70,13 +79,26 @@ export function DefaultModelPicker() {
             reasoningEnabled={defaultReasoningEnabled}
             thinkingLevel={defaultThinkingLevel}
             emptyLabel={t('Select model')}
+            triggerLabel={defaultModelFollowLast ? t('Follow last selection') : undefined}
             side="bottom"
             triggerClassName={MODEL_PICKER_FORM_TRIGGER_CLASS}
             onSelect={(providerId, modelId) => setDefaultModel({ providerId, modelId })}
             onReasoningChange={setDefaultReasoningEnabled}
             onThinkingChange={setDefaultThinkingLevel}
+            showReasoningControls={!defaultModelFollowLast}
           />
         </div>
+      )}
+      {!defaultModelFollowLast && candidates.length > 0 && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="self-start"
+          onClick={() => setDefaultModelFollowLast(true)}
+        >
+          {t('Follow last selection')}
+        </Button>
       )}
 
       {candidates.length === 0 && (

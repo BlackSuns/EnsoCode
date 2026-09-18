@@ -123,6 +123,7 @@ export const CONFIG_SYNC_FIELD_POLICY = {
   backgroundRefreshNonce: { mode: 'excluded', reason: 'device appearance preference' },
   providers: { mode: 'portable' },
   defaultModel: { mode: 'portable' },
+  defaultModelFollowLast: { mode: 'portable' },
   titleSummaryEnabled: { mode: 'portable' },
   titleSummaryModel: { mode: 'portable' },
   memoryDistillModel: { mode: 'portable' },

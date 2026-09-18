@@ -17,7 +17,11 @@ const providers: ModelProvider[] = [
 ];
 
 const harness = vi.hoisted(() => ({
+  state: {
+    defaultModelFollowLast: false,
+  },
   setDefaultModel: vi.fn(),
+  setDefaultModelFollowLast: vi.fn(),
   setDefaultReasoningEnabled: vi.fn(),
   setDefaultThinkingLevel: vi.fn(),
   pickerProps: null as Record<string, unknown> | null,
@@ -35,6 +39,8 @@ vi.mock('@/stores/settings', () => ({
       providers,
       defaultModel: { providerId: 'api', modelId: 'model' },
       setDefaultModel: harness.setDefaultModel,
+      defaultModelFollowLast: harness.state.defaultModelFollowLast,
+      setDefaultModelFollowLast: harness.setDefaultModelFollowLast,
       defaultReasoningEnabled: true,
       defaultThinkingLevel: 'high',
       setDefaultReasoningEnabled: harness.setDefaultReasoningEnabled,
@@ -75,9 +81,11 @@ vi.mock('@/components/chat/ModelPicker', () => ({
 
 describe('DefaultModelPicker', () => {
   it('reuses ModelPicker with reasoning controls and writes selection + reasoning defaults', () => {
+    harness.state.defaultModelFollowLast = false;
     const html = renderToStaticMarkup(createElement(DefaultModelPicker));
     expect(html).toContain('data-default-picker="true"');
-    expect(html).toContain('data-reasoning-controls="undefined"');
+    expect(html).toContain('data-reasoning-controls="true"');
+    expect(html).toContain('Follow last selection');
 
     expect(harness.pickerProps?.reasoningEnabled).toBe(true);
     expect(harness.pickerProps?.thinkingLevel).toBe('high');
@@ -89,6 +97,7 @@ describe('DefaultModelPicker', () => {
       providerId: 'api',
       modelId: 'next-model',
     });
+    expect(harness.setDefaultModelFollowLast).not.toHaveBeenCalled();
 
     const onReasoningChange = harness.pickerProps?.onReasoningChange;
     if (typeof onReasoningChange === 'function') onReasoningChange(false);
@@ -97,5 +106,13 @@ describe('DefaultModelPicker', () => {
     const onThinkingChange = harness.pickerProps?.onThinkingChange;
     if (typeof onThinkingChange === 'function') onThinkingChange('max');
     expect(harness.setDefaultThinkingLevel).toHaveBeenCalledWith('max');
+  });
+
+  it('follow-last mode labels the picker and hides the extra option', () => {
+    harness.state.defaultModelFollowLast = true;
+    const html = renderToStaticMarkup(createElement(DefaultModelPicker));
+    expect(harness.pickerProps?.triggerLabel).toBe('Follow last selection');
+    expect(harness.pickerProps?.showReasoningControls).toBe(false);
+    expect(html).not.toContain('Follow last selection');
   });
 });

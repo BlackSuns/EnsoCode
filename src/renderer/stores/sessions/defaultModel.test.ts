@@ -78,6 +78,7 @@ vi.stubGlobal('window', {
         sourceProjection.conversations.push(value);
         return { accepted: true, value };
       }),
+      updateConversationSelection: vi.fn(async () => ({ accepted: true })),
     },
   },
 });
@@ -225,6 +226,114 @@ describe('resumeConversation model resolution', () => {
     expect(persisted.conversations[id]).toMatchObject({
       lastProviderId: 'remembered',
       lastModelId: 'model',
+    });
+  });
+});
+
+describe('setModel follow-last default', () => {
+  beforeAll(async () => {
+    settingsModule = await import('../settings');
+    sessionsModule = await import('./index');
+  });
+
+  beforeEach(() => {
+    conversationCounter = 0;
+    sourceProjection = {
+      projects: [
+        {
+          projectId: 'project',
+          canonicalPath: '/workspace',
+          state: 'active',
+          version: 1,
+        },
+      ],
+      conversations: [],
+    };
+    sessionsModule.useSessionsStore.setState({ conversations: {}, order: [], activeId: null });
+    settingsModule.useSettingsStore.setState({
+      providers: [],
+      defaultModel: null,
+      defaultModelFollowLast: false,
+      projects: [{ id: 'project', name: 'Project', path: '/workspace' }],
+      loadLocalSkills: true,
+    });
+    setSnapshot(1, { status: 'ready', authenticatedAccountKeys: new Set() });
+  });
+
+  it('updates the global default when follow-last is on', async () => {
+    const first = provider('first');
+    const next = provider('next');
+    settingsModule.useSettingsStore.setState({
+      providers: [first, next],
+      defaultModel: { providerId: first.id, modelId: 'model' },
+      defaultModelFollowLast: true,
+    });
+    const id = await sessionsModule.useSessionsStore.getState().newConversation('project');
+    if (!id) throw new Error('conversation authority was not created');
+
+    sessionsModule.useSessionsStore.getState().setModel(id, next.id, 'model');
+    expect(settingsModule.useSettingsStore.getState()).toMatchObject({
+      defaultModel: { providerId: next.id, modelId: 'model' },
+      defaultModelFollowLast: true,
+    });
+  });
+
+  it('does not change a pinned default when follow-last is off', async () => {
+    const first = provider('first');
+    const next = provider('next');
+    settingsModule.useSettingsStore.setState({
+      providers: [first, next],
+      defaultModel: { providerId: first.id, modelId: 'model' },
+      defaultModelFollowLast: false,
+    });
+    const id = await sessionsModule.useSessionsStore.getState().newConversation('project');
+    if (!id) throw new Error('conversation authority was not created');
+
+    sessionsModule.useSessionsStore.getState().setModel(id, next.id, 'model');
+    expect(settingsModule.useSettingsStore.getState().defaultModel).toEqual({
+      providerId: first.id,
+      modelId: 'model',
+    });
+  });
+
+  it('updates global reasoning defaults when follow-last is on', async () => {
+    settingsModule.useSettingsStore.setState({
+      providers: [provider('first')],
+      defaultModelFollowLast: true,
+      defaultReasoningEnabled: true,
+      defaultThinkingLevel: 'medium',
+    });
+    const id = await sessionsModule.useSessionsStore.getState().newConversation('project');
+    if (!id) throw new Error('conversation authority was not created');
+
+    sessionsModule.useSessionsStore.getState().setThinking(id, 'high');
+    expect(settingsModule.useSettingsStore.getState()).toMatchObject({
+      defaultThinkingLevel: 'high',
+      defaultModelFollowLast: true,
+    });
+
+    sessionsModule.useSessionsStore.getState().setReasoning(id, false);
+    expect(settingsModule.useSettingsStore.getState()).toMatchObject({
+      defaultReasoningEnabled: false,
+      defaultModelFollowLast: true,
+    });
+  });
+
+  it('does not change pinned reasoning when follow-last is off', async () => {
+    settingsModule.useSettingsStore.setState({
+      providers: [provider('first')],
+      defaultModelFollowLast: false,
+      defaultReasoningEnabled: true,
+      defaultThinkingLevel: 'medium',
+    });
+    const id = await sessionsModule.useSessionsStore.getState().newConversation('project');
+    if (!id) throw new Error('conversation authority was not created');
+
+    sessionsModule.useSessionsStore.getState().setThinking(id, 'high');
+    sessionsModule.useSessionsStore.getState().setReasoning(id, false);
+    expect(settingsModule.useSettingsStore.getState()).toMatchObject({
+      defaultReasoningEnabled: true,
+      defaultThinkingLevel: 'medium',
     });
   });
 });

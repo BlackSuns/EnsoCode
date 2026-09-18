@@ -3024,6 +3024,10 @@ export const useSessionsStore = create<SessionsState>()(
           const conversation = get().conversations[id];
           if (!conversation) return;
           set((state) => patch(state, id, { reasoningEnabled: enabled }));
+          if (!conversation.parentId) {
+            const settings = useSettingsStore.getState();
+            if (settings.defaultModelFollowLast) settings.setDefaultReasoningEnabled(enabled);
+          }
           // 已 spawn 的会话即时切换：worker 就地改 model.reasoning，下条请求生效
           if (conversation.started) {
             void window.electronAPI.agent.setReasoning(
@@ -3038,6 +3042,10 @@ export const useSessionsStore = create<SessionsState>()(
           const conversation = get().conversations[id];
           if (!conversation) return;
           set((state) => patch(state, id, { thinkingLevel: level }));
+          if (!conversation.parentId) {
+            const settings = useSettingsStore.getState();
+            if (settings.defaultModelFollowLast) settings.setDefaultThinkingLevel(level);
+          }
           if (conversation.started && conversation.reasoningEnabled) {
             void window.electronAPI.agent.setThinking(id, level);
           }
@@ -3054,6 +3062,7 @@ export const useSessionsStore = create<SessionsState>()(
           set((state) =>
             patch(state, parentId, { lastProviderId: providerId, lastModelId: modelId })
           );
+          useSettingsStore.getState().rememberDefaultModelFromSelection({ providerId, modelId });
           // 已启动的会话必须真正换掉 worker 里的模型：只改记忆会让选择器显示新模型
           // 而请求仍走旧 provider，且后续 @Agent 派发因 selection 对不上而被拒（issue #30）。
           if (get().conversations[parentId]?.started) {

@@ -68,6 +68,7 @@ export interface ConfigSyncState {
   agentTypes: AgentTypeEntry[];
   subagentModels: SubagentModelEntry[];
   defaultModel?: DefaultModelRef | null;
+  defaultModelFollowLast?: boolean;
   titleSummaryModel?: DefaultModelRef | null;
   memoryDistillModel?: DefaultModelRef | null;
   memoryChatModel?: string;

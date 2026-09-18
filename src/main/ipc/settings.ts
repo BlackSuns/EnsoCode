@@ -82,6 +82,7 @@ export const SETTINGS_STATE_FIELDS = [
   'backgroundRefreshNonce',
   'providers',
   'defaultModel',
+  'defaultModelFollowLast',
   'titleSummaryEnabled',
   'titleSummaryModel',
   'memoryDistillModel',

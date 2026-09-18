@@ -170,6 +170,8 @@ interface ModelPickerProps {
   zIndex?: number;
   /** 未选模型时触发器文案 */
   emptyLabel?: string;
+  /** 覆盖触发器文案；设置页「跟随上次选择」等不显示具体模型名 */
+  triggerLabel?: string;
   triggerClassName?: string;
   side?: 'top' | 'bottom';
 }
@@ -473,6 +475,7 @@ export function ModelPicker({
   onThinkingNormalize,
   zIndex,
   emptyLabel,
+  triggerLabel: triggerLabelProp,
   triggerClassName,
   side = 'top',
 }: ModelPickerProps) {
@@ -503,11 +506,13 @@ export function ModelPicker({
   const formTrigger = Boolean(triggerClassName);
   const modelName = current?.label || current?.id || modelId;
   const hasSelection = Boolean(modelName);
-  const triggerLabel = hasSelection
-    ? formTrigger && currentProvider?.name
-      ? `${currentProvider.name} / ${modelName}`
-      : modelName
-    : emptyLabel || t('Select model');
+  const triggerLabel =
+    triggerLabelProp ??
+    (hasSelection
+      ? formTrigger && currentProvider?.name
+        ? `${currentProvider.name} / ${modelName}`
+        : modelName
+      : emptyLabel || t('Select model'));
 
   const groups = useMemo(() => groupProviders(providers, oauthInfos), [providers, oauthInfos]);
 

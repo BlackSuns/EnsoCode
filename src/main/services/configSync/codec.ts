@@ -57,6 +57,7 @@ const STATE_KEYS = [
   'agentTypes',
   'subagentModels',
   'defaultModel',
+  'defaultModelFollowLast',
   'titleSummaryModel',
   'memoryDistillModel',
   'memoryChatModel',
@@ -847,6 +848,7 @@ export function validateBundle(value: unknown): ConfigSyncBundle {
     'memoryKgEnabled',
     'defaultReasoningEnabled',
     'subagentModelsEnabled',
+    'defaultModelFollowLast',
   ])
     booleanField(state, key, 'state', false);
   if (state.compactStrategy !== undefined && parseCompactStrategy(state.compactStrategy) === null)
