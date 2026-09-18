@@ -1,35 +1,55 @@
 /**
  * 注入 guest 页执行的脚本源码（`webContents.executeJavaScript`）。
- * 打 `data-enso-ref` 标记可交互元素，抽扁平条目给 `parseSnapshotEntries`。
- * 点击 / 输入走 DOM 事件，不用 CDP `Input.*`。
+ * 快照只收视口内可见控件 + 可见正文，并打 `data-enso-ref` / kind。
+ * 点 / 填前做遮挡检查，动作后短等待。拖拽坐标在页内解析，指针由 Main sendInputEvent 发。
  */
 
 import { DESIGN_SCRIBBLE_HOLD_MS, DESIGN_SCRIBBLE_MOVE_PX } from './designMode';
 
 const REF_ATTR = 'data-enso-ref';
+const LOCK_OVERLAY_ID = 'enso-browser-lock-overlay';
+
+export const PAGE_SETTLE_FRAME_MS = 50;
+export const PAGE_SETTLE_COMBOBOX_MS = 200;
 
 export const PAGE_SNAPSHOT_SCRIPT = `(() => {
   const REF_ATTR = ${JSON.stringify(REF_ATTR)};
-  const MAX = 1500;
-  const INTERACTIVE = new Set(['a','button','input','select','textarea','summary','option']);
-  const LANDMARK = { header:'banner', nav:'navigation', main:'main', footer:'contentinfo', aside:'complementary', form:'form', section:'region', article:'article', dialog:'dialog', table:'table', ul:'list', ol:'list', li:'listitem', img:'img', h1:'heading', h2:'heading', h3:'heading', h4:'heading', h5:'heading', h6:'heading', p:'paragraph', label:'label' };
+  const MAX = 400;
+  const MAX_TEXT = 2000;
+  const ROLES = ['button','link','checkbox','radio','tab','menuitem','switch','textbox','combobox','option','slider','searchbox','spinbutton'];
   for (const old of document.querySelectorAll('[' + REF_ATTR + ']')) old.removeAttribute(REF_ATTR);
-  let counter = 0;
-  const out = [];
+  if (!document.body) return [];
   const visible = (el) => {
-    const style = getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden') return false;
-    const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
+    if (!el || el.closest('[aria-hidden="true"],[inert]')) return false;
+    if (typeof el.checkVisibility === 'function') {
+      if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+    } else {
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    }
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const inViewport = (el) => {
+    const r = el.getBoundingClientRect();
+    const x = r.x + r.width / 2, y = r.y + r.height / 2;
+    return r.width > 0 && r.height > 0 && x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+  };
+  const isSecret = (el) => {
+    const type = (el.type || '').toLowerCase();
+    return type === 'file' || type === 'hidden';
   };
   const isInteractive = (el) => {
     if (el.getAttribute('aria-hidden') === 'true') return false;
+    if (el.matches(':disabled') || el.closest('[aria-disabled="true"]')) return false;
     const tag = el.tagName.toLowerCase();
-    if (INTERACTIVE.has(tag)) return tag !== 'input' || el.type !== 'hidden';
-    if (el.hasAttribute('onclick') || el.hasAttribute('tabindex')) return true;
+    if (tag === 'option') return false;
+    if (tag === 'a' || tag === 'button' || tag === 'select' || tag === 'textarea' || tag === 'summary') return true;
+    if (tag === 'input') return !isSecret(el);
+    if (el.hasAttribute('onclick') || (el.hasAttribute('tabindex') && el.getAttribute('tabindex') !== '-1')) return true;
     if (el.isContentEditable) return true;
     const role = el.getAttribute('role');
-    return ['button','link','checkbox','radio','tab','menuitem','switch','textbox','combobox','option','slider'].includes(role || '');
+    return ROLES.includes(role || '');
   };
   const roleOf = (el) => {
     const explicit = el.getAttribute('role');
@@ -40,13 +60,15 @@ export const PAGE_SNAPSHOT_SCRIPT = `(() => {
       const type = (el.type || 'text').toLowerCase();
       if (type === 'checkbox' || type === 'radio') return type;
       if (type === 'submit' || type === 'button' || type === 'reset') return 'button';
+      if (type === 'search') return 'searchbox';
+      if (type === 'number') return 'spinbutton';
       return 'textbox';
     }
     if (tag === 'textarea') return 'textbox';
     if (tag === 'select') return 'combobox';
     if (tag === 'button' || tag === 'summary') return 'button';
     if (el.isContentEditable) return 'textbox';
-    return LANDMARK[tag] || 'generic';
+    return 'generic';
   };
   const nameOf = (el) => {
     const aria = el.getAttribute('aria-label');
@@ -73,57 +95,126 @@ export const PAGE_SNAPSHOT_SCRIPT = `(() => {
     if (tag === 'a') return el.getAttribute('href') || '';
     return '';
   };
-  const walk = (node, depth) => {
-    if (out.length >= MAX) return;
-    if (!(node instanceof Element)) return;
-    const tag = node.tagName.toLowerCase();
-    if (tag === 'script' || tag === 'style' || tag === 'noscript' || tag === 'svg' || tag === 'template') return;
-    if (!visible(node)) return;
-    const interactive = isInteractive(node);
-    const role = roleOf(node);
-    const structural = LANDMARK[tag] !== undefined;
-    let nextDepth = depth;
-    if (interactive || structural) {
-      const entry = { role, name: nameOf(node), depth };
-      if (interactive) {
-        const ref = 'e' + (++counter);
-        node.setAttribute(REF_ATTR, ref);
-        entry.ref = ref;
-        const value = valueOf(node);
-        if (value) entry.value = value.length > 200 ? value.slice(0, 200) + '…' : value;
-      }
-      out.push(entry);
-      nextDepth = depth + 1;
-      if (interactive && tag !== 'li' && tag !== 'form') return;
-    } else if (node.childElementCount === 0) {
-      const text = (node.textContent || '').trim();
-      if (text && text.length <= 400) out.push({ role: 'text', name: text, depth });
-      return;
+  const kindOf = (el, role) => {
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'select') return 'select';
+    if (tag === 'input') {
+      const type = (el.type || 'text').toLowerCase();
+      if (type === 'checkbox' || type === 'radio' || type === 'submit' || type === 'button' || type === 'reset' || type === 'image') return 'click';
     }
-    for (const child of node.children) walk(child, nextDepth);
+    if (role === 'textbox' || role === 'searchbox' || role === 'spinbutton' || el.isContentEditable) return 'fill';
+    if (role === 'combobox' && (tag === 'input' || tag === 'textarea')) return 'fill';
+    return 'click';
   };
-  walk(document.body, 0);
+  const out = [];
+  const words = [];
+  let length = 0;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  let node;
+  while ((node = walker.nextNode()) && length < MAX_TEXT) {
+    const value = (node.textContent || '').trim();
+    const parent = node.parentElement;
+    if (!value || !parent || parent.closest('script,style,noscript,template')) continue;
+    if (!visible(parent)) continue;
+    range.selectNodeContents(node);
+    const r = range.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth) {
+      words.push(value);
+      length += value.length;
+    }
+  }
+  const excerpt = words.join(' ').replace(/\\s+/g, ' ').trim().slice(0, MAX_TEXT);
+  if (excerpt) out.push({ role: 'text', name: excerpt, depth: 0 });
+  let counter = 0;
+  for (const el of document.querySelectorAll('a,button,input,select,textarea,summary,[contenteditable="true"],[onclick],[tabindex],[role]')) {
+    if (out.length >= MAX) break;
+    if (!isInteractive(el) || !visible(el) || !inViewport(el)) continue;
+    const role = roleOf(el);
+    const kind = kindOf(el, role);
+    const ref = 'e' + (++counter);
+    el.setAttribute(REF_ATTR, ref);
+    const entry = { role, name: nameOf(el), depth: 0, ref, kind };
+    const value = valueOf(el);
+    if (value) entry.value = value.length > 200 ? value.slice(0, 200) + '…' : value;
+    out.push(entry);
+  }
   return out;
 })()`;
 
 const findByRef = (ref: string) =>
   `document.querySelector('[${REF_ATTR}=' + ${JSON.stringify(JSON.stringify(ref))} + ']')`;
 
-/** 返回 'ok' | 'stale'；点击走 scrollIntoView + 可信 click()。 */
-export const pageClickScript = (ref: string): string => `(() => {
+const withLockHiddenSrc = `const withLockHidden = (fn) => {
+  const overlay = document.getElementById(${JSON.stringify(LOCK_OVERLAY_ID)});
+  if (overlay) overlay.style.display = 'none';
+  try { return fn(); } finally { if (overlay) overlay.style.display = ''; }
+};`;
+
+const hittableSrc = `const hittable = (el) => {
+  if (!el || !el.isConnected) return 'stale';
+  const r = el.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return 'covered';
+  const x = r.x + r.width / 2, y = r.y + r.height / 2;
+  const hit = withLockHidden(() => document.elementFromPoint(x, y));
+  if (!(hit instanceof Node)) return 'covered';
+  if (hit === el || el.contains(hit)) return 'ok';
+  return 'covered';
+};`;
+
+const settleFramesSrc = `const settleFrames = () => Promise.race([
+  new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+  new Promise((r) => setTimeout(r, ${PAGE_SETTLE_FRAME_MS})),
+]);`;
+
+const settleComboboxSrc = `const settleCombobox = async (el) => {
+  const combobox = el && (
+    el.tagName === 'SELECT' ||
+    el.getAttribute('role') === 'combobox' ||
+    (el instanceof HTMLInputElement && (el.getAttribute('aria-autocomplete') === 'list' || el.getAttribute('aria-autocomplete') === 'both'))
+  );
+  if (combobox) {
+    const deadline = performance.now() + ${PAGE_SETTLE_COMBOBOX_MS};
+    while (performance.now() < deadline) {
+      await new Promise((r) => requestAnimationFrame(r));
+      if (el.getAttribute('aria-expanded') === 'true') break;
+    }
+    return;
+  }
+  await settleFrames();
+};`;
+
+/** 返回 'ok' | 'stale' | 'covered'；点击前做遮挡检查，点击后等两帧。 */
+export const pageClickScript = (ref: string): string => `(async () => {
+  ${withLockHiddenSrc}
+  ${hittableSrc}
+  ${settleFramesSrc}
   const el = ${findByRef(ref)};
   if (!el) return 'stale';
   el.scrollIntoView({ block: 'center', inline: 'center' });
+  const gate = hittable(el);
+  if (gate !== 'ok') return gate;
   if (typeof el.focus === 'function') el.focus();
   el.click();
+  await settleFrames();
   return 'ok';
 })()`;
 
-/** 返回 'ok' | 'stale' | 'not-editable'；先清空再填，触发 input/change，可选回车。 */
-export const pageTypeScript = (ref: string, text: string, submit: boolean): string => `(() => {
+/** 返回 'ok' | 'stale' | 'covered' | 'not-editable'；填完后 combobox 最多等 200ms。 */
+export const pageTypeScript = (
+  ref: string,
+  text: string,
+  submit: boolean
+): string => `(async () => {
+  ${withLockHiddenSrc}
+  ${hittableSrc}
+  ${settleFramesSrc}
+  ${settleComboboxSrc}
   const el = ${findByRef(ref)};
   if (!el) return 'stale';
   el.scrollIntoView({ block: 'center', inline: 'center' });
+  const gate = hittable(el);
+  if (gate !== 'ok') return gate;
   el.focus();
   const text = ${JSON.stringify(text)};
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
@@ -147,10 +238,9 @@ export const pageTypeScript = (ref: string, text: string, submit: boolean): stri
     el.dispatchEvent(new KeyboardEvent('keyup', init));
     if (el.form && typeof el.form.requestSubmit === 'function') el.form.requestSubmit();
   }
+  await settleCombobox(el);
   return 'ok';
 })()`;
-
-const LOCK_OVERLAY_ID = 'enso-browser-lock-overlay';
 
 /** 盖在 guest 页上吞掉用户指针；agent 的 element.click() 不经过这层。 */
 export const PAGE_LOCK_OVERLAY_SCRIPT = `(() => {
@@ -184,7 +274,8 @@ export const PAGE_UNLOCK_OVERLAY_SCRIPT = `(() => {
   return document.getElementById(ID) ? 'stuck' : 'ok';
 })()`;
 
-export const pageSelectOptionScript = (ref: string, values: string[]): string => `(() => {
+export const pageSelectOptionScript = (ref: string, values: string[]): string => `(async () => {
+  ${settleFramesSrc}
   const el = ${findByRef(ref)};
   if (!el) return 'stale';
   if (!(el instanceof HTMLSelectElement)) return 'not-select';
@@ -199,10 +290,12 @@ export const pageSelectOptionScript = (ref: string, values: string[]): string =>
   }
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
+  await settleFrames();
   return 'ok';
 })()`;
 
-export const pagePressKeyScript = (key: string): string => `(() => {
+export const pagePressKeyScript = (key: string): string => `(async () => {
+  ${settleFramesSrc}
   const el = document.activeElement instanceof HTMLElement ? document.activeElement : document.body;
   const key = ${JSON.stringify(key)};
   const init = { key, code: key, bubbles: true, cancelable: true };
@@ -212,6 +305,7 @@ export const pagePressKeyScript = (key: string): string => `(() => {
   if (key === 'Enter' && el instanceof HTMLElement && el.form && typeof el.form.requestSubmit === 'function') {
     el.form.requestSubmit();
   }
+  await settleFrames();
   return 'ok';
 })()`;
 
@@ -223,15 +317,22 @@ export const pageScrollScript = (opts: {
   const amount = typeof opts.amount === 'number' ? opts.amount : 400;
   const dir = opts.direction === 'up' ? -1 : 1;
   if (opts.ref) {
-    return `(() => {
+    return `(async () => {
+      ${settleFramesSrc}
       const el = ${findByRef(opts.ref)};
       if (!el) return 'stale';
       el.scrollIntoView({ block: 'center', inline: 'nearest' });
       el.scrollBy({ top: ${dir * amount}, behavior: 'instant' });
+      await settleFrames();
       return 'ok';
     })()`;
   }
-  return `(() => { window.scrollBy({ top: ${dir * amount}, behavior: 'instant' }); return 'ok'; })()`;
+  return `(async () => {
+    ${settleFramesSrc}
+    window.scrollBy({ top: ${dir * amount}, behavior: 'instant' });
+    await settleFrames();
+    return 'ok';
+  })()`;
 };
 
 /** 锁定遮罩会挡住 elementFromPoint；命中测试期间临时隐藏。 */
@@ -241,13 +342,15 @@ const hitTest = `(x, y) => {
   try { return document.elementFromPoint(x, y); } finally { if (overlay) overlay.style.display = ''; }
 }`;
 
-export const pageClickXyScript = (x: number, y: number): string => `(() => {
+export const pageClickXyScript = (x: number, y: number): string => `(async () => {
+  ${settleFramesSrc}
   const x = ${JSON.stringify(x)}, y = ${JSON.stringify(y)};
   const el = (${hitTest})(x, y);
   if (!(el instanceof HTMLElement)) return 'miss';
   el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: x, clientY: y }));
   el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: x, clientY: y }));
   el.click();
+  await settleFrames();
   return 'ok';
 })()`;
 
@@ -272,11 +375,23 @@ export const pageBoundingBoxScript = (ref: string): string => `(() => {
   return { x: r.x, y: r.y, width: r.width, height: r.height };
 })()`;
 
-export const pageDragScript = (
+export const pageLockOverlayDisplayScript = (hidden: boolean): string => `(() => {
+  const el = document.getElementById(${JSON.stringify(LOCK_OVERLAY_ID)});
+  if (el) el.style.display = ${hidden ? JSON.stringify('none') : JSON.stringify('')};
+  return 'ok';
+})()`;
+
+export const PAGE_SETTLE_FRAMES_SCRIPT = `(async () => {
+  ${settleFramesSrc}
+  await settleFrames();
+  return 'ok';
+})()`;
+
+/** 解析坐标，并派发同一份 DataTransfer 的 HTML5 拖放事件（the-internet 一类原生 DnD）。 */
+export const pageDragPointsScript = (
   from: { ref?: string; x?: number; y?: number },
   to: { ref?: string; x?: number; y?: number }
 ): string => `(() => {
-  const hit = ${hitTest};
   const point = (spec) => {
     if (spec.ref) {
       const el = document.querySelector('[${REF_ATTR}=' + JSON.stringify(spec.ref) + ']');
@@ -284,17 +399,35 @@ export const pageDragScript = (
       const r = el.getBoundingClientRect();
       return { el, x: r.x + r.width / 2, y: r.y + r.height / 2 };
     }
-    return { el: hit(spec.x, spec.y), x: spec.x, y: spec.y };
+    return { el: document.elementFromPoint(spec.x, spec.y), x: spec.x, y: spec.y };
   };
   const from = point(${JSON.stringify(from)});
   const to = point(${JSON.stringify(to)});
   if (!from || !to) return 'stale';
-  const start = from.el instanceof HTMLElement ? from.el : document.body;
-  start.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: from.x, clientY: from.y, buttons: 1 }));
-  document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: to.x, clientY: to.y, buttons: 1 }));
-  const end = to.el instanceof HTMLElement ? to.el : document.body;
-  end.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: to.x, clientY: to.y }));
-  return 'ok';
+  const start = from.el instanceof Element ? from.el : document.elementFromPoint(from.x, from.y);
+  const end = to.el instanceof Element ? to.el : document.elementFromPoint(to.x, to.y);
+  if (start instanceof Element && end instanceof Element) {
+    const dt = new DataTransfer();
+    try { dt.setData('text/plain', start.id || (start.textContent || '').trim() || 'enso-drag'); } catch {}
+    dt.effectAllowed = 'all';
+    const fire = (el, type, x, y) => {
+      el.dispatchEvent(new DragEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        clientX: x,
+        clientY: y,
+        dataTransfer: dt,
+        view: window,
+      }));
+    };
+    fire(start, 'dragstart', from.x, from.y);
+    fire(end, 'dragenter', to.x, to.y);
+    fire(end, 'dragover', to.x, to.y);
+    fire(end, 'drop', to.x, to.y);
+    fire(start, 'dragend', to.x, to.y);
+  }
+  return { from: { x: from.x, y: from.y }, to: { x: to.x, y: to.y } };
 })()`;
 
 const DESIGN_MODE_ROOT_ID = 'enso-design-mode-root';

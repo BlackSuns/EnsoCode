@@ -1,5 +1,5 @@
 /**
- * 页面快照：页内脚本抽出扁平条目（角色 / 名称 / 深度 / ref），这里做校验与渲染。
+ * 页面快照：页内脚本抽出扁平条目（角色 / 名称 / 深度 / ref / kind），这里做校验与渲染。
  * 纯逻辑，不碰 Electron；ref 只认 `e<n>`，点/填只能用最近一次快照里的 ref。
  */
 
@@ -11,7 +11,11 @@ export interface SnapshotEntry {
   ref?: string;
   /** 输入框当前值 / 链接 href 等 */
   value?: string;
+  /** 可交互节点的建议操作；模型据此选 click / type / select_option */
+  kind?: SnapshotKind;
 }
+
+export type SnapshotKind = 'click' | 'fill' | 'select';
 
 export interface BrowserSnapshot {
   url: string;
@@ -23,7 +27,8 @@ export interface BrowserSnapshot {
 const REF_PATTERN = /^e\d{1,5}$/;
 const MAX_DEPTH = 64;
 const MAX_ENTRIES = 5000;
-const ENTRY_KEYS = new Set(['role', 'name', 'depth', 'ref', 'value']);
+const ENTRY_KEYS = new Set(['role', 'name', 'depth', 'ref', 'value', 'kind']);
+const KINDS = new Set<SnapshotKind>(['click', 'fill', 'select']);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -31,7 +36,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 function parseEntry(value: unknown): SnapshotEntry | null {
   if (!isRecord(value)) return null;
   if (!Object.keys(value).every((key) => ENTRY_KEYS.has(key))) return null;
-  const { role, name, depth, ref, value: val } = value;
+  const { role, name, depth, ref, value: val, kind } = value;
   if (typeof role !== 'string' || !role) return null;
   if (typeof name !== 'string') return null;
   if (!Number.isInteger(depth) || (depth as number) < 0 || (depth as number) > MAX_DEPTH) {
@@ -42,6 +47,10 @@ function parseEntry(value: unknown): SnapshotEntry | null {
   const entry: SnapshotEntry = { role, name, depth: depth as number };
   if (ref !== undefined) entry.ref = ref;
   if (val !== undefined) entry.value = val;
+  if (kind !== undefined) {
+    if (typeof kind !== 'string' || !KINDS.has(kind as SnapshotKind)) return null;
+    entry.kind = kind as SnapshotKind;
+  }
   return entry;
 }
 
@@ -71,6 +80,9 @@ export function renderSnapshot(
     if (entry.ref) {
       refs.push(entry.ref);
       line += ` [ref=${entry.ref}]`;
+    }
+    if (entry.kind) {
+      line += ` [kind=${entry.kind}]`;
     }
     if (entry.value !== undefined && entry.value !== '') {
       line += `: ${entry.value.replace(/\s+/g, ' ').trim()}`;

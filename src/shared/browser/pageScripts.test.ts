@@ -5,7 +5,18 @@ import {
   PAGE_DESIGN_MODE_ENABLE_SCRIPT,
   PAGE_DESIGN_MODE_HIDE_SCRIPT,
   PAGE_LOCK_OVERLAY_SCRIPT,
+  PAGE_SETTLE_COMBOBOX_MS,
+  PAGE_SETTLE_FRAME_MS,
+  PAGE_SNAPSHOT_SCRIPT,
   PAGE_UNLOCK_OVERLAY_SCRIPT,
+  pageClickScript,
+  pageClickXyScript,
+  pageDragPointsScript,
+  pageLockOverlayDisplayScript,
+  pagePressKeyScript,
+  pageScrollScript,
+  pageSelectOptionScript,
+  pageTypeScript,
 } from './pageScripts';
 
 const runUnlock = (nodes: { id: string }[]): unknown => {
@@ -94,5 +105,82 @@ describe('design mode scripts', () => {
     expect(PAGE_DESIGN_MODE_ENABLE_SCRIPT).toContain("freezeLayer.style.visibility = 'hidden'");
     expect(PAGE_DESIGN_MODE_ENABLE_SCRIPT).toContain("freezeLayer.style.visibility = ''");
     expect(PAGE_DESIGN_MODE_HIDE_SCRIPT).toContain('hide');
+  });
+});
+
+describe('compact snapshot script', () => {
+  it('is valid JavaScript', () => {
+    expect(() => new Function(PAGE_SNAPSHOT_SCRIPT)).not.toThrow();
+  });
+
+  it('only keeps viewport-visible interactive controls and visible text', () => {
+    expect(PAGE_SNAPSHOT_SCRIPT).toContain('innerHeight');
+    expect(PAGE_SNAPSHOT_SCRIPT).toContain('innerWidth');
+    expect(PAGE_SNAPSHOT_SCRIPT).toMatch(/checkVisibility|getBoundingClientRect/);
+    expect(PAGE_SNAPSHOT_SCRIPT).toContain("return 'click'");
+    expect(PAGE_SNAPSHOT_SCRIPT).toContain("return 'fill'");
+    expect(PAGE_SNAPSHOT_SCRIPT).toContain("return 'select'");
+    expect(PAGE_SNAPSHOT_SCRIPT).toContain("type === 'file'");
+    expect(PAGE_SNAPSHOT_SCRIPT).toContain("type === 'hidden'");
+    expect(PAGE_SNAPSHOT_SCRIPT).toContain('TreeWalker');
+    expect(PAGE_SNAPSHOT_SCRIPT).not.toContain('LANDMARK');
+  });
+
+  it('includes password fields as fillable controls but never snapshots the value', () => {
+    expect(PAGE_SNAPSHOT_SCRIPT).not.toContain("type === 'password' || type === 'file'");
+    expect(PAGE_SNAPSHOT_SCRIPT).toContain("el.type !== 'password'");
+    expect(PAGE_SNAPSHOT_SCRIPT).toContain("type === 'file'");
+  });
+});
+
+describe('pre-action hittable guard', () => {
+  it('click and type reject covered targets instead of firing into an overlay', () => {
+    const click = pageClickScript('e3');
+    const type = pageTypeScript('e3', 'hi', false);
+    for (const src of [click, type]) {
+      expect(src).toContain('elementFromPoint');
+      expect(src).toContain('enso-browser-lock-overlay');
+      expect(src).toContain("'covered'");
+      expect(src).toContain('isConnected');
+    }
+  });
+});
+
+describe('post-action settle', () => {
+  it('waits two frames or 50ms after click-like actions, and up to 200ms after combobox typing', () => {
+    expect(PAGE_SETTLE_FRAME_MS).toBe(50);
+    expect(PAGE_SETTLE_COMBOBOX_MS).toBe(200);
+    const click = pageClickScript('e1');
+    expect(click).toContain('requestAnimationFrame');
+    expect(click).toContain(String(PAGE_SETTLE_FRAME_MS));
+    expect(click).not.toContain(String(PAGE_SETTLE_COMBOBOX_MS));
+    const type = pageTypeScript('e1', 'zurich', false);
+    expect(type).toContain('requestAnimationFrame');
+    expect(type).toContain(String(PAGE_SETTLE_COMBOBOX_MS));
+    expect(pageSelectOptionScript('e1', ['US'])).toContain('requestAnimationFrame');
+    expect(pageClickXyScript(10, 20)).toContain('requestAnimationFrame');
+    expect(pagePressKeyScript('Enter')).toContain('requestAnimationFrame');
+    expect(pageScrollScript({ direction: 'down' })).toContain('requestAnimationFrame');
+  });
+});
+
+describe('drag point resolver', () => {
+  it('resolves source/target in page space and hides the lock overlay so hit-testing is real', () => {
+    const src = pageDragPointsScript({ ref: 'e1' }, { x: 2, y: 3 });
+    expect(src).toContain('elementFromPoint');
+    expect(src).toContain('data-enso-ref');
+    expect(src).not.toContain('MouseEvent');
+    expect(pageLockOverlayDisplayScript(true)).toContain('enso-browser-lock-overlay');
+    expect(pageLockOverlayDisplayScript(true)).toContain('none');
+  });
+
+  it('fires a shared DataTransfer HTML5 drag sequence so native drop handlers run', () => {
+    const src = pageDragPointsScript({ ref: 'e1' }, { ref: 'e2' });
+    expect(src).toContain('DataTransfer');
+    expect(src).toContain('DragEvent');
+    expect(src).toContain("'dragstart'");
+    expect(src).toContain("'dragover'");
+    expect(src).toContain("'drop'");
+    expect(src).toContain("'dragend'");
   });
 });

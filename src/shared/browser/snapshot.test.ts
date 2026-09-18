@@ -12,6 +12,15 @@ describe('parseSnapshotEntries', () => {
     expect(entries?.[1]?.ref).toBe('e1');
   });
 
+  it('accepts click/fill/select kind on interactive entries', () => {
+    const entries = parseSnapshotEntries([
+      { role: 'button', name: 'Go', depth: 0, ref: 'e1', kind: 'click' },
+      { role: 'textbox', name: 'Email', depth: 0, ref: 'e2', kind: 'fill', value: 'a@b' },
+      { role: 'combobox', name: 'Country', depth: 0, ref: 'e3', kind: 'select', value: 'US' },
+    ]);
+    expect(entries?.map((entry) => entry.kind)).toEqual(['click', 'fill', 'select']);
+  });
+
   it('rejects non-array, bad ref format, missing role and oversized depth', () => {
     expect(parseSnapshotEntries(null)).toBeNull();
     expect(parseSnapshotEntries({})).toBeNull();
@@ -19,6 +28,9 @@ describe('parseSnapshotEntries', () => {
     expect(parseSnapshotEntries([{ name: 'x', depth: 0 }])).toBeNull();
     expect(parseSnapshotEntries([{ role: 'button', name: 'x', depth: -1 }])).toBeNull();
     expect(parseSnapshotEntries([{ role: 'button', name: 'x', depth: 0, extra: 1 }])).toBeNull();
+    expect(
+      parseSnapshotEntries([{ role: 'button', name: 'x', depth: 0, ref: 'e1', kind: 'hover' }])
+    ).toBeNull();
   });
 });
 
@@ -47,6 +59,15 @@ describe('renderSnapshot', () => {
       { role: 'link', name: 'a"b\nc', depth: 0, ref: 'e1' },
     ]);
     expect(snap.text.endsWith('- link "a\\"b c" [ref=e1]')).toBe(true);
+  });
+});
+
+describe('renderSnapshot kinds', () => {
+  it('prints kind next to ref so the model can pick click vs fill vs select', () => {
+    const snap = renderSnapshot({ url: 'u', title: 't' }, [
+      { role: 'textbox', name: 'Email', depth: 0, ref: 'e2', kind: 'fill', value: 'a@b' },
+    ]);
+    expect(snap.text).toContain('- textbox "Email" [ref=e2] [kind=fill]: a@b');
   });
 });
 

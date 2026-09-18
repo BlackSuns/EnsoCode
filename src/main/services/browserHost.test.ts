@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { isBrowserPartition, pageScreenshotCdpParams, partitionName } from './browserHost';
+import {
+  dragInputEvents,
+  hiddenTabCdpCommands,
+  interpretPageAction,
+  isBrowserPartition,
+  pageScreenshotCdpParams,
+  partitionName,
+  shownTabCdpCommands,
+} from './browserHost';
 
 describe('partitionName', () => {
   it('dev 与打包版分罐，且都是 persist', () => {
@@ -32,5 +40,52 @@ describe('pageScreenshotCdpParams', () => {
       captureBeyondViewport: false,
       fromSurface: true,
     });
+  });
+});
+
+describe('hidden tab rendering', () => {
+  it('emulates focus so background tabs keep rAF without being the visible Chrome tab', () => {
+    expect(hiddenTabCdpCommands()).toEqual(
+      expect.arrayContaining([
+        {
+          method: 'Emulation.setFocusEmulationEnabled',
+          params: { enabled: true },
+        },
+        expect.objectContaining({ method: 'Emulation.setDeviceMetricsOverride' }),
+      ])
+    );
+    expect(shownTabCdpCommands()).toEqual(
+      expect.arrayContaining([
+        { method: 'Emulation.setFocusEmulationEnabled', params: { enabled: false } },
+        { method: 'Emulation.clearDeviceMetricsOverride', params: {} },
+      ])
+    );
+  });
+});
+
+describe('interpretPageAction', () => {
+  it('keeps covered distinct from stale so the model re-snapshots instead of retrying a dead ref', () => {
+    expect(interpretPageAction('e1', 'ok')).toBeNull();
+    expect(interpretPageAction('e1', 'covered')?.message).toMatch(/covered|hittable/);
+    expect(interpretPageAction('e1', 'stale')?.message).toMatch(/stale/);
+    expect(interpretPageAction('e1', 'not-editable')?.message).toMatch(/not editable/);
+  });
+});
+
+describe('dragInputEvents', () => {
+  it('emits a trusted mouseDown-move-mouseUp path so HTML5 drag can start', () => {
+    const events = dragInputEvents({ x: 10, y: 20 }, { x: 110, y: 80 });
+    expect(events[0]).toMatchObject({ type: 'mouseDown', x: 10, y: 20, button: 'left' });
+    expect(events.at(-1)).toMatchObject({ type: 'mouseUp', x: 110, y: 80, button: 'left' });
+    const moves = events.filter((event) => event.type === 'mouseMove');
+    expect(moves.length).toBeGreaterThanOrEqual(8);
+    expect(moves[0]?.button).toBe('left');
+    expect(
+      events.some((event) => event.type === 'mouseMove' && event.x === 10 && event.y === 20)
+    ).toBe(false);
+    const firstMove = moves[0];
+    expect(firstMove).toBeDefined();
+    const nudge = Math.hypot((firstMove?.x ?? 0) - 10, (firstMove?.y ?? 0) - 20);
+    expect(nudge).toBeGreaterThanOrEqual(7);
   });
 });

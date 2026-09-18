@@ -11,14 +11,16 @@ import {
   PAGE_DESIGN_MODE_ENABLE_SCRIPT,
   PAGE_DESIGN_MODE_HIDE_SCRIPT,
   PAGE_LOCK_OVERLAY_SCRIPT,
+  PAGE_SETTLE_FRAMES_SCRIPT,
   PAGE_SNAPSHOT_SCRIPT,
   PAGE_UNLOCK_OVERLAY_SCRIPT,
   pageBoundingBoxScript,
   pageClickScript,
   pageClickXyScript,
   pageDesignModeShowFrozenScript,
-  pageDragScript,
+  pageDragPointsScript,
   pageHighlightScript,
+  pageLockOverlayDisplayScript,
   pagePressKeyScript,
   pageScrollScript,
   pageSelectOptionScript,
@@ -59,7 +61,6 @@ import { assertBrowserUrl, resolveLocalCwdForBrowser } from './browserFileRoot';
 
 const PARTITION_SUFFIX = '-browser';
 const NAVIGATE_TIMEOUT_MS = 30_000;
-const SETTLE_MS = 300;
 const MAX_HEADLESS_TABS = 4;
 /** 会话不在看的 Browser 进程，闲置这么久就卸掉（URL 仍落盘） */
 const IDLE_MS = 5 * 60 * 1000;
@@ -105,6 +106,71 @@ export function pageScreenshotCdpParams(
       : { format: 'png', captureBeyondViewport: false, fromSurface: true };
   }
   return { format: 'png', captureBeyondViewport: true, clip };
+}
+
+/** 隐藏 tab 仍要有 layout 尺寸，并假装 focused，避免后台 rAF / 动画被掐。 */
+export function hiddenTabCdpCommands(): Array<{ method: string; params: Record<string, unknown> }> {
+  return [
+    {
+      method: 'Emulation.setDeviceMetricsOverride',
+      params: {
+        width: HEADLESS_BOUNDS.width,
+        height: HEADLESS_BOUNDS.height,
+        deviceScaleFactor: 0,
+        mobile: false,
+      },
+    },
+    { method: 'Emulation.setFocusEmulationEnabled', params: { enabled: true } },
+  ];
+}
+
+export function shownTabCdpCommands(): Array<{ method: string; params: Record<string, unknown> }> {
+  return [
+    { method: 'Emulation.clearDeviceMetricsOverride', params: {} },
+    { method: 'Emulation.setFocusEmulationEnabled', params: { enabled: false } },
+  ];
+}
+
+export type BrowserMouseInputEvent = {
+  type: 'mouseDown' | 'mouseMove' | 'mouseUp';
+  x: number;
+  y: number;
+  button: 'left';
+  clickCount?: number;
+};
+
+/** HTML5 DnD 需要可信指针序列；合成 MouseEvent 页面不认。 */
+export function dragInputEvents(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  steps = 10
+): BrowserMouseInputEvent[] {
+  const x0 = Math.round(from.x);
+  const y0 = Math.round(from.y);
+  const x1 = Math.round(to.x);
+  const y1 = Math.round(to.y);
+  const count = Math.max(8, steps);
+  const events: BrowserMouseInputEvent[] = [
+    { type: 'mouseDown', x: x0, y: y0, button: 'left', clickCount: 1 },
+  ];
+  const dist = Math.hypot(x1 - x0, y1 - y0) || 1;
+  events.push({
+    type: 'mouseMove',
+    x: Math.round(x0 + ((x1 - x0) / dist) * 8),
+    y: Math.round(y0 + ((y1 - y0) / dist) * 8),
+    button: 'left',
+  });
+  for (let i = 1; i <= count; i++) {
+    const t = i / count;
+    events.push({
+      type: 'mouseMove',
+      x: Math.round(x0 + (x1 - x0) * t),
+      y: Math.round(y0 + (y1 - y0) * t),
+      button: 'left',
+    });
+  }
+  events.push({ type: 'mouseUp', x: x1, y: y1, button: 'left', clickCount: 1 });
+  return events;
 }
 
 interface Tab {
@@ -367,16 +433,13 @@ export class BrowserHost {
         tab.view.setBounds(this.shown.viewport);
         tab.view.setVisible(true);
         if (!this.shown.covered && !this.overlayActive) raise.push(tab.view);
-        if (!tab.devtoolsOpen) void this.cdp(tab, 'Emulation.clearDeviceMetricsOverride', {});
+        if (!tab.devtoolsOpen) {
+          for (const cmd of shownTabCdpCommands()) void this.cdp(tab, cmd.method, cmd.params);
+        }
       } else {
         tab.view.setVisible(false);
         if (!tab.devtoolsOpen) {
-          void this.cdp(tab, 'Emulation.setDeviceMetricsOverride', {
-            width: HEADLESS_BOUNDS.width,
-            height: HEADLESS_BOUNDS.height,
-            deviceScaleFactor: 0,
-            mobile: false,
-          });
+          for (const cmd of hiddenTabCdpCommands()) void this.cdp(tab, cmd.method, cmd.params);
         }
       }
       const dtOnTop = Boolean(
@@ -915,8 +978,8 @@ export class BrowserHost {
       pageClickScript(ref),
       true
     );
-    if (outcome !== 'ok') throw staleRef(ref);
-    await sleep(SETTLE_MS);
+    const error = interpretPageAction(ref, outcome);
+    if (error) throw error;
     return this.pageInfo(tab.view.webContents);
   }
 
@@ -926,20 +989,16 @@ export class BrowserHost {
       pageTypeScript(ref, text, submit),
       true
     );
-    if (outcome === 'stale') throw staleRef(ref);
-    if (outcome !== 'ok') throw new Error(`Element ${ref} is not editable.`);
-    await sleep(SETTLE_MS);
+    const error = interpretPageAction(ref, outcome);
+    if (error) throw error;
     return this.pageInfo(tab.view.webContents);
   }
 
   private async runPage(tab: Tab, script: string, ref?: string): Promise<PageInfo> {
     if (ref) this.assertRef(tab, ref);
     const outcome: unknown = await tab.view.webContents.executeJavaScript(script, true);
-    if (outcome === 'stale') throw staleRef(ref ?? '');
-    if (typeof outcome === 'string' && outcome !== 'ok') {
-      throw new Error(`browser action failed: ${outcome}`);
-    }
-    await sleep(SETTLE_MS);
+    const error = interpretPageAction(ref ?? '', outcome);
+    if (error) throw error;
     return this.pageInfo(tab.view.webContents);
   }
 
@@ -951,7 +1010,6 @@ export class BrowserHost {
     );
     if (outcome === 'stale') throw staleRef(ref);
     if (outcome !== 'ok') throw new Error(`Could not select option on ${ref}`);
-    await sleep(SETTLE_MS);
     return this.pageInfo(tab.view.webContents);
   }
 
@@ -977,13 +1035,27 @@ export class BrowserHost {
     const to = toRef ? { ref: toRef } : { x: toX, y: toY };
     if (fromRef) this.assertRef(tab, fromRef);
     if (toRef) this.assertRef(tab, toRef);
-    const outcome: unknown = await tab.view.webContents.executeJavaScript(
-      pageDragScript(from, to),
-      true
-    );
-    if (outcome === 'stale') throw new Error('Drag source or target ref is stale.');
-    if (outcome !== 'ok') throw new Error('Drag failed.');
-    await sleep(SETTLE_MS);
+    const contents = tab.view.webContents;
+    await contents.executeJavaScript(pageLockOverlayDisplayScript(true), true);
+    try {
+      const raw: unknown = await contents.executeJavaScript(pageDragPointsScript(from, to), true);
+      if (raw === 'stale' || !isRecord(raw) || !isRecord(raw.from) || !isRecord(raw.to)) {
+        throw new Error('Drag source or target ref is stale.');
+      }
+      const startX = Number(raw.from.x);
+      const startY = Number(raw.from.y);
+      const endX = Number(raw.to.x);
+      const endY = Number(raw.to.y);
+      if (![startX, startY, endX, endY].every(Number.isFinite)) throw new Error('Drag failed.');
+      for (const event of dragInputEvents({ x: startX, y: startY }, { x: endX, y: endY })) {
+        contents.sendInputEvent(event);
+        await sleep(16);
+      }
+      await sleep(40);
+    } finally {
+      await contents.executeJavaScript(pageLockOverlayDisplayScript(false), true);
+      await contents.executeJavaScript(PAGE_SETTLE_FRAMES_SCRIPT, true);
+    }
     return this.pageInfo(tab.view.webContents);
   }
 
@@ -1382,5 +1454,18 @@ export class BrowserHost {
 
 const staleRef = (ref: string) =>
   new Error(`Ref ${ref} is stale or unknown. Call browser_snapshot again and use a fresh ref.`);
+
+export function interpretPageAction(ref: string, outcome: unknown): Error | null {
+  if (outcome === 'ok' || outcome === undefined) return null;
+  if (outcome === 'covered') {
+    return new Error(
+      `Element ${ref} is covered or not hittable. Call browser_snapshot again and use a fresh ref.`
+    );
+  }
+  if (outcome === 'stale') return staleRef(ref);
+  if (outcome === 'not-editable') return new Error(`Element ${ref} is not editable.`);
+  if (typeof outcome === 'string') return new Error(`browser action failed: ${outcome}`);
+  return staleRef(ref);
+}
 
 export const browserHost = new BrowserHost();

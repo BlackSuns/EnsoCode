@@ -215,8 +215,15 @@ function isRegisteredSource(id: string, sourcePath: string): boolean { ... }
   （Runtime / DOM / CSS / Profiler / Performance / Log / Network.enable），拒 `Input.*`、Cookie、
   `Page.navigate`、下载、`Target.*` / `Browser.*` / `Storage.*`。点击 / 输入 / 导航一律走专用工具，
   要放宽先改策略测试再改名单。host 自用的 CDP（截图、设备度量）不过这道门。
+- 快照只收视口内可见控件（带 `kind=click|fill|select`）和可见正文，不把屏外文章推进模型。
+  password 控件要进 snapshot（`kind=fill`），但**不带当前值**；file / hidden 仍排除。
 - 点 / 填 / 键 / 滚 / 选 / 拖走页内脚本 DOM 事件（`@shared/browser/pageScripts`），ref 只认最近一次快照。
-  按坐标命中（`click_xy` / `drag`）用 `elementFromPoint` 前要先隐掉锁定遮罩，否则命中的是遮罩。
+  点/填前 `elementFromPoint` 检查遮挡（先隐掉锁定遮罩）；被挡住返回 covered，不要当 stale 重试死 ref。
+  动作后在页内等两帧或 50ms，combobox 输入最多再等 200ms 出建议。
+- 拖拽不走合成 `MouseEvent`（HTML5 DnD / 部分库不认）。Main 先隐锁定遮罩，再
+  页内用同一份 `DataTransfer` 发 `dragstart/dragover/drop`（原生 HTML5），然后
+  `webContents.sendInputEvent` 发可信 mouseDown → 先微移 8px → 分段 mouseMove → mouseUp
+  （jQuery UI 一类 mousedown 拖拽）。模型仍不能调 `Input.*`。
 - 锁定两层防：页内 `PAGE_LOCK_OVERLAY_SCRIPT` 吞用户指针 + renderer 把锁定当 `covered` 让 guest 沉底，
   hover 遮罩与「接管」按钮画在 renderer（见 windows.md 层级一节）。
 - 浏览器工具 `executionMode: 'sequential'`：navigate 会清 ref，并行必假 stale。

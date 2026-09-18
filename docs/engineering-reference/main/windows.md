@@ -115,6 +115,8 @@ Tailwind 的 `h-11` 会算成 38.5px 而不是 44px，与 `trafficLightPosition:
 - `contentView` 的子视图**全部画在 renderer 之上**，index 0 也不例外；无头只能 `setVisible(false)`。
 - 隐藏后 view 尺寸归零，页面布局 0×0（快照只剩 inline 元素、截图空）。用 CDP
   `Emulation.setDeviceMetricsOverride` 撑出 viewport，可见时 `clearDeviceMetricsOverride`。
+- 隐藏 tab 另外开 `Emulation.setFocusEmulationEnabled`，否则后台页 rAF / 动画仍会被掐
+  （`backgroundThrottling: false` 不够）。亮着的 tab 关掉 focus emulation。
 - 被遮挡 / 隐藏的 view `capturePage` 报 `UnknownVizError`；截图走 CDP
   `Page.captureScreenshot` + `captureBeyondViewport`。
 - **首次 `dom-ready` 之前 `debugger.attach` 会让 Main 段错误**（SIGSEGV）。`Tab.ready`
