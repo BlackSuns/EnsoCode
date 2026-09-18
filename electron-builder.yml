@@ -34,6 +34,31 @@ files:
   # node-llama-cpp 平台预编译全部按需下载（含 CPU / Metal / CUDA / Vulkan）
   - '!node_modules/@node-llama-cpp/**'
   - '!node_modules/.pnpm/@node-llama-cpp+*/**'
+  # renderer 已打进 out/；生产 node_modules 里这些是死重
+  - '!**/*.map'
+  - '!**/node_modules/*/{CHANGELOG.md,README.md,readme.md}'
+  - '!**/node_modules/**/{test,tests,__tests__,powered-test,example,examples,demo,docs}/**'
+  - '!**/node_modules/**/*.{d.ts,d.mts,d.cts}'
+  # getLlama({ build: 'never' })，源码 bundle 只给本机编译用
+  - '!node_modules/node-llama-cpp/llama/gitRelease.bundle'
+  # chord 只在 bundler 入口用 esbuild；agent-core 走 chord/context
+  - '!node_modules/esbuild/**'
+  - '!node_modules/@esbuild/**'
+  - '!node_modules/.pnpm/esbuild@*/**'
+  - '!node_modules/.pnpm/@esbuild+*/**'
+  - '!node_modules/better-sqlite3/deps/**'
+  - '!node_modules/better-sqlite3/src/**'
+  # 从未打 musl 目标；darwin/win/linux 预编译必须留在全局 files，不能放到 mac.files
+  # —— 平台 files 若只含 !excludes，electron-builder 会当成默认 matcher 并塞入 **/*，整仓进 asar
+  - '!node_modules/better-sqlite3/prebuilds/linuxmusl*'
+electronLanguages:
+  - en
+  - en-US
+  - zh
+  - zh-CN
+  - zh_CN
+  - zh-TW
+  - zh_TW
 # sqlite-vec 是 dlopen 的动态库，留在 asar 内无法加载（db.ts 会回退到 app.asar.unpacked）
 asarUnpack:
   - node_modules/sqlite-vec-*/**

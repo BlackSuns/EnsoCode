@@ -1,0 +1,115 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import pkg from '../../package.json';
+
+const yml = readFileSync(path.resolve(__dirname, '../../electron-builder.yml'), 'utf8');
+
+/** Vite 已打进 out/renderer，安装包不得再带一份 production node_modules。 */
+const RENDERER_ONLY_PACKAGES = [
+  '@base-ui/react',
+  '@dnd-kit/core',
+  '@dnd-kit/modifiers',
+  '@dnd-kit/sortable',
+  '@dnd-kit/utilities',
+  '@pierre/diffs',
+  '@shikijs/themes',
+  '@xterm/addon-fit',
+  '@xterm/addon-search',
+  '@xterm/addon-serialize',
+  '@xterm/addon-unicode11',
+  '@xterm/addon-web-links',
+  '@xterm/xterm',
+  'class-variance-authority',
+  'clsx',
+  'cytoscape',
+  'cytoscape-fcose',
+  'dockview-react',
+  'framer-motion',
+  'hast-util-sanitize',
+  'lucide-react',
+  'mermaid',
+  'qrcode',
+  'react',
+  'react-dom',
+  'react-markdown',
+  'react-virtuoso',
+  'rehype-raw',
+  'rehype-sanitize',
+  'remark-gfm',
+  'shiki',
+  'tailwind-merge',
+  'unist-util-visit',
+  'zustand',
+] as const;
+
+const MAIN_RUNTIME_PACKAGES = [
+  '@bufbuild/protobuf',
+  '@earendil-works/pi-coding-agent',
+  '@electron-toolkit/utils',
+  '@huggingface/tokenizers',
+  '@modelcontextprotocol/sdk',
+  '@rahularya01/pi-cursor',
+  'better-sqlite3',
+  'electron-updater',
+  'level',
+  'node-datachannel',
+  'node-pty',
+  'quickjs-wasi',
+  'smol-toml',
+  'sqlite-vec',
+  'tweetnacl',
+  'typebox',
+  'undici',
+  'web-push',
+  'yaml',
+] as const;
+
+function listed(block: object | undefined, name: string): string | undefined {
+  if (!block || !Object.hasOwn(block, name)) return undefined;
+  return (block as Record<string, string>)[name];
+}
+
+describe('installer packaging', () => {
+  it('keeps renderer-only libraries out of production dependencies', () => {
+    for (const name of RENDERER_ONLY_PACKAGES) {
+      expect(
+        listed(pkg.dependencies, name),
+        `${name} must not be a production dependency`
+      ).toBeUndefined();
+      expect(listed(pkg.devDependencies, name), `${name} stays installable for Vite`).toEqual(
+        expect.any(String)
+      );
+    }
+  });
+
+  it('keeps main-process runtime packages as production dependencies', () => {
+    for (const name of MAIN_RUNTIME_PACKAGES) {
+      expect(
+        listed(pkg.dependencies, name) ?? listed(pkg.optionalDependencies, name),
+        `${name} must remain a packaged runtime dependency`
+      ).toEqual(expect.any(String));
+    }
+  });
+
+  it('strips maps, typings, docs, llama compile payload and unused Chromium locales', () => {
+    expect(yml).toContain("'!**/*.map'");
+    expect(yml).toContain('!**/node_modules/**/*.{d.ts,d.mts,d.cts}');
+    expect(yml).toContain('!node_modules/node-llama-cpp/llama/gitRelease.bundle');
+    expect(yml).toContain('!node_modules/esbuild/**');
+    expect(yml).toContain('!node_modules/@esbuild/**');
+    expect(yml).toContain('!node_modules/better-sqlite3/deps/**');
+    expect(yml).toMatch(/^electronLanguages:/m);
+    expect(yml).toContain('en-US');
+    expect(yml).toContain('zh-CN');
+    expect(yml).toContain('zh_CN');
+  });
+
+  it('does not attach ignore-only files to mac/win/linux', () => {
+    expect(yml).toContain('!node_modules/better-sqlite3/prebuilds/linuxmusl*');
+    for (const platform of ['mac', 'win', 'linux']) {
+      const block = yml.split(new RegExp(`^${platform}:`, 'm'))[1]?.split(/^[a-z]/m)[0] ?? '';
+      expect(block, platform).not.toMatch(/^\s+files:/m);
+    }
+  });
+});
