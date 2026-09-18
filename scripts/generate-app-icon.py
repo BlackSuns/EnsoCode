@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
@@ -26,6 +26,13 @@ GAP_CENTER = 47.5
 CANVAS = 1024
 SQUIRCLE_INSET = 0.098
 SQUIRCLE_N = 6.0
+WIN_CORNER = 0.22
+ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
+SHADOW_BLUR = 20
+SHADOW_OFFSET_Y = 12
+SHADOW_OPACITY = 0.32
+PHONE_ICONS = ROOT / "packages/phone/public/icons"
+MASKABLE_SAFE = 0.8
 
 
 def _params(size: int) -> tuple[float, float, float]:
@@ -90,6 +97,30 @@ def apply_squircle(im: Image.Image) -> Image.Image:
     return out
 
 
+def apply_mac_shadow(im: Image.Image) -> Image.Image:
+    alpha = im.getchannel("A")
+    shade = alpha.filter(ImageFilter.GaussianBlur(SHADOW_BLUR))
+    shade = shade.point(lambda p: min(255, round(p * SHADOW_OPACITY)))
+    shifted = Image.new("L", im.size, 0)
+    shifted.paste(shade, (0, SHADOW_OFFSET_Y))
+    layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    layer.putalpha(shifted)
+    return Image.alpha_composite(layer, im.convert("RGBA"))
+
+
+def with_windows_corners(im: Image.Image) -> Image.Image:
+    size = im.size[0]
+    radius = max(1, round(size * WIN_CORNER))
+    ss = 8 if size <= 64 else 4
+    S = size * ss
+    mask = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, S - 1, S - 1), radius=radius * ss, fill=255)
+    mask = mask.resize((size, size), Image.Resampling.LANCZOS)
+    out = im.convert("RGBA")
+    out.putalpha(mask)
+    return out
+
+
 def write_svg(path: Path) -> None:
     start = GAP_CENTER + GAP_DEG / 2
     end = GAP_CENTER - GAP_DEG / 2
@@ -138,25 +169,39 @@ def write_icns(master_sizes: dict[int, Image.Image], dest: Path) -> None:
 
 
 def write_ico(master_sizes: dict[int, Image.Image], dest: Path) -> None:
-    magick = shutil.which("magick")
-    if not magick:
-        raise SystemExit("magick not found")
-    ico_sizes = (16, 24, 32, 48, 64, 128, 256)
-    with tempfile.TemporaryDirectory() as raw:
-        files: list[str] = []
-        for size in ico_sizes:
-            file = Path(raw) / f"{size}.png"
-            master_sizes[size].save(file, format="PNG")
-            files.append(str(file))
-        subprocess.run([magick, *files, str(dest)], check=True)
+    frames = [master_sizes[size] for size in ICO_SIZES]
+    frames[-1].save(
+        dest,
+        format="ICO",
+        sizes=[(size, size) for size in ICO_SIZES],
+        append_images=frames[:-1],
+    )
+
+
+def write_pwa_icons(square: Image.Image) -> None:
+    rgb = square.convert("RGB")
+    PHONE_ICONS.mkdir(parents=True, exist_ok=True)
+    rgb.resize((180, 180), Image.Resampling.LANCZOS).save(PHONE_ICONS / "apple-touch-icon.png")
+    rgb.resize((192, 192), Image.Resampling.LANCZOS).save(PHONE_ICONS / "icon-192.png")
+    rgb.resize((512, 512), Image.Resampling.LANCZOS).save(PHONE_ICONS / "icon-512.png")
+    inner = round(512 * MASKABLE_SAFE)
+    canvas = Image.new("RGB", (512, 512), BG)
+    glyph = rgb.resize((inner, inner), Image.Resampling.LANCZOS)
+    canvas.paste(glyph, ((512 - inner) // 2, (512 - inner) // 2))
+    canvas.save(PHONE_ICONS / "icon-maskable-512.png")
 
 
 def main() -> None:
-    master = apply_squircle(render(1024))
+    square = render(1024)
+    master = apply_mac_shadow(apply_squircle(square))
+    windows = with_windows_corners(square)
     sizes = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
     images = {
         size: master if size == 1024 else master.resize((size, size), Image.Resampling.LANCZOS)
         for size in sizes
+    }
+    ico_images = {
+        size: windows.resize((size, size), Image.Resampling.LANCZOS) for size in ICO_SIZES
     }
     BUILD.mkdir(parents=True, exist_ok=True)
     write_svg(BUILD / "icon.svg")
@@ -166,12 +211,18 @@ def main() -> None:
     for size in (16, 32, 48, 64, 128, 256, 512):
         images[size].save(icons_dir / f"{size}x{size}.png", format="PNG")
     write_icns(images, BUILD / "icon.icns")
-    write_ico(images, BUILD / "icon.ico")
+    write_ico(ico_images, BUILD / "icon.ico")
+    write_pwa_icons(square)
     if master.mode != "RGBA" or master.getpixel((0, 0))[3] != 0:
         raise SystemExit("master icon must be a transparent-corner squircle")
+    if ico_images[32].getpixel((0, 0))[3] != 0:
+        raise SystemExit("windows ico must keep transparent corners")
+    apple = Image.open(PHONE_ICONS / "apple-touch-icon.png")
+    any512 = Image.open(PHONE_ICONS / "icon-512.png")
+    if apple.mode != "RGB" or any512.mode != "RGB" or any512.getpixel((0, 0)) != BG:
+        raise SystemExit("pwa icons must be opaque full-bleed RGB")
     print("wrote", BUILD / "icon.png")
 
 
 if __name__ == "__main__":
     main()
-BG = (0xFF, 0xFF, 0xFF)
