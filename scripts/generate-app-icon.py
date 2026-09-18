@@ -33,6 +33,8 @@ SHADOW_OFFSET_Y = 12
 SHADOW_OPACITY = 0.32
 PHONE_ICONS = ROOT / "packages/phone/public/icons"
 MASKABLE_SAFE = 0.8
+PWA_BG = (0x1A, 0x1A, 0x21)
+PWA_FG = (0xF2, 0xF2, 0xF7)
 
 
 def _params(size: int) -> tuple[float, float, float]:
@@ -40,11 +42,15 @@ def _params(size: int) -> tuple[float, float, float]:
     return STROKE * scale, RADIUS * scale, GAP_DEG
 
 
-def render(size: int) -> Image.Image:
+def render(
+    size: int,
+    bg: tuple[int, int, int] = BG,
+    fg: tuple[int, int, int] = FG,
+) -> Image.Image:
     stroke, radius, gap = _params(size)
     ss = 8 if size <= 64 else 4
     S = size * ss
-    im = Image.new("RGB", (S, S), BG)
+    im = Image.new("RGB", (S, S), bg)
     d = ImageDraw.Draw(im)
     cx = cy = (S - 1) / 2
     r = radius * ss
@@ -53,14 +59,14 @@ def render(size: int) -> Image.Image:
     ri = max(0.0, r - stroke_s / 2)
     start = GAP_CENTER + gap / 2
     end = GAP_CENTER - gap / 2
-    d.ellipse((cx - ro, cy - ro, cx + ro, cy + ro), fill=FG)
-    d.ellipse((cx - ri, cy - ri, cx + ri, cy + ri), fill=BG)
+    d.ellipse((cx - ro, cy - ro, cx + ro, cy + ro), fill=fg)
+    d.ellipse((cx - ri, cy - ri, cx + ri, cy + ri), fill=bg)
     pad = stroke_s
     d.pieslice(
         (cx - ro - pad, cy - ro - pad, cx + ro + pad, cy + ro + pad),
         start=end,
         end=start,
-        fill=BG,
+        fill=bg,
     )
     cap_r = stroke_s / 2
 
@@ -70,7 +76,7 @@ def render(size: int) -> Image.Image:
 
     for ang in (start, end):
         x, y = pt(ang)
-        d.ellipse((x - cap_r, y - cap_r, x + cap_r, y + cap_r), fill=FG)
+        d.ellipse((x - cap_r, y - cap_r, x + cap_r, y + cap_r), fill=fg)
     return im.resize((size, size), Image.Resampling.LANCZOS)
 
 
@@ -178,14 +184,14 @@ def write_ico(master_sizes: dict[int, Image.Image], dest: Path) -> None:
     )
 
 
-def write_pwa_icons(square: Image.Image) -> None:
-    rgb = square.convert("RGB")
+def write_pwa_icons() -> None:
+    rgb = render(1024, PWA_BG, PWA_FG)
     PHONE_ICONS.mkdir(parents=True, exist_ok=True)
     rgb.resize((180, 180), Image.Resampling.LANCZOS).save(PHONE_ICONS / "apple-touch-icon.png")
     rgb.resize((192, 192), Image.Resampling.LANCZOS).save(PHONE_ICONS / "icon-192.png")
     rgb.resize((512, 512), Image.Resampling.LANCZOS).save(PHONE_ICONS / "icon-512.png")
     inner = round(512 * MASKABLE_SAFE)
-    canvas = Image.new("RGB", (512, 512), BG)
+    canvas = Image.new("RGB", (512, 512), PWA_BG)
     glyph = rgb.resize((inner, inner), Image.Resampling.LANCZOS)
     canvas.paste(glyph, ((512 - inner) // 2, (512 - inner) // 2))
     canvas.save(PHONE_ICONS / "icon-maskable-512.png")
@@ -212,14 +218,14 @@ def main() -> None:
         images[size].save(icons_dir / f"{size}x{size}.png", format="PNG")
     write_icns(images, BUILD / "icon.icns")
     write_ico(ico_images, BUILD / "icon.ico")
-    write_pwa_icons(square)
+    write_pwa_icons()
     if master.mode != "RGBA" or master.getpixel((0, 0))[3] != 0:
         raise SystemExit("master icon must be a transparent-corner squircle")
     if ico_images[32].getpixel((0, 0))[3] != 0:
         raise SystemExit("windows ico must keep transparent corners")
     apple = Image.open(PHONE_ICONS / "apple-touch-icon.png")
     any512 = Image.open(PHONE_ICONS / "icon-512.png")
-    if apple.mode != "RGB" or any512.mode != "RGB" or any512.getpixel((0, 0)) != BG:
+    if apple.mode != "RGB" or any512.mode != "RGB" or any512.getpixel((0, 0)) != PWA_BG:
         raise SystemExit("pwa icons must be opaque full-bleed RGB")
     print("wrote", BUILD / "icon.png")
 
