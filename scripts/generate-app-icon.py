@@ -14,27 +14,23 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
 
-BG = (0x1A, 0x1A, 0x21)
-FG = (0xFA, 0xFA, 0xFA)
-BG_HEX = "#1A1A21"
-FG_HEX = "#FAFAFA"
+BG = (0xFF, 0xFF, 0xFF)
+FG = (0x46, 0x49, 0x52)
+BG_HEX = "#FFFFFF"
+FG_HEX = "#464952"
 
-RADIUS = 318
-STROKE = 118
-GAP_DEG = 34.0
+RADIUS = 261
+STROKE = 62
+GAP_DEG = 27.5
 GAP_CENTER = 47.5
 CANVAS = 1024
-WIN_CORNER = 0.22
+SQUIRCLE_INSET = 0.098
+SQUIRCLE_N = 6.0
 
 
 def _params(size: int) -> tuple[float, float, float]:
-    stroke, radius, gap = STROKE, RADIUS, GAP_DEG
-    if size <= 16:
-        stroke, gap = 152, 44.0
-    elif size <= 32:
-        stroke, gap = 132, 38.0
     scale = size / CANVAS
-    return stroke * scale, radius * scale, gap
+    return STROKE * scale, RADIUS * scale, GAP_DEG
 
 
 def render(size: int) -> Image.Image:
@@ -71,16 +67,26 @@ def render(size: int) -> Image.Image:
     return im.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def with_windows_corners(im: Image.Image) -> Image.Image:
-    size = im.size[0]
-    radius = max(1, round(size * WIN_CORNER))
-    ss = 8 if size <= 64 else 4
+def squircle_mask(size: int) -> Image.Image:
+    ss = 4
     S = size * ss
+    a = (S * (1 - 2 * SQUIRCLE_INSET)) / 2
+    cx = cy = S / 2
     mask = Image.new("L", (S, S), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, S - 1, S - 1), radius=radius * ss, fill=255)
-    mask = mask.resize((size, size), Image.Resampling.LANCZOS)
+    d = ImageDraw.Draw(mask)
+    n = SQUIRCLE_N
+    for y in range(S):
+        yn = abs((y + 0.5 - cy) / a)
+        if yn >= 1:
+            continue
+        span = (1 - yn**n) ** (1 / n)
+        d.line((cx - span * a, y, cx + span * a, y), fill=255)
+    return mask.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def apply_squircle(im: Image.Image) -> Image.Image:
     out = im.convert("RGBA")
-    out.putalpha(mask)
+    out.putalpha(squircle_mask(im.size[0]))
     return out
 
 
@@ -140,28 +146,32 @@ def write_ico(master_sizes: dict[int, Image.Image], dest: Path) -> None:
         files: list[str] = []
         for size in ico_sizes:
             file = Path(raw) / f"{size}.png"
-            with_windows_corners(master_sizes[size]).save(file, format="PNG")
+            master_sizes[size].save(file, format="PNG")
             files.append(str(file))
         subprocess.run([magick, *files, str(dest)], check=True)
 
 
 def main() -> None:
+    master = apply_squircle(render(1024))
     sizes = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
-    images = {size: render(size) for size in sizes}
+    images = {
+        size: master if size == 1024 else master.resize((size, size), Image.Resampling.LANCZOS)
+        for size in sizes
+    }
     BUILD.mkdir(parents=True, exist_ok=True)
     write_svg(BUILD / "icon.svg")
-    images[1024].save(BUILD / "icon.png", format="PNG")
+    master.save(BUILD / "icon.png", format="PNG")
     icons_dir = BUILD / "icons"
     icons_dir.mkdir(parents=True, exist_ok=True)
     for size in (16, 32, 48, 64, 128, 256, 512):
         images[size].save(icons_dir / f"{size}x{size}.png", format="PNG")
     write_icns(images, BUILD / "icon.icns")
     write_ico(images, BUILD / "icon.ico")
-    png = images[1024]
-    if png.mode != "RGB":
-        raise SystemExit("master icon must be opaque RGB")
+    if master.mode != "RGBA" or master.getpixel((0, 0))[3] != 0:
+        raise SystemExit("master icon must be a transparent-corner squircle")
     print("wrote", BUILD / "icon.png")
 
 
 if __name__ == "__main__":
     main()
+BG = (0xFF, 0xFF, 0xFF)
