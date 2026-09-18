@@ -39,6 +39,23 @@ Set **Settings → Devices → Relay URL** to that URL. Public HTTPS: Caddy, Ngi
 
 Env: `RELAY_LISTEN`, `RELAY_DB`, `RELAY_TLS_CERT`, `RELAY_TLS_KEY`.
 
+## Auto-update
+
+GitHub Release builds (version via ldflags) check for a newer release at startup, then every 4 hours. A newer binary is SHA256-checked against `enso-relay-checksums.txt`, replaced, and restarted in-place with `exec` (same PID; systemd-friendly).
+
+`dev` / `go run` builds do not update.
+
+```bash
+./enso-relay --auto-update=false          # disable
+./enso-relay --update-interval 6h         # interval (minimum 1m)
+./enso-relay --update                    # check/install once, then exit
+```
+
+- `RELAY_AUTO_UPDATE=0` disables
+- `RELAY_UPDATE_INTERVAL=6h`
+- `RELAY_UPDATE_REPO` defaults to `J3n5en/EnsoCode`
+- `RELAY_GITHUB_TOKEN` optional, for GitHub API rate limits
+
 ## Build from source
 
 Needs Go 1.24+ and pnpm at the repo root (to build the PWA).

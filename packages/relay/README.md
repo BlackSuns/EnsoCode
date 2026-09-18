@@ -59,7 +59,7 @@ Point the desktop relay URL at:
 
 Open the same URL in a phone browser to scan and pair.
 
-Optional flags / env: `--listen`, `--db`, `--tls-cert`, `--tls-key` (`RELAY_LISTEN` / `RELAY_DB` / `RELAY_TLS_CERT` / `RELAY_TLS_KEY`).
+Optional flags / env: `--listen`, `--db`, `--tls-cert`, `--tls-key` (`RELAY_LISTEN` / `RELAY_DB` / `RELAY_TLS_CERT` / `RELAY_TLS_KEY`). Release builds self-update on a timer; see [`../relay-go/README.md`](../relay-go/README.md#auto-update).
 
 ### Public HTTPS
 

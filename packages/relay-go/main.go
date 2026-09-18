@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -34,6 +35,9 @@ func run(args []string) int {
 	tlsCert := flags.String("tls-cert", envOr("RELAY_TLS_CERT", ""), "可选 TLS 证书")
 	tlsKey := flags.String("tls-key", envOr("RELAY_TLS_KEY", ""), "可选 TLS 私钥")
 	showVersion := flags.Bool("version", false, "打印版本")
+	autoUpdate := flags.Bool("auto-update", envBool("RELAY_AUTO_UPDATE", true), "检查并安装 GitHub Release 更新")
+	updateInterval := flags.Duration("update-interval", envDuration("RELAY_UPDATE_INTERVAL", defaultUpdateInterval), "自动更新检查间隔")
+	doUpdate := flags.Bool("update", false, "检查并安装更新后退出")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -43,6 +47,22 @@ func run(args []string) int {
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	updater := newSelfUpdater(log)
+	if *doUpdate {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		applied, err := updater.checkAndApply(ctx)
+		if err != nil {
+			log.Error("update", "err", err)
+			return 1
+		}
+		if applied {
+			log.Info("updated; restart the process")
+			return 0
+		}
+		log.Info("already up to date", "version", version)
+		return 0
+	}
 	if *dbPath == "" {
 		*dbPath = defaultDBPath()
 	}
@@ -70,6 +90,7 @@ func run(args []string) int {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	var wantRestart atomic.Bool
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
@@ -89,6 +110,21 @@ func run(args []string) int {
 		return 1
 	}
 	printBanner(scheme, ln.Addr().String(), *dbPath)
+	if *autoUpdate {
+		if _, ok := parseSemver(version); !ok || !exeUpdatable(updater.exe) {
+			log.Info("auto-update skipped", "version", version)
+		} else {
+			if *updateInterval < minUpdateInterval {
+				*updateInterval = minUpdateInterval
+			}
+			updater.interval = *updateInterval
+			log.Info("auto-update", "interval", updater.interval)
+			go updater.loop(ctx, func() {
+				wantRestart.Store(true)
+				stop()
+			})
+		}
+	}
 
 	var serveErr error
 	if scheme == "https" {
@@ -99,6 +135,13 @@ func run(args []string) int {
 	if serveErr != nil && serveErr != http.ErrServerClosed {
 		log.Error("serve", "err", serveErr)
 		return 1
+	}
+	if wantRestart.Load() {
+		_ = store.close()
+		if err := updater.restart(os.Args, os.Environ()); err != nil {
+			log.Error("restart after update", "err", err)
+			return 1
+		}
 	}
 	return 0
 }

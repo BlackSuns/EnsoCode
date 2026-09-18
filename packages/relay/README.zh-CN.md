@@ -59,7 +59,7 @@ chmod +x enso-relay-linux-amd64
 
 手机浏览器打开同一个地址即可扫码配对。
 
-可选环境变量 / 参数：`--listen`、`--db`、`--tls-cert`、`--tls-key`（`RELAY_LISTEN` / `RELAY_DB` / `RELAY_TLS_CERT` / `RELAY_TLS_KEY`）。
+可选环境变量 / 参数：`--listen`、`--db`、`--tls-cert`、`--tls-key`（`RELAY_LISTEN` / `RELAY_DB` / `RELAY_TLS_CERT` / `RELAY_TLS_KEY`）。Release 构建默认会定期自更新，见 [`../relay-go/README.zh-CN.md`](../relay-go/README.zh-CN.md#自动更新)。
 
 ### 公网 HTTPS
 

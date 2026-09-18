@@ -39,6 +39,23 @@ enso-relay
 
 对应环境变量：`RELAY_LISTEN`、`RELAY_DB`、`RELAY_TLS_CERT`、`RELAY_TLS_KEY`。
 
+## 自动更新
+
+GitHub Release 构建（带版本 ldflags）默认开启：启动时检查最新 Release，之后每 4 小时再查。发现新版本会校验 `enso-relay-checksums.txt` 的 SHA256，替换二进制并以同一 PID `exec` 重启（适合 systemd）。
+
+`dev` / `go run` 构建不会更新。
+
+```bash
+./enso-relay --auto-update=false          # 关闭
+./enso-relay --update-interval 6h         # 改间隔（最短 1 分钟）
+./enso-relay --update                    # 只检查/安装一次后退出
+```
+
+- `RELAY_AUTO_UPDATE=0` 关闭
+- `RELAY_UPDATE_INTERVAL=6h`
+- `RELAY_UPDATE_REPO` 默认 `J3n5en/EnsoCode`
+- `RELAY_GITHUB_TOKEN` 可选，提高 GitHub API 限额
+
 ## 从源码构建
 
 需要 Go 1.24+、仓库根目录的 pnpm（用于构建 PWA）。

@@ -301,12 +301,14 @@ jobs:
           GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/enso-relay-linux-amd64 .
           GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/enso-relay-linux-arm64 .
           chmod +x dist/enso-relay-linux-*
+          cd dist
+          sha256sum enso-relay-linux-amd64 enso-relay-linux-arm64 > enso-relay-checksums.txt
 
       - name: Upload relay binaries
         uses: actions/upload-artifact@v4
         with:
           name: enso-relay
-          path: packages/relay-go/dist/enso-relay-linux-*
+          path: packages/relay-go/dist/enso-relay-*
           retention-days: 7
 
 
@@ -368,6 +370,7 @@ jobs:
           gh release upload "$TAG" \
             relay-artifacts/enso-relay-linux-amd64 \
             relay-artifacts/enso-relay-linux-arm64 \
+            relay-artifacts/enso-relay-checksums.txt \
             --clobber
 
       - name: Set Tag
