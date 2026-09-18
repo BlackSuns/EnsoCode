@@ -26,15 +26,15 @@ GAP_CENTER = 47.5
 CANVAS = 1024
 SQUIRCLE_INSET = 0.098
 SQUIRCLE_N = 6.0
-WIN_CORNER = 0.22
+WIN_CORNER = 0.26
 ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
 SHADOW_BLUR = 20
 SHADOW_OFFSET_Y = 12
 SHADOW_OPACITY = 0.32
 PHONE_ICONS = ROOT / "packages/phone/public/icons"
 MASKABLE_SAFE = 0.8
-PWA_BG = (0x1A, 0x1A, 0x21)
-PWA_FG = (0xF2, 0xF2, 0xF7)
+PWA_BG = BG
+PWA_FG = FG
 
 
 def _params(size: int) -> tuple[float, float, float]:
@@ -127,6 +127,22 @@ def with_windows_corners(im: Image.Image) -> Image.Image:
     return out
 
 
+def straight_white_alpha(im: Image.Image) -> Image.Image:
+    """Keep white RGB under transparent pixels. Windows paints (0,0,0,0) as black."""
+    rgba = im.convert("RGBA")
+    r, g, b, a = rgba.split()
+    white = Image.new("L", rgba.size, 255)
+    return Image.merge(
+        "RGBA",
+        (
+            Image.composite(r, white, a),
+            Image.composite(g, white, a),
+            Image.composite(b, white, a),
+            a,
+        ),
+    )
+
+
 def write_svg(path: Path) -> None:
     start = GAP_CENTER + GAP_DEG / 2
     end = GAP_CENTER - GAP_DEG / 2
@@ -175,13 +191,21 @@ def write_icns(master_sizes: dict[int, Image.Image], dest: Path) -> None:
 
 
 def write_ico(master_sizes: dict[int, Image.Image], dest: Path) -> None:
-    frames = [master_sizes[size] for size in ICO_SIZES]
-    frames[-1].save(
-        dest,
-        format="ICO",
-        sizes=[(size, size) for size in ICO_SIZES],
-        append_images=frames[:-1],
-    )
+    magick = shutil.which("magick")
+    if not magick:
+        raise SystemExit("magick not found")
+    # 256 PNG first, remaining BMP — same layout EnsoAI uses. Pillow-all-PNG
+    # ICO is read as 16px-first, so Explorer upscales a square and paints alpha black.
+    with tempfile.TemporaryDirectory() as raw:
+        paths: list[str] = []
+        for size in sorted(ICO_SIZES, reverse=True):
+            path = Path(raw) / f"{size}.png"
+            straight_white_alpha(master_sizes[size]).save(path, format="PNG")
+            paths.append(str(path))
+        subprocess.run(
+            [magick, *paths, str(dest)],
+            check=True,
+        )
 
 
 def write_pwa_icons() -> None:
@@ -200,14 +224,14 @@ def write_pwa_icons() -> None:
 def main() -> None:
     square = render(1024)
     master = apply_mac_shadow(apply_squircle(square))
-    windows = with_windows_corners(square)
     sizes = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
     images = {
         size: master if size == 1024 else master.resize((size, size), Image.Resampling.LANCZOS)
         for size in sizes
     }
     ico_images = {
-        size: windows.resize((size, size), Image.Resampling.LANCZOS) for size in ICO_SIZES
+        size: with_windows_corners(square.resize((size, size), Image.Resampling.LANCZOS))
+        for size in ICO_SIZES
     }
     BUILD.mkdir(parents=True, exist_ok=True)
     write_svg(BUILD / "icon.svg")
@@ -223,6 +247,16 @@ def main() -> None:
         raise SystemExit("master icon must be a transparent-corner squircle")
     if ico_images[32].getpixel((0, 0))[3] != 0:
         raise SystemExit("windows ico must keep transparent corners")
+    ident = subprocess.check_output(["magick", "identify", str(BUILD / "icon.ico")], text=True)
+    if "PNG 256x256" not in ident.splitlines()[0]:
+        raise SystemExit("ico must start with 256 png frame")
+    with Image.open(BUILD / "icon.ico") as ico:
+        small = ico.ico.getimage((16, 16)).convert("RGBA").getpixel((0, 0))
+        large = ico.ico.getimage((256, 256)).convert("RGBA")
+    if small[3] != 0 or small[:3] == (0, 0, 0):
+        raise SystemExit(f"16px transparent pixel must be white, got {small}")
+    if large.getpixel((0, 0))[3] != 0 or large.getpixel((128, 0))[3] < 200:
+        raise SystemExit("256px ico must be rounded, not a full square")
     apple = Image.open(PHONE_ICONS / "apple-touch-icon.png")
     any512 = Image.open(PHONE_ICONS / "icon-512.png")
     if apple.mode != "RGB" or any512.mode != "RGB" or any512.getpixel((0, 0)) != PWA_BG:
