@@ -336,7 +336,9 @@ def main() -> None:
     else:
         print("skip icns (iconutil not found)")
     write_ico(ico_images, BUILD / "icon.ico")
-    win_png = associated_alpha(ico_images[256])
+    # Linux PNG uses straight alpha. Associated (0,0,0,0) fringe composites as
+    # black hairlines in viewers that don't premultiply.
+    win_png = straight_white_alpha(ico_images[256])
     win_png.save(BUILD / "icon-win.png", format="PNG")
     write_pwa_icons()
     if master.mode != "RGBA" or master.getpixel((0, 0))[3] != 0:
@@ -418,8 +420,20 @@ def main() -> None:
         raise SystemExit(f"256px corner must be (0,0,0,0), got {large.getpixel((0, 0))}")
     if large.getpixel((0, 0))[3] != 0 or large.getpixel((128, 0))[3] < 200:
         raise SystemExit("256px ico must be rounded, not a full square")
-    if win_png.getpixel((0, 0)) != (0, 0, 0, 0) or win_png.getpixel((128, 0))[3] < 200:
-        raise SystemExit("icon-win.png must be a rounded RGBA card")
+    win_corner = win_png.getpixel((0, 0))
+    if win_corner != (255, 255, 255, 0) or win_png.getpixel((128, 0))[3] < 200:
+        raise SystemExit(f"icon-win.png must be a rounded white RGBA card, got {win_corner}")
+    fringe = next(
+        (
+            win_png.getpixel((x, y))
+            for y in range(48)
+            for x in range(48)
+            if 16 < win_png.getpixel((x, y))[3] < 200
+        ),
+        None,
+    )
+    if fringe is None or min(fringe[:3]) < 240:
+        raise SystemExit(f"icon-win.png fringe must stay white, got {fringe}")
     apple = Image.open(PHONE_ICONS / "apple-touch-icon.png")
     any512 = Image.open(PHONE_ICONS / "icon-512.png")
     if apple.mode != "RGB" or any512.mode != "RGB" or any512.getpixel((0, 0)) != PWA_BG:
