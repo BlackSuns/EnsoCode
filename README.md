@@ -209,6 +209,12 @@ Point **Settings → Devices → Relay URL** at your instance.
 
 ---
 
+## Community
+
+- [Linux.Do](https://linux.do/) — Share, discuss, and follow development with the community.
+
+---
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

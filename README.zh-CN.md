@@ -209,6 +209,12 @@ pnpm test
 
 ---
 
+## 友链
+
+- [Linux.Do](https://linux.do/) — 与社区一起分享、讨论、关注开发进展。
+
+---
+
 ## 开源许可
 
 MIT。见 [LICENSE](LICENSE)。
