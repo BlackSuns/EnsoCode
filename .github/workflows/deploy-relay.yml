@@ -2,7 +2,7 @@ name: Deploy Relay
 
 on:
   push:
-    branches: [dev]
+    branches: [main]
     paths:
       - 'packages/relay/**'
       - 'packages/phone/**'
