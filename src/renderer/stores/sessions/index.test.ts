@@ -293,6 +293,7 @@ describe('typed Agent child projection', () => {
       order: [],
       activeId: null,
       pendingAgentPrefill: undefined,
+      workspaceRevisionByConversation: {},
     });
     settingsModule.useSettingsStore.setState({
       projects: [{ id: 'project', name: 'Project', path: '/workspace' }],
@@ -3167,12 +3168,179 @@ describe('rewind 在 failed 状态放行、running 仍拦截', () => {
         },
       },
     }));
+    const revisionBefore =
+      sessionsModule.useSessionsStore.getState().workspaceRevisionByConversation.parent ?? 0;
     sessionsModule.useSessionsStore.getState().rewind('parent', 0, false);
     expect(agentRewind).toHaveBeenCalledWith('parent', 0, false);
     expect(sessionsModule.useSessionsStore.getState().conversations.parent.messages).toEqual([
       user('one'),
       assistant('a'),
     ]);
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent).toMatchObject({
+      draftText: 'two',
+      rewinding: true,
+      restoringFiles: undefined,
+    });
+    expect(sessionsModule.useSessionsStore.getState().workspaceRevisionByConversation.parent).toBe(
+      revisionBefore + 1
+    );
+  });
+
+  it('回退第一条：时间线空窗，不把空窗当缺正文去拉快照', () => {
+    requestSnapshot.mockClear();
+    const user = (text: string) => ({
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+    });
+    const assistant = (text: string) => ({
+      role: 'assistant' as const,
+      content: [{ type: 'text' as const, text }],
+    });
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: true,
+          spawning: false,
+          status: 'idle' as const,
+          generation: 'g1',
+          historyBaseIndex: 40,
+          historyLoadAttempted: undefined,
+          messages: [user('first'), assistant('a'), user('second'), assistant('b')],
+        },
+      },
+    }));
+    sessionsModule.useSessionsStore.getState().rewind('parent', 1, false);
+    const conversation = sessionsModule.useSessionsStore.getState().conversations.parent;
+    expect(conversation.messages).toEqual([]);
+    expect(conversation.draftText).toBe('first');
+    expect(conversation.historyBaseIndex).toBeUndefined();
+    expect(conversation.historyLoadAttempted).toBe(true);
+    onAgentEvent?.({
+      type: 'messages-truncated',
+      identity: { sessionId: 'parent', generation: 'g1' },
+      seq: 1,
+      length: 0,
+    });
+    expect(requestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('回退中的全量快照不能把刚裁掉的旧会话写回', () => {
+    const user = (text: string) => ({
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+    });
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: true,
+          spawning: false,
+          status: 'idle' as const,
+          generation: 'g1',
+          messages: [user('one'), user('two')],
+        },
+      },
+    }));
+    sessionsModule.useSessionsStore.getState().rewind('parent', 0, false);
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent.messages).toEqual([
+      user('one'),
+    ]);
+    onAgentEvent?.({
+      type: 'snapshot',
+      partial: true,
+      sessions: [
+        {
+          identity: { sessionId: 'parent', generation: 'g1' },
+          status: 'idle',
+          messages: [user('one'), user('two'), user('stale')],
+          commands: [],
+        },
+      ],
+    });
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent.messages).toEqual([
+      user('one'),
+    ]);
+  });
+
+  it('对话+文件立刻标 restoringFiles，草稿不等 worker', () => {
+    const user = (text: string) => ({
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+    });
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: true,
+          spawning: false,
+          status: 'idle' as const,
+          generation: 'g1',
+          messages: [user('keep'), user('back')],
+        },
+      },
+    }));
+    sessionsModule.useSessionsStore.getState().rewind('parent', 0, true);
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent).toMatchObject({
+      draftText: 'back',
+      rewinding: true,
+      restoringFiles: true,
+    });
+  });
+
+  it('rewind-done 清 rewinding；filesRestored 清 restoringFiles；不覆盖已改草稿', () => {
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: true,
+          spawning: false,
+          status: 'idle' as const,
+          generation: 'g1',
+          messages: [
+            { role: 'user', content: [{ type: 'text', text: 'keep' }] },
+            { role: 'user', content: [{ type: 'text', text: 'back' }] },
+          ],
+        },
+      },
+    }));
+    sessionsModule.useSessionsStore.getState().rewind('parent', 0, true);
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: { ...state.conversations.parent, draftText: 'edited' },
+      },
+    }));
+    onAgentEvent?.({
+      type: 'rewind-done',
+      identity: { sessionId: 'parent', generation: 'g1' },
+      seq: 1,
+      editorText: 'back',
+    });
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent).toMatchObject({
+      draftText: 'edited',
+      rewinding: undefined,
+      restoringFiles: true,
+    });
+    const revisionAfterRewind =
+      sessionsModule.useSessionsStore.getState().workspaceRevisionByConversation.parent ?? 0;
+    onAgentEvent?.({
+      type: 'rewind-done',
+      identity: { sessionId: 'parent', generation: 'g1' },
+      seq: 2,
+      filesRestored: true,
+    });
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent).toMatchObject({
+      draftText: 'edited',
+      restoringFiles: undefined,
+    });
+    expect(sessionsModule.useSessionsStore.getState().workspaceRevisionByConversation.parent).toBe(
+      revisionAfterRewind + 1
+    );
   });
 
   it('status:running 时不调用 window.electronAPI.agent.rewind', () => {

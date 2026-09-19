@@ -2,6 +2,7 @@ import { ENSO_AGENT_TYPE_KEY } from '@shared/builtinAgents';
 import { conversationDotTone } from '@shared/conversationDotTone';
 import { resolveChatModel, scopedDefaultModels } from '@shared/defaultModel';
 import type { AgentTypeMentionCandidate } from '@shared/types/mentions';
+import { Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { AgentChildOauthHost } from '@/components/agent/AgentChildOauthHost';
@@ -291,6 +292,21 @@ export function ChatView() {
               onCancel={() => void window.electronAPI.agent.abortRetry(chrome.id)}
             />
           )}
+          {(chrome.rewinding || chrome.restoringFiles) && (
+            <div
+              role="status"
+              className="mb-1 flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-muted-foreground text-xs"
+            >
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+              <span>
+                {chrome.restoringFiles && !chrome.rewinding
+                  ? t('Restoring files…')
+                  : chrome.restoringFiles
+                    ? t('Rewinding conversation and files…')
+                    : t('Rewinding…')}
+              </span>
+            </div>
+          )}
           <TaskBar
             key={chrome.id}
             sessionId={chrome.id}
@@ -342,7 +358,11 @@ export function ChatView() {
             commands={slashCommands}
             running={running}
             busy={busy}
-            locked={(chrome.pendingApprovals ?? []).length > 0 || capabilityApprovals.length > 0}
+            locked={
+              (chrome.pendingApprovals ?? []).length > 0 ||
+              capabilityApprovals.length > 0 ||
+              Boolean(chrome.rewinding || chrome.restoringFiles)
+            }
             focusKey={chrome.id}
             injectedDraft={chrome.draftText}
             injectedImages={chrome.draftImages}

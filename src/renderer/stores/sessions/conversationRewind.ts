@@ -14,6 +14,8 @@ export interface ConversationRewindView {
   historyBaseIndex?: number;
   worktreeMissing?: boolean;
   workspaceMigrating?: boolean;
+  rewinding?: boolean;
+  restoringFiles?: boolean;
 }
 
 export interface RewindHost {
@@ -41,6 +43,7 @@ export function canShowConversationRewind(
   if (!conversation || conversation.historyOnly) return false;
   if (conversation.worktreeMissing || conversation.workspaceMigrating) return false;
   if (conversation.spawning || conversation.status === 'running') return false;
+  if (conversation.rewinding || conversation.restoringFiles) return false;
   if (conversation.started) return true;
   return canWakeConversationForRewind(conversation);
 }
@@ -52,7 +55,9 @@ export function shouldSendRewindCommand(conversation: ConversationRewindView | u
       conversation.status !== 'running' &&
       !conversation.historyOnly &&
       !conversation.worktreeMissing &&
-      !conversation.workspaceMigrating
+      !conversation.workspaceMigrating &&
+      !conversation.rewinding &&
+      !conversation.restoringFiles
   );
 }
 
@@ -118,4 +123,33 @@ export function rewindKeepCount(
   const target = users[users.length - 1 - userIndexFromEnd];
   if (target === undefined) return null;
   return target;
+}
+
+type RewindDraftPart = {
+  type: string;
+  text?: string;
+  data?: string;
+  mimeType?: string;
+};
+
+/** 从即将裁掉的目标 user 消息抽出草稿，不必等 worker navigateTree。 */
+export function extractRewindDraft(
+  messages: readonly { role: string; content?: readonly RewindDraftPart[] }[],
+  userIndexFromEnd: number
+): { text?: string; images?: { data: string; mimeType: string }[] } | null {
+  const keep = rewindKeepCount(messages, userIndexFromEnd);
+  if (keep === null) return null;
+  const target = messages[keep];
+  if (target?.role !== 'user' || !Array.isArray(target.content)) return null;
+  const text = target.content
+    .filter((part) => part.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.text)
+    .join('');
+  const images = target.content.flatMap((part) =>
+    part.type === 'image' && part.data && part.mimeType
+      ? [{ data: part.data, mimeType: part.mimeType }]
+      : []
+  );
+  if (!text && images.length === 0) return {};
+  return { ...(text ? { text } : {}), ...(images.length > 0 ? { images } : {}) };
 }

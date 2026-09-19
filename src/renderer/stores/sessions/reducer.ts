@@ -117,7 +117,9 @@ export function truncatedNeedsSnapshotResync(
   historyBaseIndex: number | undefined,
   length: number
 ): boolean {
-  return length <= (historyBaseIndex ?? 0);
+  const base = historyBaseIndex ?? 0;
+  if (base <= 0) return false;
+  return length <= base;
 }
 
 /** 上滑分页：只在新页右端正好接到当前权威起点时前置，其它情况原对象返回。 */

@@ -49,6 +49,8 @@ function persistOne(conversation: PersistableConversation): PersistableConversat
     abortRequested: _abortRequested,
     compaction: _compaction,
     compactionError: _compactionError,
+    rewinding: _rewinding,
+    restoringFiles: _restoringFiles,
     // 标题总结的运行态：在飞 Map 随重启作废，失败与摘要都不值得跨重启保留
     titleSummaryPending: _titleSummaryPending,
     titleSummaryError: _titleSummaryError,
@@ -96,6 +98,8 @@ function persistOne(conversation: PersistableConversation): PersistableConversat
     abortRequested: undefined,
     compaction: undefined,
     compactionError: undefined,
+    rewinding: undefined,
+    restoringFiles: undefined,
     titleSummaryPending: undefined,
     titleSummaryError: undefined,
     lastTurnDigest: undefined,

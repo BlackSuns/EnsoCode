@@ -1253,18 +1253,22 @@ export class SessionSupervisor {
           return;
         }
         this.truncateProjectionForRewind(managed, command.userIndexFromEnd);
-        let filesRestored = false;
-        if (command.restoreFiles && managed.checkpoints) {
-          try {
-            filesRestored = await managed.checkpoints.restoreForEntry(
-              target.id,
-              new Date(target.timestamp).getTime()
-            );
-          } catch (error) {
-            console.error('[rewind] file restore failed:', toErrorMessage(error));
-          }
-        }
+        const restorePromise =
+          command.restoreFiles && managed.checkpoints
+            ? managed.checkpoints
+                .restoreForEntry(target.id, new Date(target.timestamp).getTime())
+                .catch((error) => {
+                  console.error('[rewind] file restore failed:', toErrorMessage(error));
+                  return false;
+                })
+            : null;
         const result = await managed.session.navigateTree(target.id);
+        const fallbackEditorText = Array.isArray(target.message.content)
+          ? target.message.content
+              .filter((part) => part.type === 'text' && part.text)
+              .map((part) => part.text)
+              .join('')
+          : '';
         const editorImages = Array.isArray(target.message.content)
           ? target.message.content.flatMap((part) =>
               part.type === 'image' && part.data && part.mimeType
@@ -1277,10 +1281,21 @@ export class SessionSupervisor {
           type: 'rewind-done',
           identity: managed.identity,
           seq: ++managed.seq,
-          ...(!result.cancelled && result.editorText ? { editorText: result.editorText } : {}),
+          ...(!result.cancelled && (result.editorText || fallbackEditorText)
+            ? { editorText: result.editorText || fallbackEditorText }
+            : {}),
           ...(!result.cancelled && editorImages.length > 0 ? { editorImages } : {}),
-          ...(filesRestored ? { filesRestored } : {}),
         });
+        if (command.restoreFiles) {
+          void Promise.resolve(restorePromise ?? false).then((filesRestored) => {
+            this.options.emit({
+              type: 'rewind-done',
+              identity: managed.identity,
+              seq: ++managed.seq,
+              filesRestored: Boolean(filesRestored),
+            });
+          });
+        }
         return;
       }
       case 'abort': {

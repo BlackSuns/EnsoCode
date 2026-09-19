@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canShowConversationRewind,
   canWakeConversationForRewind,
+  extractRewindDraft,
   resolveRewindConfirm,
   rewindKeepCount,
   rewindWorkerPhase,
@@ -66,6 +67,11 @@ describe('canShowConversationRewind', () => {
   it('worktree 丢失或工作区迁移中不显示', () => {
     expect(canShowConversationRewind(root({ started: true, worktreeMissing: true }))).toBe(false);
     expect(canShowConversationRewind(root({ workspaceMigrating: true }))).toBe(false);
+  });
+
+  it('回退进行中不显示，避免连点再裁一截', () => {
+    expect(canShowConversationRewind(root({ started: true, rewinding: true }))).toBe(false);
+    expect(canShowConversationRewind(root({ started: true, restoringFiles: true }))).toBe(false);
   });
 });
 
@@ -198,5 +204,31 @@ describe('rewindKeepCount', () => {
     expect(rewindKeepCount(messages, -1)).toBe(null);
     expect(rewindKeepCount(messages, 0.5)).toBe(null);
     expect(rewindKeepCount([{ role: 'assistant' }], 0)).toBe(null);
+  });
+});
+
+describe('extractRewindDraft', () => {
+  it('抽出目标 user 的正文和图片', () => {
+    const messages = [
+      { role: 'user', content: [{ type: 'text', text: 'one' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'a' }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'two' },
+          { type: 'image', data: 'AAAA', mimeType: 'image/png' },
+        ],
+      },
+      { role: 'assistant', content: [{ type: 'text', text: 'b' }] },
+    ];
+    expect(extractRewindDraft(messages, 0)).toEqual({
+      text: 'two',
+      images: [{ data: 'AAAA', mimeType: 'image/png' }],
+    });
+    expect(extractRewindDraft(messages, 1)).toEqual({ text: 'one' });
+  });
+
+  it('对不上返回 null', () => {
+    expect(extractRewindDraft([{ role: 'assistant', content: [] }], 0)).toBe(null);
   });
 });

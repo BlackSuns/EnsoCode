@@ -1491,5 +1491,7 @@ describe('snapshot running clocks', () => {
     expect(truncatedNeedsSnapshotResync(40, 40)).toBe(true);
     expect(truncatedNeedsSnapshotResync(40, 41)).toBe(false);
     expect(truncatedNeedsSnapshotResync(undefined, 1)).toBe(false);
+    expect(truncatedNeedsSnapshotResync(undefined, 0)).toBe(false);
+    expect(truncatedNeedsSnapshotResync(0, 0)).toBe(false);
   });
 });
