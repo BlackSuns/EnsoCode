@@ -94,9 +94,9 @@ import {
   applyHistoryPage,
   emptyProjection,
   isVisibleGenerationOutput,
+  rewindTruncatedNeedsSnapshotResync,
   type SessionProjection,
   type TimelineMessage,
-  truncatedNeedsSnapshotResync,
   upsertOutOfRange,
 } from './reducer';
 import { applyConversationReload } from './reload';
@@ -492,6 +492,8 @@ export const useSessionsStore = create<SessionsState>()(
       const rewindInFlight = new Set<string>();
 
       const rewindDraftGuard = new Map<string, string>();
+      /** 回退目标的绝对保留长度；回退中快照超过这个长度视为未截断的旧会话 */
+      const rewindKeepAbsolute = new Map<string, number>();
 
       function withWorkspaceRevision(
         state: SessionsState,
@@ -519,6 +521,9 @@ export const useSessionsStore = create<SessionsState>()(
           const keep = rewindKeepCount(current.messages, userIndexFromEnd);
           const draft = extractRewindDraft(current.messages, userIndexFromEnd);
           rewindDraftGuard.set(conversationId, draft?.text ?? '');
+          if (keep !== null) {
+            rewindKeepAbsolute.set(conversationId, (current.historyBaseIndex ?? 0) + keep);
+          }
           return withWorkspaceRevision(
             state,
             conversationId,
@@ -528,7 +533,6 @@ export const useSessionsStore = create<SessionsState>()(
                 : {}),
               rewinding: true,
               historyLoadAttempted: true,
-              ...(keep === 0 ? { historyBaseIndex: undefined } : {}),
               restoringFiles: restoreFiles ? true : undefined,
               ...(draft?.text || draft?.images?.length
                 ? {
@@ -918,7 +922,8 @@ export const useSessionsStore = create<SessionsState>()(
                         historyLoading: undefined,
                       }),
                   ...(conversation.rewinding &&
-                  snapshot.messages.length > conversation.messages.length
+                  (snapshot.baseIndex ?? 0) + snapshot.messages.length >
+                    (rewindKeepAbsolute.get(id) ?? conversation.messages.length)
                     ? {
                         messages: conversation.messages,
                         historyBaseIndex: conversation.historyBaseIndex,
@@ -1298,6 +1303,7 @@ export const useSessionsStore = create<SessionsState>()(
               conversation.draftText !== undefined &&
               conversation.draftText !== expected;
             if (hasDraft) rewindDraftGuard.delete(id);
+            rewindKeepAbsolute.delete(id);
             const patched = patch(state, id, {
               ...next,
               rewinding: undefined,
@@ -1391,8 +1397,11 @@ export const useSessionsStore = create<SessionsState>()(
           }
           if (
             event.type === 'messages-truncated' &&
-            !conversation.rewinding &&
-            truncatedNeedsSnapshotResync(conversation.historyBaseIndex, event.length)
+            rewindTruncatedNeedsSnapshotResync(
+              conversation.historyBaseIndex,
+              event.length,
+              conversation.rewinding
+            )
           ) {
             resyncSnapshot(id);
           }

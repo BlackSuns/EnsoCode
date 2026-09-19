@@ -5,6 +5,7 @@ import {
   applyDispatchEvent,
   applyHistoryPage,
   emptyProjection,
+  rewindTruncatedNeedsSnapshotResync,
   type SessionProjection,
   truncatedNeedsSnapshotResync,
   upsertOutOfRange,
@@ -1493,5 +1494,12 @@ describe('snapshot running clocks', () => {
     expect(truncatedNeedsSnapshotResync(undefined, 1)).toBe(false);
     expect(truncatedNeedsSnapshotResync(undefined, 0)).toBe(false);
     expect(truncatedNeedsSnapshotResync(0, 0)).toBe(false);
+  });
+
+  it('rewindTruncatedNeedsSnapshotResync：回退中尾窗也要补前缀', () => {
+    expect(rewindTruncatedNeedsSnapshotResync(40, 42, true)).toBe(true);
+    expect(rewindTruncatedNeedsSnapshotResync(40, 42, false)).toBe(false);
+    expect(rewindTruncatedNeedsSnapshotResync(undefined, 2, true)).toBe(false);
+    expect(rewindTruncatedNeedsSnapshotResync(40, 10, false)).toBe(true);
   });
 });

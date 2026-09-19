@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { AgentSession } from '@earendil-works/pi-coding-agent';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { afterAll, describe, expect, it } from 'vitest';
-import { materializeSessionFile } from './supervisor';
+import { materializeSessionFile, persistRewindLeaf } from './supervisor';
 
 // 真实 SessionManager：这里要验的是磁盘上的可观测结果，mock 掉就失去意义。
 const root = mkdtempSync(path.join(tmpdir(), 'enso-session-persist-'));
@@ -67,5 +67,67 @@ describe('派发父容器的 custom entry 必须能落盘', () => {
     // pi 已接管：materialize 不该再强制重写（此处仅断言不抛错、不破坏已有内容）
     materializeSessionFile(sessionWith(manager, [{ role: 'assistant' }]));
     expect(existsSync(file)).toBe(false);
+  });
+});
+
+describe('回退叶子必须能跨重启恢复', () => {
+  const user = (text: string) => ({
+    role: 'user' as const,
+    content: [{ type: 'text' as const, text }],
+  });
+  const assistant = (text: string) => ({
+    role: 'assistant' as const,
+    content: [{ type: 'text' as const, text }],
+  });
+
+  it('navigateTree 只改内存时，重开文件会回到回退前的叶子', () => {
+    const manager = SessionManager.create(cwd, sessionDir);
+    const file = manager.getSessionFile();
+    expect(file).toBeTruthy();
+    if (!file) return;
+    manager.appendMessage(user('keep'));
+    manager.appendMessage(assistant('a'));
+    const rewindTarget = manager.appendMessage(user('edit-me'));
+    manager.appendMessage(assistant('b'));
+    const target = manager.getEntry(rewindTarget);
+    expect(target?.parentId).toBeTruthy();
+    if (!target?.parentId) return;
+    manager.branch(target.parentId);
+    const reopened = SessionManager.open(file, sessionDir);
+    const texts = reopened
+      .getBranch()
+      .filter((entry) => entry.type === 'message' && entry.message.role === 'user')
+      .map((entry) =>
+        entry.type === 'message' && Array.isArray(entry.message.content)
+          ? entry.message.content.map((part: { text?: string }) => part.text).join('')
+          : ''
+      );
+    expect(texts).toContain('edit-me');
+  });
+
+  it('写入 rewind leaf 锚点后，重开会话不再包含被回退的 user', () => {
+    const manager = SessionManager.create(cwd, sessionDir);
+    const file = manager.getSessionFile();
+    expect(file).toBeTruthy();
+    if (!file) return;
+    manager.appendMessage(user('keep'));
+    manager.appendMessage(assistant('a'));
+    const rewindTarget = manager.appendMessage(user('edit-me'));
+    manager.appendMessage(assistant('b'));
+    const target = manager.getEntry(rewindTarget);
+    expect(target?.parentId).toBeTruthy();
+    if (!target?.parentId) return;
+    manager.branch(target.parentId);
+    persistRewindLeaf(sessionWith(manager, [user('keep'), assistant('a')]));
+    const reopened = SessionManager.open(file, sessionDir);
+    const texts = reopened
+      .getBranch()
+      .filter((entry) => entry.type === 'message' && entry.message.role === 'user')
+      .map((entry) =>
+        entry.type === 'message' && Array.isArray(entry.message.content)
+          ? entry.message.content.map((part: { text?: string }) => part.text).join('')
+          : ''
+      );
+    expect(texts).toEqual(['keep']);
   });
 });

@@ -464,6 +464,12 @@ export function materializeSessionFile(session: AgentSession): void {
   }
 }
 
+/** pi 的 branch() 只改内存叶子；jsonl 重开以最后一行为准。回退后写一条不可见锚点，重启才停在回退处。 */
+export function persistRewindLeaf(session: AgentSession): void {
+  session.sessionManager.appendCustomEntry('enso-rewind-leaf', { at: Date.now() });
+  materializeSessionFile(session);
+}
+
 function requiredSessionFile(session: AgentSession): string {
   if (!session.sessionFile) throw new Error('SessionManager did not provide a session file.');
   return session.sessionFile;
@@ -1263,6 +1269,7 @@ export class SessionSupervisor {
                 })
             : null;
         const result = await managed.session.navigateTree(target.id);
+        if (!result.cancelled) persistRewindLeaf(managed.session);
         const fallbackEditorText = Array.isArray(target.message.content)
           ? target.message.content
               .filter((part) => part.type === 'text' && part.text)
@@ -3072,14 +3079,7 @@ export class SessionSupervisor {
       .map((rawMessage, index) => this.withTiming(managed, index, rawMessage));
     const previousLength = managed.messages.length;
     if (projected.length < previousLength) {
-      managed.messages = projected;
-      managed.timings.length = projected.length;
-      this.options.emit({
-        type: 'messages-truncated',
-        identity: managed.identity,
-        seq: ++managed.seq,
-        length: projected.length,
-      });
+      // navigateTree 后的 LLM 上下文可能短于完整投影；再 truncated 会砍掉前缀。
       return;
     }
     managed.messages = projected;

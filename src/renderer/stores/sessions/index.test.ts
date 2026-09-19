@@ -3205,7 +3205,6 @@ describe('rewind 在 failed 状态放行、running 仍拦截', () => {
           spawning: false,
           status: 'idle' as const,
           generation: 'g1',
-          historyBaseIndex: 40,
           historyLoadAttempted: undefined,
           messages: [user('first'), assistant('a'), user('second'), assistant('b')],
         },
@@ -3215,7 +3214,6 @@ describe('rewind 在 failed 状态放行、running 仍拦截', () => {
     const conversation = sessionsModule.useSessionsStore.getState().conversations.parent;
     expect(conversation.messages).toEqual([]);
     expect(conversation.draftText).toBe('first');
-    expect(conversation.historyBaseIndex).toBeUndefined();
     expect(conversation.historyLoadAttempted).toBe(true);
     onAgentEvent?.({
       type: 'messages-truncated',
@@ -3224,6 +3222,115 @@ describe('rewind 在 failed 状态放行、running 仍拦截', () => {
       length: 0,
     });
     expect(requestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('尾窗内回退第一条：补前缀快照，不把更长的旧会话写回', () => {
+    requestSnapshot.mockClear();
+    const user = (text: string) => ({
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+    });
+    const assistant = (text: string) => ({
+      role: 'assistant' as const,
+      content: [{ type: 'text' as const, text }],
+    });
+    const prefix = [user('kept-a'), assistant('kept-b')];
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: true,
+          spawning: false,
+          status: 'idle' as const,
+          generation: 'g1',
+          historyBaseIndex: 40,
+          messages: [user('first-in-window'), assistant('a'), user('second'), assistant('b')],
+        },
+      },
+    }));
+    sessionsModule.useSessionsStore.getState().rewind('parent', 1, false);
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent.messages).toEqual([]);
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent.historyBaseIndex).toBe(
+      40
+    );
+    onAgentEvent?.({
+      type: 'messages-truncated',
+      identity: { sessionId: 'parent', generation: 'g1' },
+      seq: 1,
+      length: 40,
+    });
+    expect(requestSnapshot).toHaveBeenCalledWith('parent');
+    onAgentEvent?.({
+      type: 'snapshot',
+      partial: true,
+      sessions: [
+        {
+          identity: { sessionId: 'parent', generation: 'g1' },
+          status: 'idle',
+          messages: prefix,
+          commands: [],
+        },
+      ],
+    });
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent.messages).toEqual(
+      prefix
+    );
+    onAgentEvent?.({
+      type: 'snapshot',
+      partial: true,
+      sessions: [
+        {
+          identity: { sessionId: 'parent', generation: 'g1' },
+          status: 'idle',
+          messages: [...prefix, ...Array.from({ length: 40 }, (_, i) => user(`stale-${i}`))],
+          commands: [],
+        },
+      ],
+    });
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent.messages).toEqual(
+      prefix
+    );
+  });
+
+  it('尾窗内回退最后一条也要补前缀快照', () => {
+    requestSnapshot.mockClear();
+    vi.setSystemTime(Date.now() + 3_000);
+    const user = (text: string) => ({
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+    });
+    const assistant = (text: string) => ({
+      role: 'assistant' as const,
+      content: [{ type: 'text' as const, text }],
+    });
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: true,
+          spawning: false,
+          status: 'idle' as const,
+          generation: 'g1',
+          historyBaseIndex: 40,
+          messages: [user('first-in-window'), assistant('a'), user('second'), assistant('b')],
+        },
+      },
+    }));
+    sessionsModule.useSessionsStore.getState().rewind('parent', 0, false);
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent.messages).toEqual([
+      user('first-in-window'),
+      assistant('a'),
+    ]);
+    onAgentEvent?.({
+      type: 'messages-truncated',
+      identity: { sessionId: 'parent', generation: 'g1' },
+      seq: 1,
+      length: 42,
+    });
+    expect(requestSnapshot).toHaveBeenCalledWith('parent');
+    vi.useRealTimers();
   });
 
   it('回退中的全量快照不能把刚裁掉的旧会话写回', () => {

@@ -329,6 +329,73 @@ describe('SessionSupervisor compact failure', () => {
     await supervisor.shutdown();
   });
 
+  it('rewind 后不把 LLM 短上下文再 truncated 掉前缀', async () => {
+    const events: AgentWorkerEvent[] = [];
+    const supervisor = new SessionSupervisor({
+      emit: (event) => events.push(event),
+      agentDir: '/tmp/agent',
+      sessionDir: mkdtempSync(path.join(tmpdir(), 'enso-rewind-llm-')),
+    });
+    supervisor.handleCommand({
+      type: 'spawn-parent',
+      identity: parent,
+      cwd: '/workspace',
+      model,
+    });
+    await waitFor(events, 'parent-ready');
+    const parentSession = mocks.sessions[0] as ReturnType<typeof session>;
+    const user = (text: string) => ({
+      role: 'user',
+      content: [{ type: 'text', text }],
+    });
+    const assistant = (text: string) => ({
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+    });
+    parentSession.emit({ type: 'message_start', message: user('keep') });
+    parentSession.emit({ type: 'message_start', message: assistant('computer-use') });
+    parentSession.emit({ type: 'message_start', message: user('commit') });
+    parentSession.emit({ type: 'message_start', message: assistant('ok') });
+    parentSession.emit({ type: 'message_start', message: user('edit-readme') });
+    parentSession.emit({ type: 'message_start', message: assistant('done') });
+    (mocks.managers[0] as { getBranch: () => unknown[] }).getBranch().push(
+      {
+        type: 'message',
+        message: user('keep'),
+        id: 'entry-user-1',
+        timestamp: 1,
+      },
+      {
+        type: 'message',
+        message: user('commit'),
+        id: 'entry-user-2',
+        timestamp: 2,
+      },
+      {
+        type: 'message',
+        message: user('edit-readme'),
+        id: 'entry-user-3',
+        timestamp: 3,
+      }
+    );
+    parentSession.navigateTree = vi.fn(async () => {
+      parentSession.messages = [user('commit'), assistant('ok')];
+      return { cancelled: false, editorText: 'edit-readme' };
+    });
+    events.length = 0;
+    supervisor.handleCommand({
+      type: 'rewind',
+      identity: parent,
+      userIndexFromEnd: 0,
+    });
+    await settle();
+    await settle();
+    const truncated = events.filter((event) => event.type === 'messages-truncated');
+    expect(truncated).toEqual([expect.objectContaining({ type: 'messages-truncated', length: 4 })]);
+    expect(events.filter((event) => event.type === 'message-upsert')).toEqual([]);
+    await supervisor.shutdown();
+  });
+
   it('文件还原不阻塞 rewind-done 草稿', async () => {
     const events: AgentWorkerEvent[] = [];
     const supervisor = new SessionSupervisor({

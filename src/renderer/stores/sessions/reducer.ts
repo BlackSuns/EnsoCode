@@ -122,6 +122,16 @@ export function truncatedNeedsSnapshotResync(
   return length <= base;
 }
 
+/** 回退中只要还停在尾窗，就补前缀；不能只在裁过窗起点时才拉快照。 */
+export function rewindTruncatedNeedsSnapshotResync(
+  historyBaseIndex: number | undefined,
+  length: number,
+  rewinding?: boolean
+): boolean {
+  if (truncatedNeedsSnapshotResync(historyBaseIndex, length)) return true;
+  return Boolean(rewinding) && (historyBaseIndex ?? 0) > 0;
+}
+
 /** 上滑分页：只在新页右端正好接到当前权威起点时前置，其它情况原对象返回。 */
 export function applyHistoryPage(
   state: SessionProjection,
