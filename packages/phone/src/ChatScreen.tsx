@@ -1,7 +1,7 @@
 import type { CatalogEntry } from '@enso/pair';
 import { localCompactionNoticeIndex } from '@shared/pair/guestProjection';
 import type { AttachedImage, ProjectedMessage, SlashCommand } from '@shared/types/agent';
-import { Bot, ChevronDown, Loader2, PanelLeft, SquarePen } from 'lucide-react';
+import { Bot, ChevronDown, Loader2, MessageCircle, PanelLeft, SquarePen } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { ApprovalBar } from '@/components/chat/ApprovalBar';
 import { AskBar } from '@/components/chat/AskBar';
@@ -269,6 +269,7 @@ export function ChatScreen(props: Props) {
               className={tabClass(sessionId === props.tabGroup.parent.id)}
               onClick={() => props.onSelectTab?.(props.tabGroup?.parent.id ?? '')}
             >
+              <MessageCircle className="h-3 w-3 shrink-0" />
               <span className="max-w-40 truncate">{props.tabGroup.parent.title || '新对话'}</span>
             </button>
             {props.tabGroup.children.map((child) => (

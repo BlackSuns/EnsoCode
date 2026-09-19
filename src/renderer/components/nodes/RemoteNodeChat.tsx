@@ -3,7 +3,7 @@ import { type GuestSessionView, localCompactionNoticeIndex } from '@shared/pair/
 import { type AttachedImage, THINKING_LEVELS, type ThinkingLevel } from '@shared/types/agent';
 import type { ModelProvider } from '@shared/types/llm';
 import type { RemoteNodeStatus } from '@shared/types/nodes';
-import { Bot, Monitor } from 'lucide-react';
+import { Bot, MessageCircle, Monitor } from 'lucide-react';
 import { useEffect, useMemo, useRef } from 'react';
 import { ApprovalBar } from '@/components/chat/ApprovalBar';
 import { AskBar } from '@/components/chat/AskBar';
@@ -150,6 +150,7 @@ export function RemoteNodeChat(props: RemoteNodeChatProps) {
               label={props.tabGroup.parent.title || t('New conversation')}
               status={props.tabGroup.parent.status}
               onClick={() => props.onSelectTab(props.tabGroup!.parent.id)}
+              icon={<MessageCircle className="h-3 w-3 shrink-0" />}
             />
             {props.tabGroup.children.map((child) => (
               <TabPill
