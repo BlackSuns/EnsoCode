@@ -51,6 +51,10 @@ files:
   # 从未打 musl 目标；darwin/win/linux 预编译必须留在全局 files，不能放到 mac.files
   # —— 平台 files 若只含 !excludes，electron-builder 会当成默认 matcher 并塞入 **/*，整仓进 asar
   - '!node_modules/better-sqlite3/prebuilds/linuxmusl*'
+  # pi TUI 剪贴板；loadClipboardNative 缺失即 null。产品剪贴板走 Electron
+  - '!node_modules/@mariozechner/clipboard/**'
+  - '!node_modules/@mariozechner/clipboard-*/**'
+  - '!node_modules/.pnpm/@mariozechner+clipboard*/**'
 electronLanguages:
   - en
   - en-US
@@ -82,6 +86,7 @@ linux:
     - AppImage
     - deb
 npmRebuild: false
+afterPack: ./src/tooling/stripPackagedNatives.mjs
 publish:
   provider: github
   owner: J3n5en

@@ -56,6 +56,8 @@ export default defineConfig({
     // diff 高亮 worker（@pierre/diffs）含动态 import，iife 格式打不了，需 es
     worker: { format: 'es' },
     build: {
+      // electron-vite renderer 默认 minify:false，未压缩的 mermaid/shiki chunk 有十几 MB
+      minify: 'esbuild',
       rollupOptions: {
         input: {
           index: path.resolve(__dirname, 'src/renderer/index.html'),

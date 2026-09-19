@@ -9,7 +9,7 @@
 - UI 使用项目已有的 `src/renderer/components/ui/` 封装，不直接引入底层 UI 原语。
 - 使用 pnpm、Biome、Vitest。
 - 项目没有数据库、ORM、HTTP 服务端或路由库；不要为局部需求引入这些基础设施。
-- 安装包：只有 main/worker 运行时 `require`/`import` 的包放 `dependencies`。renderer 库放 `devDependencies`，由 Vite 打进 `out/`。`electron-builder.yml` 排除 `*.map`、类型声明、文档和跨平台编译残留。
+- 安装包：只有 main/worker 运行时 `require`/`import` 的包放 `dependencies`。renderer 库放 `devDependencies`，由 Vite 打进 `out/`，renderer `minify: 'esbuild'`。`electron-builder.yml` 排除 `*.map`、类型声明、文档和跨平台编译残留；非本平台 `better-sqlite3` 预编译由 `afterPack` 删除，不要写进 `mac.files`。
 
 ## 开发前
 

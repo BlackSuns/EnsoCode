@@ -27,4 +27,8 @@ describe('Electron main build topology', () => {
     const viteMajor = Number(vitePackage.version.split('.')[0]);
     if (electronViteMajor === 5) expect(viteMajor).toBeLessThanOrEqual(7);
   });
+
+  it('minifies renderer chunks (electron-vite defaults minify to false)', () => {
+    expect(config.renderer?.build?.minify).toBe('esbuild');
+  });
 });

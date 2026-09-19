@@ -112,4 +112,9 @@ describe('installer packaging', () => {
       expect(block, platform).not.toMatch(/^\s+files:/m);
     }
   });
+
+  it('drops the unused pi TUI clipboard native and strips foreign sqlite prebuilds after pack', () => {
+    expect(yml).toContain('!node_modules/@mariozechner/clipboard');
+    expect(yml).toContain('src/tooling/stripPackagedNatives.mjs');
+  });
 });
