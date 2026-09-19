@@ -215,7 +215,7 @@ describe('subagent tool model 参数', () => {
     expect(tool.description).toMatch(/same message/i);
     expect(alwaysOn).toMatch(/isolated judgment/i);
     expect(alwaysOn).toMatch(/do not serial-search/i);
-    expect(alwaysOn).toMatch(/3\+ similar read\/grep\/find/i);
+    expect(alwaysOn).toMatch(/3\+ similar guest calls/i);
     expect(alwaysOn).toMatch(/reduced result/i);
     expect(alwaysOn).toMatch(/use exec/i);
     expect(tool.description).not.toMatch(/use exec/i);

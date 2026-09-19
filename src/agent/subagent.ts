@@ -215,7 +215,7 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
     promptSnippet:
       'subagent: self-contained one-shot work including a single review. ' +
       'N independent repos/dirs/questions that each need isolated judgment → N subagent calls in the same message (do not serial-search them yourself). ' +
-      'Do not spawn subagents for 3+ similar read/grep/find that only need a reduced result — use exec. ' +
+      'Do not spawn subagents for 3+ similar guest calls (read/grep/find, MCP, mechanical apply_patch) that only need a reduced result — use exec. ' +
       'Handle short tasks directly when their context is already known. ' +
       'Delegate only on user request or a clear parallel, context-isolation, or independent-review benefit. ' +
       'Use coworker if available only for sustained collaboration and context reuse (same role across rounds: spawn once, then send). Do not start a new subagent each round to re-paste background. ' +
@@ -231,7 +231,7 @@ export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
         : ''),
     promptGuidelines: [
       'When the user names independent repos, directories, or questions that each need isolated judgment, dispatch one subagent per item in the same message; do not serial-search them in the parent. ' +
-        'Do not spawn subagents for 3+ similar read/grep/find that only need a reduced result — use exec. ' +
+        'Do not spawn subagents for 3+ similar guest calls (read/grep/find, MCP, mechanical apply_patch) that only need a reduced result — use exec. ' +
         'Handle short tasks directly when their context is already known. ' +
         'Delegate only when the user requests delegation or parallel execution, isolated context, or independent review offers a clear benefit. ' +
         'Select subagent for one-shot work including a single review and coworker, if available, only for sustained collaboration and context reuse. ' +

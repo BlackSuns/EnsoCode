@@ -81,10 +81,12 @@ describe('createIsolatedSandboxTool', () => {
       '\n'
     );
     expect(text).toMatch(/prefer exec/i);
-    expect(text).toMatch(/3\+ similar read\/grep\/find/i);
+    expect(text).toMatch(/3\+ similar guest calls/i);
+    expect(text).toMatch(/MCP/i);
+    expect(text).toMatch(/apply_patch/i);
     expect(text).toMatch(/reduced result/i);
     expect(text).toMatch(/not for exploring/i);
-    expect(text).toMatch(/Do not wrap a single read\/grep\/find/i);
+    expect(text).toMatch(/Do not wrap a single call/i);
     expect(text).not.toMatch(/parent hashline snapshot/i);
     expect(text).toMatch(/JSON-serialized and truncated/i);
     expect(text).not.toMatch(/Hashline headers require the Hashline setting/i);

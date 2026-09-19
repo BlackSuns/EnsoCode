@@ -263,7 +263,7 @@ export function createIsolatedSandboxTool(options: IsolatedSandboxToolOptions): 
     name: 'exec',
     label: 'Isolated sandbox',
     description:
-      'Prefer exec when you are about to make 3+ similar read/grep/find calls and only need a reduced result (count, path list, boolean, extracted fields) — not for exploring or dumping full file bodies into parent context. ' +
+      'Run JavaScript to orchestrate similar guest tool calls and return a reduced result. Prefer exec for 3+ similar guest calls — read/grep/find, MCP, or mechanical apply_patch/write — when you only need a count, path list, boolean, extracted fields, or patch outcomes; not for exploring or dumping full file bodies into parent context. ' +
       'Example:\n' +
       'const files = (await find({pattern:"src/**/*.ts"})).content.split("\\n").filter(Boolean);\n' +
       'const hits = await Promise.all(files.map(f => grep({pattern:"TODO", path:f})));\n' +
@@ -275,9 +275,9 @@ export function createIsolatedSandboxTool(options: IsolatedSandboxToolOptions): 
       'Tool names: "-" and "__" become "_": mcp__semble__search → mcp_semble_search. ' +
       'catalog.list() / listTools() lists callable names. store()/load() last for this live session. Not a shell.',
     promptSnippet:
-      'exec: prefer for 3+ similar read/grep/find when you only need a reduced result (count, path list, boolean, extracted fields) — not for exploring, dumping full file bodies, or wrapping a single call. Do not spawn a subagent for this. Write JS and return the value. Uncaught throw fails the cell. MCP names collapse __ and - to _.',
+      'exec: prefer for 3+ similar guest calls (read/grep/find, MCP, mechanical apply_patch) when you only need a reduced result — not for exploring, dumping full files, or wrapping a single call. Nested via await name(args); MCP names collapse __ and - to _. Do not spawn a subagent for this. Write JS and return the value. Uncaught throw fails the cell.',
     promptGuidelines: [
-      'Do not wrap a single read/grep/find. Use exec only for 3+ similar calls that you reduce before returning (count, path list, boolean, extracted fields). Do not use exec to explore unknown code or to load full files into parent context.',
+      'Do not wrap a single call. Use exec for 3+ similar guest tools you reduce before returning (count, path list, boolean, extracted fields, patch status). Includes MCP and apply_patch as await apply_patch({input}); do not paste a patch document as exec code. Independent reads MAY Promise.all; mutating calls stay sequenced. Do not use exec to explore unknown code or to load full files into parent context.',
       'No console.log — there is no console, fetch, setTimeout, URL, TextEncoder, or structuredClone. Use return.',
       'Tool failures resolve with isError: true and do not throw. A JS exception still fails the whole cell.',
       'Each nested tool returns { content: string, details?: unknown, isError: boolean }. Do not treat the result as a raw string.',
