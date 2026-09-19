@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  type CheckpointHost,
   createCheckpoint,
   loadAllCheckpoints,
   pruneStaleCheckpoints,
@@ -83,6 +84,39 @@ describe('createCheckpoint / restoreCheckpoint', () => {
     expect(all[0].entryTimestamp).toBe(1700000000000);
     expect(all[0].toolName).toBe('edit');
     expect(all[0].branch).toBe('main');
+  });
+
+  it('按会话加载只打一次 for-each-ref，不逐条 cat-file', async () => {
+    const msg = [
+      'enso-checkpoint:tool-s1-1',
+      'sessionId s1',
+      'trigger tool',
+      'branch main',
+      `head ${'a'.repeat(40)}`,
+      `index-tree ${'b'.repeat(40)}`,
+      `worktree-tree ${'c'.repeat(40)}`,
+      'created 2026-09-19T00:00:00.000Z',
+    ].join('\n');
+    const git = vi.fn(async (cmd: string) => {
+      if (cmd.startsWith('for-each-ref')) {
+        expect(cmd).toContain('tool-s1-');
+        expect(cmd).toContain('before-restore-s1-');
+        expect(cmd).not.toContain('tool-s2');
+        return `refs/enso-checkpoints/tool-s1-1\0${msg}\0`;
+      }
+      throw new Error(`unexpected git ${cmd}`);
+    });
+    const host: CheckpointHost = {
+      git,
+      statBatch: async () => new Map(),
+      mkdtemp: async () => '/tmp',
+      rmrf: async () => {},
+      join: (...parts) => parts.join('/'),
+    };
+    const all = await loadAllCheckpoints('/repo', 's1', host);
+    expect(git).toHaveBeenCalledTimes(1);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ id: 'tool-s1-1', sessionId: 's1', trigger: 'tool' });
   });
 
   it('pruneStaleCheckpoints 只清过期快照,其它会话的近期快照保留', async () => {

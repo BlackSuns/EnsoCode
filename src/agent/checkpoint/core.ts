@@ -526,43 +526,47 @@ export async function loadCheckpointFromRef(
   try {
     const commitSha = await host.git(`rev-parse --verify ${REF_BASE}/${refName}`, root);
     const msg = await host.git(`cat-file commit ${commitSha}`, root);
-    const get = (key: string) => msg.match(new RegExp(`^${key} (.+)$`, 'm'))?.[1]?.trim();
-    const sid = get('sessionId');
-    const head = get('head');
-    const idx = get('index-tree');
-    const wt = get('worktree-tree');
-    if (!sid || !head || !idx || !wt) return null;
-    const parseJson = (key: string): string[] | undefined => {
-      const raw = get(key);
-      if (!raw) return undefined;
-      try {
-        const arr = JSON.parse(raw) as string[];
-        return arr.length > 0 ? arr : undefined;
-      } catch {
-        return undefined;
-      }
-    };
-    const created = get('created');
-    const entryTs = get('entryTimestamp');
-    return {
-      id: refName,
-      sessionId: sid,
-      trigger: get('trigger') === 'before-restore' ? 'before-restore' : 'tool',
-      toolName: get('toolName'),
-      entryId: get('entryId'),
-      entryTimestamp: entryTs ? Number(entryTs) : undefined,
-      branch: get('branch') || 'unknown',
-      headSha: head,
-      indexTreeSha: idx,
-      worktreeTreeSha: wt,
-      timestamp: created ? new Date(created).getTime() : 0,
-      preexistingUntrackedFiles: parseJson('untracked'),
-      skippedLargeFiles: parseJson('largeFiles'),
-      skippedLargeDirs: parseJson('largeDirs'),
-    };
+    return parseCheckpointMessage(refName, msg);
   } catch {
     return null;
   }
+}
+
+function parseCheckpointMessage(refName: string, msg: string): CheckpointData | null {
+  const get = (key: string) => msg.match(new RegExp(`^${key} (.+)$`, 'm'))?.[1]?.trim();
+  const sid = get('sessionId');
+  const head = get('head');
+  const idx = get('index-tree');
+  const wt = get('worktree-tree');
+  if (!sid || !head || !idx || !wt) return null;
+  const parseJson = (key: string): string[] | undefined => {
+    const raw = get(key);
+    if (!raw) return undefined;
+    try {
+      const arr = JSON.parse(raw) as string[];
+      return arr.length > 0 ? arr : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const created = get('created');
+  const entryTs = get('entryTimestamp');
+  return {
+    id: refName,
+    sessionId: sid,
+    trigger: get('trigger') === 'before-restore' ? 'before-restore' : 'tool',
+    toolName: get('toolName'),
+    entryId: get('entryId'),
+    entryTimestamp: entryTs ? Number(entryTs) : undefined,
+    branch: get('branch') || 'unknown',
+    headSha: head,
+    indexTreeSha: idx,
+    worktreeTreeSha: wt,
+    timestamp: created ? new Date(created).getTime() : 0,
+    preexistingUntrackedFiles: parseJson('untracked'),
+    skippedLargeFiles: parseJson('largeFiles'),
+    skippedLargeDirs: parseJson('largeDirs'),
+  };
 }
 
 export async function listCheckpointRefs(
@@ -586,11 +590,29 @@ export async function loadAllCheckpoints(
   sessionId?: string,
   host: CheckpointHost = localCheckpointHost
 ): Promise<CheckpointData[]> {
-  const refs = await listCheckpointRefs(root, host);
-  const results = await Promise.all(refs.map((r) => loadCheckpointFromRef(root, r, host)));
-  return results.filter(
-    (cp): cp is CheckpointData => cp !== null && (!sessionId || cp.sessionId === sessionId)
-  );
+  const prefix = `${REF_BASE}/`;
+  const patterns = sessionId
+    ? [`${prefix}tool-${sessionId}-*`, `${prefix}before-restore-${sessionId}-*`]
+    : [prefix];
+  let out = '';
+  try {
+    out = await host.git(
+      `for-each-ref --format=%(refname)%00%(contents)%00 ${patterns.join(' ')}`,
+      root
+    );
+  } catch {
+    return [];
+  }
+  const parts = out.split('\0');
+  const results: CheckpointData[] = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const ref = parts[i]?.trim();
+    const msg = parts[i + 1];
+    if (!ref) continue;
+    const cp = parseCheckpointMessage(ref.replace(prefix, ''), msg);
+    if (cp && (!sessionId || cp.sessionId === sessionId)) results.push(cp);
+  }
+  return results;
 }
 
 export async function deleteCheckpoint(
