@@ -1,6 +1,5 @@
 import {
   type BashOperations,
-  type BashSpawnHook,
   createBashToolDefinition,
   createPowerShellToolDefinition,
 } from '@earendil-works/pi-coding-agent';
@@ -24,18 +23,14 @@ export function createSessionCommandTool(input: {
   remote?: boolean;
   preference?: WindowsLocalShell;
   operations?: BashOperations;
-  spawnHook?: BashSpawnHook;
 }): ReturnType<typeof createBashToolDefinition> {
   const kind = resolveSessionShellKind({
     platform: input.platform ?? process.platform,
     remote: input.remote,
     preference: input.preference,
   });
-  const options = {
-    ...(input.operations ? { operations: input.operations } : {}),
-    ...(input.spawnHook ? { spawnHook: input.spawnHook } : {}),
-  };
+  const options = input.operations ? { operations: input.operations } : undefined;
   return kind === 'powershell'
-    ? createPowerShellToolDefinition(input.cwd, Object.keys(options).length ? options : undefined)
-    : createBashToolDefinition(input.cwd, Object.keys(options).length ? options : undefined);
+    ? createPowerShellToolDefinition(input.cwd, options)
+    : createBashToolDefinition(input.cwd, options);
 }

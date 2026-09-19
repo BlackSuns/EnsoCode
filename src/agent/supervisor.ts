@@ -118,7 +118,6 @@ import { createMessageCoworkerTool } from './messageCoworker';
 import { createMessageMainTool } from './messageMain';
 import { ParentNotifier } from './notify';
 import { withOpenAIResponsesRouting } from './openaiResponsesRouting';
-import { osSandboxSpawnHook, wrapOsSandboxCommand } from './osSandbox';
 import { projectMessage } from './projection';
 import { applyWorkerProxyEnv } from './proxyEnv';
 import { withReadTruncationMeta } from './readTruncation';
@@ -1530,12 +1529,6 @@ export class SessionSupervisor {
           return { command: sshCommand, cwd: process.cwd() };
         }
       : undefined;
-    const commandTransform = remoteOps
-      ? backgroundTransform
-      : (command: string, commandCwd: string) => ({
-          command: wrapOsSandboxCommand(command, commandCwd),
-          cwd: commandCwd,
-        });
     const buildBaseTools = (
       toolGate: ApprovalGate,
       cp?: CheckpointManager,
@@ -1590,12 +1583,11 @@ export class SessionSupervisor {
                 remote: Boolean(remoteOps),
                 preference: windowsLocalShell,
                 operations: remoteOps?.bash,
-                ...(remoteOps ? {} : { spawnHook: osSandboxSpawnHook(cwd) }),
               }) as unknown as Def,
               this.bgTasks,
               sessionId,
               cwd,
-              commandTransform
+              backgroundTransform
             )
           )
         ),
