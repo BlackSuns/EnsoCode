@@ -100,6 +100,12 @@ jobs:
       - name: Embed phone PWA
         run: ./packages/relay-go/sync-frontend.sh
 
+      - name: Install UPX
+        run: |
+          curl -fsSL https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-amd64_linux.tar.xz \
+            | sudo tar -xJ -C /usr/local/bin --strip-components=1 --wildcards '*/upx'
+          upx --version
+
       - name: Build linux amd64 and arm64
         working-directory: packages/relay-go
         env:
@@ -107,8 +113,11 @@ jobs:
         run: |
           VERSION="${{ steps.meta.outputs.tag }}"
           mkdir -p dist
-          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/enso-relay-linux-amd64 .
-          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/enso-relay-linux-arm64 .
+          GOOS=linux GOARCH=amd64 go build -trimpath -buildmode=exe -ldflags="-s -w -X main.version=${VERSION}" -o dist/enso-relay-linux-amd64 .
+          GOOS=linux GOARCH=arm64 go build -trimpath -buildmode=exe -ldflags="-s -w -X main.version=${VERSION}" -o dist/enso-relay-linux-arm64 .
+          ls -lh dist/enso-relay-linux-*
+          upx --best --lzma dist/enso-relay-linux-amd64 dist/enso-relay-linux-arm64
+          ls -lh dist/enso-relay-linux-*
           chmod +x dist/enso-relay-linux-*
           cd dist
           sha256sum enso-relay-linux-amd64 enso-relay-linux-arm64 > enso-relay-checksums.txt
