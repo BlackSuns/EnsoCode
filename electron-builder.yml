@@ -71,6 +71,8 @@ asarUnpack:
   - node_modules/onnxruntime-node/bin/**
   # node-datachannel 平台预编译；asar 内 dlopen 失败
   - node_modules/@node-datachannel/**/*.node
+  # ripgrep 二进制不能从 asar 内执行
+  - node_modules/@vscode/ripgrep/bin/**
 mac:
   category: public.app-category.developer-tools
   target:

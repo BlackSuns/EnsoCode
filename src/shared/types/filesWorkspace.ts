@@ -35,3 +35,34 @@ export interface FilesWorkspaceRequest {
   projectId: string;
   rel?: string;
 }
+
+export type FilesSearchMode = 'names' | 'content';
+
+export interface FilesSearchRequest {
+  conversationId: string;
+  projectId: string;
+  query: string;
+  mode: FilesSearchMode;
+  maxResults?: number;
+  caseSensitive?: boolean;
+  wholeWord?: boolean;
+  regex?: boolean;
+}
+
+export interface FilesSearchNameHit {
+  relativePath: string;
+  name: string;
+}
+
+export interface FilesSearchContentHit {
+  relativePath: string;
+  line: number;
+  column: number;
+  matchLength: number;
+  content: string;
+}
+
+export type FilesSearchResult =
+  | { ok: true; mode: 'names'; hits: FilesSearchNameHit[] }
+  | { ok: true; mode: 'content'; hits: FilesSearchContentHit[]; truncated: boolean }
+  | { ok: false; error: string };

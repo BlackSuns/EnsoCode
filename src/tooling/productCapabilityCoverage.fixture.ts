@@ -484,6 +484,9 @@ export const IPC_PRODUCT_COVERAGE = {
   FILES_COPY_PATH: excluded('Side panel Files copy path text to clipboard.'),
   FILES_COPY_FILE: excluded('Side panel Files copy local file to OS clipboard.'),
   FILES_REVEAL: excluded('Side panel Files reveal in system file manager.'),
+  FILES_SEARCH_WORKSPACE: excluded(
+    'Side panel Files name/content search scoped to conversation cwd.'
+  ),
   PAIR_CANCEL: excluded('Phone second-screen pairing transport; not an Enso capability.'),
   PAIR_CATALOG: excluded('Phone second-screen pairing transport; not an Enso capability.'),
   PAIR_RESUME_SESSION: excluded('Phone second-screen pairing transport; not an Enso capability.'),

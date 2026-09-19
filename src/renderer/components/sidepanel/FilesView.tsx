@@ -3,7 +3,7 @@ import { Editor, type EditorOptions } from '@pierre/diffs/edit';
 import { EditProvider, File, Virtualizer } from '@pierre/diffs/react';
 import type { FilesDirEntry } from '@shared/types';
 import type { ProjectedMessage } from '@shared/types/agent';
-import { ChevronRight, Code2, Eye, RefreshCw } from 'lucide-react';
+import { ChevronRight, Code2, Eye, RefreshCw, Search } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/chat/ConfirmDialog';
 import { CODE_THEME, ensureHighlighter } from '@/components/chat/codeHighlighter';
@@ -28,6 +28,7 @@ import { useSessionsStore } from '@/stores/sessions';
 import { hasAuthoritativeMessages } from '@/stores/sessions/messageCache';
 import { buildTimeline, completedEditWriteFingerprint } from '@/stores/sessions/timeline';
 import { useSettingsStore } from '@/stores/settings';
+import { FilesSearchPane } from './FilesSearchPane';
 import { fileTypeIcon, fileTypeIconClass } from './fileIcons';
 import { FileMarkdownPreview } from './filePreviewMarkdown';
 import { ancestorDirs, applyCompletedWrites } from './filesTreeRefresh';
@@ -118,6 +119,7 @@ export function FilesView({ conversationId, projectId }: FilesViewProps) {
   const [activeRel, setActiveRel] = useState<string | null>(null);
   const [treeGen, setTreeGen] = useState(0);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set());
+  const [searchOpen, setSearchOpen] = useState(false);
   const [draft, setDraft] = useState<null | { parent: string; kind: 'file' | 'dir' }>(null);
   const [renaming, setRenaming] = useState<null | {
     rel: string;
@@ -664,80 +666,100 @@ export function FilesView({ conversationId, projectId }: FilesViewProps) {
     <EditProvider createEditor={createEditor}>
       <div className="flex h-full min-h-0 bg-background">
         <div className="flex w-56 shrink-0 flex-col overflow-hidden border-r text-sm">
-          <div className="flex justify-end px-1 py-0.5">
+          <div className="flex justify-end gap-0.5 px-1 py-0.5">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setSearchOpen((open) => !open)}
+              aria-label={t('Search')}
+              aria-pressed={searchOpen}
+            >
+              <Search />
+            </Button>
             <Button variant="ghost" size="icon-sm" onClick={bumpTree} aria-label={t('Refresh')}>
               <RefreshCw />
             </Button>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto">
-            <FileTreeMenu
-              target={{ kind: 'blank' }}
-              local={local}
-              onNewFile={handleNewFile}
-              onNewFolder={handleNewFolder}
-              onCopyPath={() => undefined}
-              onCopyRel={() => undefined}
-            >
-              <div className="min-h-full">
-                <FileTree
-                  rel=""
-                  depth={0}
-                  conversationId={conversationId}
-                  projectId={projectId}
-                  treeEpoch={treeGen}
-                  draft={draft}
-                  renaming={renaming}
-                  local={local}
-                  expandedDirs={expandedDirs}
-                  onToggleDir={toggleDir}
-                  onOpen={openFile}
-                  onPreview={openPreview}
-                  onBrowser={openInBrowser}
-                  onCopyPath={(rel) =>
-                    void window.electronAPI.workspaceFiles.copyPath({
-                      ...req,
-                      rel,
-                      mode: 'absolute',
-                    })
-                  }
-                  onCopyRel={(rel) =>
-                    void window.electronAPI.workspaceFiles.copyPath({
-                      ...req,
-                      rel,
-                      mode: 'relative',
-                    })
-                  }
-                  onCopyFile={(rel) =>
-                    void window.electronAPI.workspaceFiles.copyFile({ ...req, rel }).then((r) => {
-                      if (!r.ok) failToast(r.error);
-                    })
-                  }
-                  onReveal={(rel) => void window.electronAPI.workspaceFiles.reveal({ ...req, rel })}
-                  onNewFile={handleNewFile}
-                  onNewFolder={handleNewFolder}
-                  onRenameStart={(rel, name) => setRenaming({ rel, name, at: 'tree' })}
-                  onDelete={(rel, name) => setConfirmDelete({ rel, name })}
-                  onDraftCancel={() => setDraft(null)}
-                  onRenameCancel={() => setRenaming(null)}
-                  onDraftCommit={async (parent, kind, name) => {
-                    const api =
-                      kind === 'dir'
-                        ? window.electronAPI.workspaceFiles.mkdir
-                        : window.electronAPI.workspaceFiles.createFile;
-                    const result = await api({ ...req, rel: parent || undefined, name });
-                    if (!result.ok) {
-                      failToast(result.error);
-                      return;
+          {searchOpen ? (
+            <FilesSearchPane
+              conversationId={conversationId}
+              projectId={projectId}
+              onOpenFile={(rel) => void openFile(rel)}
+              onClose={() => setSearchOpen(false)}
+            />
+          ) : (
+            <div className="min-h-0 flex-1 overflow-auto">
+              <FileTreeMenu
+                target={{ kind: 'blank' }}
+                local={local}
+                onNewFile={handleNewFile}
+                onNewFolder={handleNewFolder}
+                onCopyPath={() => undefined}
+                onCopyRel={() => undefined}
+              >
+                <div className="min-h-full">
+                  <FileTree
+                    rel=""
+                    depth={0}
+                    conversationId={conversationId}
+                    projectId={projectId}
+                    treeEpoch={treeGen}
+                    draft={draft}
+                    renaming={renaming}
+                    local={local}
+                    expandedDirs={expandedDirs}
+                    onToggleDir={toggleDir}
+                    onOpen={openFile}
+                    onPreview={openPreview}
+                    onBrowser={openInBrowser}
+                    onCopyPath={(rel) =>
+                      void window.electronAPI.workspaceFiles.copyPath({
+                        ...req,
+                        rel,
+                        mode: 'absolute',
+                      })
                     }
-                    setDraft(null);
-                    bumpTree();
-                    if (kind === 'file' && result.rel) void openFile(result.rel);
-                  }}
-                  onRenameCommit={(rel, name) => void commitRename(rel, name)}
-                />
-              </div>
-            </FileTreeMenu>
-          </div>
+                    onCopyRel={(rel) =>
+                      void window.electronAPI.workspaceFiles.copyPath({
+                        ...req,
+                        rel,
+                        mode: 'relative',
+                      })
+                    }
+                    onCopyFile={(rel) =>
+                      void window.electronAPI.workspaceFiles.copyFile({ ...req, rel }).then((r) => {
+                        if (!r.ok) failToast(r.error);
+                      })
+                    }
+                    onReveal={(rel) =>
+                      void window.electronAPI.workspaceFiles.reveal({ ...req, rel })
+                    }
+                    onNewFile={handleNewFile}
+                    onNewFolder={handleNewFolder}
+                    onRenameStart={(rel, name) => setRenaming({ rel, name, at: 'tree' })}
+                    onDelete={(rel, name) => setConfirmDelete({ rel, name })}
+                    onDraftCancel={() => setDraft(null)}
+                    onRenameCancel={() => setRenaming(null)}
+                    onDraftCommit={async (parent, kind, name) => {
+                      const api =
+                        kind === 'dir'
+                          ? window.electronAPI.workspaceFiles.mkdir
+                          : window.electronAPI.workspaceFiles.createFile;
+                      const result = await api({ ...req, rel: parent || undefined, name });
+                      if (!result.ok) {
+                        failToast(result.error);
+                        return;
+                      }
+                      setDraft(null);
+                      bumpTree();
+                      if (kind === 'file' && result.rel) void openFile(result.rel);
+                    }}
+                    onRenameCommit={(rel, name) => void commitRename(rel, name)}
+                  />
+                </div>
+              </FileTreeMenu>
+            </div>
+          )}
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
           {openDocs.length > 0 && (

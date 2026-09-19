@@ -17,6 +17,7 @@ import type {
   FilesWriteResult,
 } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/types';
+import { parseWorkspaceFileSearchRequest } from '@shared/workspaceFileSearch';
 import { app, clipboard, type IpcMainInvokeEvent, ipcMain, shell } from 'electron';
 import { createSshExecutor } from '../../agent/ssh/executor';
 import { resolveLocalCwdForBrowser } from '../services/browserFileRoot';
@@ -40,6 +41,7 @@ import {
 import { writeFileToClipboard } from '../services/filesWorkspaceClipboard';
 import { fetchRemoteImageDataUrl, REMOTE_IMAGE_MAX_BYTES } from '../services/remoteImageFetch';
 import { getSshConnectionStore } from '../services/sshConnectionStore';
+import { searchWorkspaceFiles } from '../services/workspaceFileSearch';
 import { getSourceAuthorityRegistry } from './agent';
 import { sessionWorktreeBusy } from './worktree';
 
@@ -593,4 +595,15 @@ export function registerFilesWorkspaceHandlers(): void {
       return { ok: true };
     }
   );
+
+  handle(IPC_CHANNELS.FILES_SEARCH_WORKSPACE, async (_event, request: unknown) => {
+    const parsedSearch = parseWorkspaceFileSearchRequest(request);
+    if (!parsedSearch) return { ok: false, error: 'unavailable' };
+    const parsed = parseRequest(request);
+    if (!parsed) return { ok: false, error: 'unavailable' };
+    if (createProjectSsh(parsed.projectId)) return { ok: false, error: 'unsupported' };
+    const cwd = resolveLocalCwd(parsed.conversationId, parsed.projectId);
+    if (!cwd) return { ok: false, error: 'unavailable' };
+    return searchWorkspaceFiles(cwd, parsedSearch);
+  });
 }

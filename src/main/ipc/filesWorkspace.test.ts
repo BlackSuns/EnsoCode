@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
   writeText: vi.fn(),
   busy: vi.fn(() => false),
+  search: vi.fn(async () => ({ ok: true as const, mode: 'names' as const, hits: [] })),
 }));
 vi.mock('node:path', async (importOriginal) => {
   const actual = await importOriginal<{ default: typeof import('node:path') }>();
@@ -45,6 +46,9 @@ vi.mock('../services/sshConnectionStore', () => ({
   getSshConnectionStore: () => ({ getSecret: () => undefined }),
 }));
 vi.mock('../../agent/ssh/executor', () => ({ createSshExecutor: () => ({ exec: mocks.exec }) }));
+vi.mock('../services/workspaceFileSearch', () => ({
+  searchWorkspaceFiles: mocks.search,
+}));
 
 import { registerFilesWorkspaceHandlers } from './filesWorkspace';
 
@@ -56,6 +60,8 @@ beforeEach(() => {
   mocks.exec.mockReset();
   mocks.busy.mockReturnValue(false);
   mocks.writeText.mockReset();
+  mocks.search.mockReset();
+  mocks.search.mockResolvedValue({ ok: true, mode: 'names', hits: [] });
   registerFilesWorkspaceHandlers();
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -257,4 +263,35 @@ it('剪贴板异常返回结果', async () => {
     ok: false,
     error: 'unavailable',
   });
+});
+it('工作区搜索拒绝不匹配的会话且不跑 rg', async () => {
+  mocks.conversation.projectId = 'other';
+  expect(
+    await invoke(IPC_CHANNELS.FILES_SEARCH_WORKSPACE, { query: 'chat', mode: 'names' })
+  ).toEqual({ ok: false, error: 'unavailable' });
+  expect(mocks.search).not.toHaveBeenCalled();
+});
+it('SSH 工作区搜索不跑本地 rg', async () => {
+  remote();
+  expect(
+    await invoke(IPC_CHANNELS.FILES_SEARCH_WORKSPACE, { query: 'chat', mode: 'names' })
+  ).toEqual({ ok: false, error: 'unsupported' });
+  expect(mocks.search).not.toHaveBeenCalled();
+});
+it('本地搜索 cwd 来自会话而不是请求路径', async () => {
+  await invoke(IPC_CHANNELS.FILES_SEARCH_WORKSPACE, {
+    query: 'chat',
+    mode: 'names',
+    cwd: '/etc',
+    rootPath: '/etc',
+  });
+  expect(mocks.search).toHaveBeenCalledWith(
+    root,
+    expect.objectContaining({
+      conversationId: 'conversation',
+      projectId: 'project',
+      query: 'chat',
+      mode: 'names',
+    })
+  );
 });

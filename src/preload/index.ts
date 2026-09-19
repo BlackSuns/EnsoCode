@@ -59,6 +59,8 @@ import type {
   FilesMutateResult,
   FilesReadImageResult,
   FilesReadRelResult,
+  FilesSearchRequest,
+  FilesSearchResult,
   FilesWatchEvent,
   FilesWatchResult,
   FilesWriteResult,
@@ -482,6 +484,8 @@ const electronAPI = {
       projectId: string;
       rel?: string;
     }): Promise<FilesMutateResult> => ipcRenderer.invoke(IPC_CHANNELS.FILES_REVEAL, request),
+    search: (request: FilesSearchRequest): Promise<FilesSearchResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.FILES_SEARCH_WORKSPACE, request),
   },
 
   files: {

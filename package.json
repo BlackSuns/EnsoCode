@@ -39,6 +39,7 @@
     "@huggingface/tokenizers": "0.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@rahularya01/pi-cursor": "1.4.34",
+    "@vscode/ripgrep": "1.17.0",
     "better-sqlite3": "^13.0.3",
     "electron-updater": "^6.8.9",
     "level": "^10.0.0",
@@ -118,6 +119,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "@google/genai",
+      "@vscode/ripgrep",
       "better-sqlite3",
       "classic-level",
       "electron",

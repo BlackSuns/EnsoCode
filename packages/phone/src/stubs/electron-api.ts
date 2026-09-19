@@ -23,6 +23,7 @@ export function installElectronApiShim(): void {
         watchStart: async () => ({ ok: false as const, error: 'unavailable' }),
         watchStop: async () => ({ ok: false as const, error: 'unavailable' }),
         onChange: () => () => undefined,
+        search: async () => ({ ok: false as const, error: 'unavailable' }),
       },
       files: {
         // 必须返回 null：桌面端契约是 Promise<string | null>，失败即 null。
