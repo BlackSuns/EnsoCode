@@ -1,6 +1,6 @@
 import type { ProjectedMessage, ProjectedPart } from '@shared/types/agent';
 import { describe, expect, it } from 'vitest';
-import { isSilentAssistantTurn } from './silentTurn';
+import { isSilentAssistantTurn, POST_TOOL_EMPTY_NUDGE, silentTurnKind } from './silentTurn';
 
 function assistant(content: ProjectedPart[], stopReason?: string): ProjectedMessage {
   return {
@@ -47,5 +47,33 @@ describe('isSilentAssistantTurn', () => {
   it('非 assistant 或缺失不算', () => {
     expect(isSilentAssistantTurn(undefined)).toBe(false);
     expect(isSilentAssistantTurn({ role: 'user', content: [] })).toBe(false);
+  });
+});
+
+describe('silentTurnKind', () => {
+  it('空回复前是 user 则为 empty', () => {
+    expect(
+      silentTurnKind([{ role: 'user', content: [{ type: 'text', text: 'go' }] }, assistant([])])
+    ).toBe('empty');
+  });
+
+  it('空回复前是 toolResult 则为 post-tool', () => {
+    expect(
+      silentTurnKind([
+        { role: 'user', content: [{ type: 'text', text: 'go' }] },
+        { role: 'assistant', content: [{ type: 'toolCall', id: '1', name: 'read' }] },
+        { role: 'toolResult', toolCallId: '1', content: [{ type: 'text', text: 'ok' }] },
+        assistant([]),
+      ])
+    ).toBe('post-tool');
+  });
+
+  it('有正文时不分类', () => {
+    expect(silentTurnKind([assistant([{ type: 'text', text: 'done' }])])).toBeUndefined();
+  });
+
+  it('post-tool nudge 要求总结工具结果', () => {
+    expect(POST_TOOL_EMPTY_NUDGE).toMatch(/tools completed/i);
+    expect(POST_TOOL_EMPTY_NUDGE).toMatch(/final response/i);
   });
 });

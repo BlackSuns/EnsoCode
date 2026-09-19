@@ -7,6 +7,14 @@ export const SILENT_TURN_NUDGE = [
   'Do not produce another empty reply.',
 ].join('\n');
 
+export const POST_TOOL_EMPTY_NUDGE = [
+  'The tools completed, but your response was empty.',
+  'Provide a concise final response summarizing the result for the user.',
+  'Do not produce another empty reply.',
+].join(' ');
+
+export type SilentTurnKind = 'empty' | 'post-tool';
+
 /** 末条 assistant 对用户不可见且没有工具调用：可自动续跑一次。 */
 export function isSilentAssistantTurn(message: ProjectedMessage | undefined): boolean {
   if (message?.role !== 'assistant') return false;
@@ -18,4 +26,12 @@ export function isSilentAssistantTurn(message: ProjectedMessage | undefined): bo
     if (part.type === 'text' && part.text.trim()) visible = true;
   }
   return !visible;
+}
+
+/** 末条为空 assistant 时，根据前一条消息区分「没干活」和「工具成功却不收束」。 */
+export function silentTurnKind(
+  messages: ProjectedMessage[] | undefined
+): SilentTurnKind | undefined {
+  if (!isSilentAssistantTurn(messages?.at(-1))) return undefined;
+  return messages?.at(-2)?.role === 'toolResult' ? 'post-tool' : 'empty';
 }

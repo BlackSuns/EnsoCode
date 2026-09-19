@@ -78,12 +78,7 @@ import {
 } from './approvalReview';
 import { AskManager, createAskTool } from './ask';
 import { ensureAssistantUsage } from './assistantUsage';
-import {
-  BackgroundTaskManager,
-  createTaskTools,
-  withBackground,
-  withTaskReminders,
-} from './backgroundTasks';
+import { BackgroundTaskManager, createTaskTools, withBackground } from './backgroundTasks';
 import { CheckpointManager, withCheckpoint } from './checkpoint/manager';
 import { createRemoteCheckpointHost } from './checkpoint/remoteHost';
 import {
@@ -123,10 +118,12 @@ import { createMessageCoworkerTool } from './messageCoworker';
 import { createMessageMainTool } from './messageMain';
 import { ParentNotifier } from './notify';
 import { withOpenAIResponsesRouting } from './openaiResponsesRouting';
+import { osSandboxSpawnHook, wrapOsSandboxCommand } from './osSandbox';
 import { projectMessage } from './projection';
 import { applyWorkerProxyEnv } from './proxyEnv';
 import { withReadTruncationMeta } from './readTruncation';
 import { projectMessages, projectResumeTail } from './resumeSnapshots';
+import { RunawayGuard } from './runawayGuard';
 import {
   EVICTION_SWEEP_INTERVAL_MS,
   type EvictionCandidate,
@@ -134,7 +131,12 @@ import {
 } from './sessionEviction';
 import { branchSessionFromPersistedFile, resolveForkLeafId } from './sessionFork';
 import { createSessionCommandTool } from './sessionShell';
-import { isSilentAssistantTurn, SILENT_TURN_NUDGE } from './silentTurn';
+import {
+  POST_TOOL_EMPTY_NUDGE,
+  SILENT_TURN_NUDGE,
+  type SilentTurnKind,
+  silentTurnKind,
+} from './silentTurn';
 import { providerKeyFor, smartCompactInlineExtension } from './smartCompact';
 import {
   createSshExecutor,
@@ -153,6 +155,7 @@ import {
 } from './structuredYield';
 import { createSubagentTool, lastAssistantText } from './subagent';
 import { pruneCompletedSubagentDetails } from './subagentRetention';
+import { SystemReminderRegistry } from './systemReminder';
 import {
   buildInitialTitleUserText,
   buildRollingTitleUserText,
@@ -165,6 +168,8 @@ import {
   titleSummaryTimeoutMs,
 } from './titleSummary';
 import { createTodoTool } from './todo';
+import { decorateSessionTools } from './toolDecorators';
+import { ToolOutputBudget } from './toolOutputBudget';
 import { BrowserInvoker, createBrowserTools, withNavigateApproval } from './tools/browser';
 import { createEnsoAppTool, EnsoAppInvoker } from './tools/ensoApp';
 import { createEnsoCapabilitiesTool } from './tools/ensoCapabilities';
@@ -182,6 +187,7 @@ interface ChildSessionResult {
   proofToolIds: string[];
   ensoApp?: EnsoAppInvoker;
   safeJournal?: EnsoSafeJournal;
+  runawayGuard?: RunawayGuard;
 }
 
 /** 会话工厂：父 runtime/resource/tool 配置的唯一 child 创建入口。 */
@@ -235,6 +241,9 @@ interface ManagedSession {
   silentTurnNudgeUsed: boolean;
   /** 空回复续跑已发出、尚未收到对应 agent_start/结束 */
   silentTurnRecovering: boolean;
+  /** 本次空回复恢复的类型；post-tool 第二次仍空则失败 */
+  silentTurnKind?: SilentTurnKind;
+  runawayGuard?: RunawayGuard;
   timings: (MessageTiming | undefined)[];
   toolStartAt: Map<string, number>;
   toolDurations: Map<string, number>;
@@ -1449,9 +1458,18 @@ export class SessionSupervisor {
     );
     // 工具注入：noTools:'builtin' 下 read 也需重注册（免审）；bash 叠 background 能力
     // 后包审批门（审批先问，批准后分流后台），edit 叠宽容版，MCP 同门，todo/task_* 免审。
-    // 最外层统一包 withTaskReminders：后台任务完成提醒搭任意工具结果送达模型
+    // 最外层 decorateSessionTools：引用 / 输出外置 / runaway / system reminder
     type Def = Parameters<typeof withApproval>[2];
     const takePendingReminders = () => managedRef?.pendingTaskReminders.splice(0) ?? [];
+    const reminders = new SystemReminderRegistry();
+    reminders.register('background-task', () => {
+      const pending = takePendingReminders();
+      return pending.map((text) => `<background-task-update>\n${text}\n</background-task-update>`);
+    });
+    const runaway = new RunawayGuard();
+    const budget = new ToolOutputBudget({
+      rootDir: path.join(this.options.sessionDir, 'tool-output', sessionId),
+    });
     // 只读探索四件套(read/grep/find/ls,免审):readonly 子代理的全部工具,也是 base 的底座。
     // 远程会话经 operations 注入落到 ssh(grep 无注入点,换整个定义)
     const structuredById = new Map<string, unknown>();
@@ -1512,6 +1530,12 @@ export class SessionSupervisor {
           return { command: sshCommand, cwd: process.cwd() };
         }
       : undefined;
+    const commandTransform = remoteOps
+      ? backgroundTransform
+      : (command: string, commandCwd: string) => ({
+          command: wrapOsSandboxCommand(command, commandCwd),
+          cwd: commandCwd,
+        });
     const buildBaseTools = (
       toolGate: ApprovalGate,
       cp?: CheckpointManager,
@@ -1566,11 +1590,12 @@ export class SessionSupervisor {
                 remote: Boolean(remoteOps),
                 preference: windowsLocalShell,
                 operations: remoteOps?.bash,
+                ...(remoteOps ? {} : { spawnHook: osSandboxSpawnHook(cwd) }),
               }) as unknown as Def,
               this.bgTasks,
               sessionId,
               cwd,
-              backgroundTransform
+              commandTransform
             )
           )
         ),
@@ -1676,7 +1701,16 @@ export class SessionSupervisor {
               ...(childExploreFold ? createExploreFoldTools(childExploreFold) : []),
             ];
         childSandboxCatalog.current = childTools;
-        const subTools = isLockedEnso
+        const childRunaway = new RunawayGuard();
+        const childReminders = new SystemReminderRegistry();
+        const childBudget = new ToolOutputBudget({
+          rootDir: path.join(
+            this.options.sessionDir,
+            'tool-output',
+            childIdentity?.sessionId ?? `${sessionId}-child`
+          ),
+        });
+        const rawSubTools = isLockedEnso
           ? childTools
           : [
               ...childTools,
@@ -1689,6 +1723,13 @@ export class SessionSupervisor {
                   ]
                 : []),
             ];
+        const subTools = isLockedEnso
+          ? rawSubTools
+          : decorateSessionTools(rawSubTools, {
+              reminders: childReminders,
+              runaway: childRunaway,
+              budget: childBudget,
+            });
         const selectedSkillPaths = resolved?.skillPaths ?? agentType?.skillPaths ?? [];
         const branchContext = this.branchContextExtension(() =>
           [...this.sessions.values()].find((managed) => managed.session === session)
@@ -1752,6 +1793,7 @@ export class SessionSupervisor {
             .filter((tool) => !typeMcpTools.includes(tool))
             .map((tool) => tool.name),
           ...(ensoApp ? { ensoApp } : {}),
+          ...(isLockedEnso ? {} : { runawayGuard: childRunaway }),
         };
       },
     };
@@ -1921,17 +1963,20 @@ export class SessionSupervisor {
         : []),
     ];
     catalogRef.current = sessionTools;
-    const customTools = [
-      ...sessionTools,
-      ...(toolEnabled('isolated_sandbox')
-        ? [
-            createIsolatedSandboxTool({
-              getTools: () => catalogRef.current,
-              store: sandboxStore,
-            }),
-          ]
-        : []),
-    ].map((tool) => withTaskReminders(tool, takePendingReminders));
+    const customTools = decorateSessionTools(
+      [
+        ...sessionTools,
+        ...(toolEnabled('isolated_sandbox')
+          ? [
+              createIsolatedSandboxTool({
+                getTools: () => catalogRef.current,
+                store: sandboxStore,
+              }),
+            ]
+          : []),
+      ],
+      { reminders, runaway, budget }
+    );
 
     const { session } = await createAgentSession({
       cwd,
@@ -1959,6 +2004,7 @@ export class SessionSupervisor {
       factory,
       toolIds: customTools.map((tool) => tool.name),
       checkpoints,
+      runawayGuard: runaway,
     });
     if (rolePrompt && !resumeFile) managedRef.pendingRole = rolePrompt;
     managedRef.browser = browser;
@@ -2018,6 +2064,7 @@ export class SessionSupervisor {
       toolIds?: string[];
       proofToolIds?: string[];
       safeJournal?: EnsoSafeJournal;
+      runawayGuard?: RunawayGuard;
     } = {}
   ): ManagedSession {
     const customEntries = session.sessionManager.getBranch().flatMap((entry) => {
@@ -2045,6 +2092,7 @@ export class SessionSupervisor {
       adaptiveDowngraded: false,
       silentTurnNudgeUsed: false,
       silentTurnRecovering: false,
+      ...(opts.runawayGuard ? { runawayGuard: opts.runawayGuard } : {}),
       timings: [],
       toolStartAt: new Map(),
       toolDurations: new Map(),
@@ -2248,6 +2296,7 @@ export class SessionSupervisor {
       toolIds: result.toolIds,
       proofToolIds: result.proofToolIds,
       safeJournal: result.safeJournal,
+      ...(result.runawayGuard ? { runawayGuard: result.runawayGuard } : {}),
     });
     if (!resumeFile) managedRef.pendingRole = config.systemPrompt;
     this.options.emit({
@@ -2322,7 +2371,7 @@ export class SessionSupervisor {
       }
     );
     const askManager = this.createAskManager(identity);
-    const { session, modelId, toolIds } = await factory.createChildSession({
+    const { session, modelId, toolIds, runawayGuard } = await factory.createChildSession({
       agentType,
       modelOverride,
       thinkingOverride: thinking,
@@ -2360,6 +2409,7 @@ export class SessionSupervisor {
       asks: askManager,
       toolIds,
       ...(resumeFile ? { resumeFile } : {}),
+      ...(runawayGuard ? { runawayGuard } : {}),
     });
     // 角色提示在首条消息前缀注入(无论来自主 agent send 还是用户 tab);resume 时 jsonl 已有
     if (!resumeFile && agentType?.systemPrompt) {
@@ -2625,6 +2675,8 @@ export class SessionSupervisor {
     switch (event.type) {
       case 'agent_start':
         if (!managed.silentTurnRecovering) managed.silentTurnNudgeUsed = false;
+        if (!managed.silentTurnRecovering) managed.silentTurnKind = undefined;
+        managed.runawayGuard?.resetTurn();
         managed.currentTurnId ??= randomUUID();
         managed.status = 'running';
         managed.checkpoints?.resetTurn();
@@ -2855,8 +2907,15 @@ export class SessionSupervisor {
   }
 
   private trySilentTurnRecovery(managed: ManagedSession): boolean {
-    if (managed.silentTurnNudgeUsed) return false;
-    if (!isSilentAssistantTurn(managed.messages.at(-1))) return false;
+    const kind = silentTurnKind(managed.messages);
+    if (!kind) return false;
+    if (managed.silentTurnNudgeUsed) {
+      if (kind === 'post-tool') {
+        this.failTurn(managed, 'The tools completed, but the assistant reply was empty.');
+        return true;
+      }
+      return false;
+    }
     const agent = managed.session.agent;
     if (!agent) return false;
     const transcript = agent.state.messages;
@@ -2870,9 +2929,11 @@ export class SessionSupervisor {
     this.reconcileMessages(managed, this.transcript(managed));
     managed.silentTurnNudgeUsed = true;
     managed.silentTurnRecovering = true;
+    managed.silentTurnKind = kind;
     ensureAssistantUsage(agent.state.messages as unknown[]);
     const promptBefore = agent.state.systemPrompt;
-    const promptWithNudge = `${promptBefore}\n\n${SILENT_TURN_NUDGE}`;
+    const nudge = kind === 'post-tool' ? POST_TOOL_EMPTY_NUDGE : SILENT_TURN_NUDGE;
+    const promptWithNudge = `${promptBefore}\n\n${nudge}`;
     agent.state.systemPrompt = promptWithNudge;
     const restore = () => {
       managed.silentTurnRecovering = false;

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AgentWorkerEvent } from '@shared/types/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SILENT_TURN_NUDGE } from './silentTurn';
+import { POST_TOOL_EMPTY_NUDGE, SILENT_TURN_NUDGE } from './silentTurn';
 
 const mocks = vi.hoisted(() => ({
   sessions: [] as Array<Record<string, unknown>>,
@@ -313,6 +313,49 @@ describe('SessionSupervisor silent turn recovery', () => {
     await settle();
     expect(parentSession.agent.continue).toHaveBeenCalledTimes(2);
 
+    await supervisor.shutdown();
+  });
+
+  it('工具成功后空回复用 post-tool nudge', async () => {
+    const { supervisor, parentSession } = await spawn();
+    parentSession.emit({ type: 'agent_start' });
+    await settle();
+    parentSession.messages.push(
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+      { role: 'assistant', content: [{ type: 'toolCall', id: '1', name: 'read' }] },
+      { role: 'toolResult', toolCallId: '1', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'assistant', content: [] }
+    );
+    parentSession.emit({ type: 'agent_end', willRetry: false });
+    await settle();
+    await settle();
+    expect(parentSession.agent.continue).toHaveBeenCalledTimes(1);
+    expect(parentSession.agent.promptAtContinue).toContain(POST_TOOL_EMPTY_NUDGE);
+    expect(parentSession.agent.promptAtContinue).not.toContain(SILENT_TURN_NUDGE);
+    await supervisor.shutdown();
+  });
+
+  it('post-tool 恢复后再空则失败，不当成功收口', async () => {
+    const { events, supervisor, parentSession } = await spawn();
+    parentSession.emit({ type: 'agent_start' });
+    await settle();
+    parentSession.messages.push(
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+      { role: 'toolResult', toolCallId: '1', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'assistant', content: [] }
+    );
+    parentSession.emit({ type: 'agent_end', willRetry: false });
+    await settle();
+    await settle();
+    expect(parentSession.agent.continue).toHaveBeenCalledTimes(1);
+
+    parentSession.messages.push({ role: 'assistant', content: [] });
+    parentSession.emit({ type: 'agent_end', willRetry: false });
+    await settle();
+    await settle();
+    expect(parentSession.agent.continue).toHaveBeenCalledTimes(1);
+    expect(events.some((event) => event.type === 'turn-failed')).toBe(true);
+    expect(events.some((event) => event.type === 'turn-completed')).toBe(false);
     await supervisor.shutdown();
   });
 });
