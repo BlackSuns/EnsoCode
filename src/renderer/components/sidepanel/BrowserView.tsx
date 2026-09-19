@@ -10,6 +10,7 @@ import {
 import { addToast } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { syncOverlayGuard } from '@/lib/overlayGuard';
+import { resolveSidePanelDockConversationId } from '@/lib/sidePanelDockId';
 import { cn } from '@/lib/utils';
 import { useSessionsStore } from '@/stores/sessions';
 import { useSidePanelStore } from '@/stores/sidePanel';
@@ -67,8 +68,13 @@ export function BrowserView({
   panelApi: DockviewPanelApi;
 }) {
   const { t } = useI18n();
-  const sidebarOpen = useSidePanelStore((s) => s.uiByConversation[conversationId]?.open ?? false);
-  const isActiveConversation = useSessionsStore((s) => s.activeId === conversationId);
+  const dockConversationId = useSessionsStore((s) =>
+    resolveSidePanelDockConversationId(s.conversations, conversationId)
+  );
+  const sidebarOpen = useSidePanelStore(
+    (s) => s.uiByConversation[dockConversationId]?.open ?? false
+  );
+  const isActiveConversation = useSessionsStore((s) => s.activeId === dockConversationId);
   const [state, setState] = useState<BrowserTabState>(EMPTY);
   const [address, setAddress] = useState('');
   const [editing, setEditing] = useState(false);

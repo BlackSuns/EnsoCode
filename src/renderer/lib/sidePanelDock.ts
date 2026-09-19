@@ -2,10 +2,11 @@ import type { DockviewApi } from 'dockview-react';
 import { releaseTerminal } from '@/lib/terminalRegistry';
 import { useSessionsStore } from '@/stores/sessions';
 import { useSidePanelStore } from '@/stores/sidePanel';
+import { resolveSidePanelDockConversationId } from './sidePanelDockId';
 
 const docks = new Map<string, DockviewApi>();
 const filesTabClosers = new Map<string, () => boolean>();
-const pendingBrowserReveal: { conversationId: string; tabId?: string }[] = [];
+const pendingBrowserReveal: { conversationId: string; tabId?: string; ownerId?: string }[] = [];
 
 export function registerFilesTabCloser(conversationId: string, close: () => boolean): () => void {
   filesTabClosers.set(conversationId, close);
@@ -22,7 +23,12 @@ export function bindSidePanelDock(conversationId: string, api: DockviewApi): voi
     pendingBrowserReveal.length,
     ...pendingBrowserReveal.filter((item) => item.conversationId !== conversationId)
   );
-  for (const item of due) addSidePanelBrowser(item);
+  for (const item of due) {
+    addSidePanelBrowser({
+      conversationId: item.ownerId ?? item.conversationId,
+      tabId: item.tabId,
+    });
+  }
 }
 
 function activeDock(): { api: DockviewApi; conversationId: string; projectId: string } | null {
@@ -88,15 +94,16 @@ export function addSidePanelBrowser(opts?: {
   tabId?: string;
 }): void {
   const sessions = useSessionsStore.getState();
-  const conversationId = opts?.conversationId ?? sessions.activeId;
-  if (!conversationId) return;
-  const conversation = sessions.conversations[conversationId];
-  const api = docks.get(conversationId);
+  const ownerId = opts?.conversationId ?? sessions.activeId;
+  if (!ownerId) return;
+  const conversation = sessions.conversations[ownerId];
   if (!conversation) return;
-  useSidePanelStore.getState().ensureOpen(conversationId);
+  const dockId = resolveSidePanelDockConversationId(sessions.conversations, ownerId);
+  const api = docks.get(dockId);
+  useSidePanelStore.getState().ensureOpen(dockId);
   const tabId = opts?.tabId ?? `browser:${crypto.randomUUID()}`;
   if (!api) {
-    pendingBrowserReveal.push({ conversationId, tabId });
+    pendingBrowserReveal.push({ conversationId: dockId, tabId, ownerId });
     return;
   }
   const existing = api.getPanel(tabId);
@@ -108,7 +115,7 @@ export function addSidePanelBrowser(opts?: {
     id: tabId,
     component: 'browser',
     title: opts?.title ?? 'Browser',
-    params: { conversationId, projectId: conversation.projectId },
+    params: { conversationId: ownerId, projectId: conversation.projectId },
   });
 }
 
@@ -126,7 +133,11 @@ export function addSidePanelBtw(opts?: { title?: string }): void {
 }
 
 export function closeSidePanelBrowser(conversationId: string, tabId: string): void {
-  docks.get(conversationId)?.getPanel(tabId)?.api.close();
+  const dockId = resolveSidePanelDockConversationId(
+    useSessionsStore.getState().conversations,
+    conversationId
+  );
+  docks.get(dockId)?.getPanel(tabId)?.api.close();
 }
 
 export function disposeConversationResources(conversationId: string): void {
