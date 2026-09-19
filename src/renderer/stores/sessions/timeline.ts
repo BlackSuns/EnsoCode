@@ -14,7 +14,13 @@ export interface EditBlock {
 }
 
 export type TimelineItem =
-  | { kind: 'user'; key: string; text: string; images: { data: string; mimeType: string }[] }
+  | {
+      kind: 'user';
+      key: string;
+      text: string;
+      images: { data: string; mimeType: string }[];
+      timestamp?: number;
+    }
   | {
       kind: 'text';
       key: string;
@@ -24,6 +30,8 @@ export type TimelineItem =
       perf?: TurnPerf;
       /** 本轮已结束的最后一条正文：可从这里开平行会话 */
       turnEnd?: boolean;
+      /** 本轮完结时的整轮活跃用时（毫秒） */
+      turnDurationMs?: number;
     }
   | {
       kind: 'thinking';
@@ -524,10 +532,14 @@ function buildMessageTimeline(
   // 整轮计时只累计模型请求与非交互工具的真实执行耗时；用户回答、审批、排队等空档不计。
   let turnActiveMs = 0;
   let turnSteps = 0;
+  let turnUserTimestamp: number | undefined;
+  let turnHadAskUser = false;
   messages.forEach((message, messageIndex) => {
     const isLastMessage = messageIndex === messages.length - 1;
     const absIndex = historyBaseIndex + messageIndex;
     if (message.role === 'user') {
+      turnUserTimestamp = message.timestamp;
+      turnHadAskUser = false;
       turnActiveMs = 0;
       turnSteps = 0;
       const text = partText(message);
@@ -546,7 +558,13 @@ function buildMessageTimeline(
         return;
       }
       if (text || images.length > 0) {
-        items.push({ kind: 'user', key: `${absIndex}`, text, images });
+        items.push({
+          kind: 'user',
+          key: `${absIndex}`,
+          text,
+          images,
+          timestamp: message.timestamp,
+        });
       }
       return;
     }
@@ -563,6 +581,7 @@ function buildMessageTimeline(
     }
     if (message.role === 'toolResult') {
       // ask_user 的执行期本质是等用户，不属于任务活跃用时；其余工具采用 worker 实测时长。
+      if (message.toolName === 'ask_user') turnHadAskUser = true;
       if (
         turnSteps > 0 &&
         message.toolName !== 'ask_user' &&
@@ -583,6 +602,24 @@ function buildMessageTimeline(
     const isLastStepOfTurn =
       nextTurnRole[messageIndex] === undefined || nextTurnRole[messageIndex] === 'user';
     const perfTurnActive = isLastStepOfTurn && turnSteps > 1 ? turnActiveMs : undefined;
+    const isLatestTurn = nextTurnRole[messageIndex] === undefined;
+    const turnSettled = !(isLatestTurn && (running || message.stopReason === 'pending'));
+    let turnDurationMs: number | undefined;
+    if (isLastStepOfTurn && turnSettled) {
+      if (turnActiveMs > 0) {
+        turnDurationMs = turnActiveMs;
+      } else if (!turnHadAskUser) {
+        // 缺 step 计时才用墙钟差；有 ask_user 时墙钟含等待，不能兜底
+        const endTimestamp = message.timing?.completedMs ?? message.timestamp;
+        if (
+          typeof turnUserTimestamp === 'number' &&
+          typeof endTimestamp === 'number' &&
+          endTimestamp > turnUserTimestamp
+        ) {
+          turnDurationMs = endTimestamp - turnUserTimestamp;
+        }
+      }
+    }
     // 「流式中」= 最后一个有内容的 part：pi 流式时 thinking/text 后面常已跟着
     // 空占位 part，按「最后一个 part」判会把正在生成的块误判为已完结
     const lastActiveIndex = findLastActivePartIndex(message.content);
@@ -600,6 +637,7 @@ function buildMessageTimeline(
           if (pieces.length === 0) return;
           // 无标签：保持原文（含首尾空白），避免改已有 text 行形态
           if (pieces.length === 1 && pieces[0].kind === 'text') {
+            const isTurnEnd = isLastStepOfTurn && !streaming;
             items.push({
               kind: 'text',
               key,
@@ -607,7 +645,12 @@ function buildMessageTimeline(
               streaming,
               timestamp: message.timestamp,
               perf: perfFromTiming(message, perfTurnActive),
-              ...(isLastStepOfTurn && !streaming ? { turnEnd: true } : {}),
+              ...(isTurnEnd
+                ? {
+                    turnEnd: true,
+                    ...(turnDurationMs !== undefined ? { turnDurationMs } : {}),
+                  }
+                : {}),
             });
             return;
           }
@@ -624,6 +667,7 @@ function buildMessageTimeline(
               });
               return;
             }
+            const isTurnEnd = isLastStepOfTurn && !pieceStreaming && i === pieces.length - 1;
             items.push({
               kind: 'text',
               key: pieceKey,
@@ -631,8 +675,11 @@ function buildMessageTimeline(
               streaming: pieceStreaming,
               timestamp: message.timestamp,
               perf: perfFromTiming(message, perfTurnActive),
-              ...(isLastStepOfTurn && !pieceStreaming && i === pieces.length - 1
-                ? { turnEnd: true }
+              ...(isTurnEnd
+                ? {
+                    turnEnd: true,
+                    ...(turnDurationMs !== undefined ? { turnDurationMs } : {}),
+                  }
                 : {}),
             });
           });

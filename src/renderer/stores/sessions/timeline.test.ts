@@ -61,6 +61,240 @@ describe('buildTimeline', () => {
     expect(timeline[0]).toMatchObject({ kind: 'user', key: '40', text: 'tail' });
   });
 
+  describe('user 消息发送时间与任务完成耗时统计', () => {
+    it('user 消息保留发送时间戳 timestamp', () => {
+      const timeline = buildTimeline(
+        [{ role: 'user', content: [{ type: 'text', text: '你好' }], timestamp: 1726700000000 }],
+        false
+      );
+      expect(timeline[0]).toMatchObject({
+        kind: 'user',
+        timestamp: 1726700000000,
+      });
+    });
+
+    it('会话运行中（running=true）时，最新一轮 assistant 消息的 turnDurationMs 为 undefined', () => {
+      const timeline = buildTimeline(
+        [
+          { role: 'user', content: [{ type: 'text', text: '写个函数' }], timestamp: 1726700000000 },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: '正在写...' }],
+            duration: 2000,
+            stopReason: 'pending',
+            timing: { stepStartMs: 1726700000000, completedMs: 1726700002000 },
+          },
+        ],
+        true
+      );
+      const textItems = timeline.filter((item) => item.kind === 'text');
+      expect(textItems[0].kind).toBe('text');
+      expect(textItems[0].turnDurationMs).toBeUndefined();
+      expect(textItems[0].turnEnd).toBeUndefined();
+    });
+
+    it('会话结束后（running=false），assistant 消息计算本轮模型与工具活跃总耗时', () => {
+      const timeline = buildTimeline(
+        [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: '查一下并修改' }],
+            timestamp: 1726700000000,
+          },
+          {
+            role: 'assistant',
+            content: [{ type: 'toolCall', id: 't1', name: 'read', arguments: { path: 'a.ts' } }],
+            duration: 1500,
+            stopReason: 'toolUse',
+            timing: { stepStartMs: 1726700000000, completedMs: 1726700001500 },
+          },
+          {
+            role: 'toolResult',
+            toolCallId: 't1',
+            toolName: 'read',
+            toolDurationMs: 800,
+            content: [{ type: 'text', text: 'content' }],
+          },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: '已读完' }],
+            duration: 2200,
+            stopReason: 'stop',
+            timing: { stepStartMs: 1726700002300, completedMs: 1726700004500 },
+          },
+        ],
+        false
+      );
+      const textItems = timeline.filter((item) => item.kind === 'text');
+      expect(textItems[0]).toMatchObject({
+        kind: 'text',
+        turnEnd: true,
+        turnDurationMs: 4500, // 1500 + 800 + 2200
+        perf: { runMs: 2200, turnMs: 4500 },
+      });
+    });
+
+    it('整轮耗时不计 ask_user 等待时间', () => {
+      const timeline = buildTimeline(
+        [
+          { role: 'user', content: [{ type: 'text', text: '问个问题' }], timestamp: 1726700000000 },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'toolCall', id: 'q1', name: 'ask_user', arguments: { question: '确定？' } },
+            ],
+            duration: 1000,
+            stopReason: 'toolUse',
+            timing: { stepStartMs: 1726700000000, completedMs: 1726700001000 },
+          },
+          {
+            role: 'toolResult',
+            toolCallId: 'q1',
+            toolName: 'ask_user',
+            toolDurationMs: 60000,
+            content: [{ type: 'text', text: '确定' }],
+          },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: '好的已继续' }],
+            duration: 2000,
+            stopReason: 'stop',
+            timing: { stepStartMs: 1726700061000, completedMs: 1726700063000 },
+          },
+        ],
+        false
+      );
+      const textItems = timeline.filter((item) => item.kind === 'text');
+      expect(textItems[0]).toMatchObject({
+        kind: 'text',
+        turnEnd: true,
+        turnDurationMs: 3000, // 1000 + 2000，排除 ask_user 的 60000
+        perf: { runMs: 2000, turnMs: 3000 },
+      });
+    });
+
+    it('多轮对话：历史轮次保留耗时，当前运行中轮次耗时待完结', () => {
+      const timeline = buildTimeline(
+        [
+          // 第一轮
+          { role: 'user', content: [{ type: 'text', text: '第一轮' }], timestamp: 1000 },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: '回答1' }],
+            duration: 1200,
+            stopReason: 'stop',
+            timing: { stepStartMs: 1000, completedMs: 2200 },
+          },
+          // 第二轮（进行中）
+          { role: 'user', content: [{ type: 'text', text: '第二轮' }], timestamp: 3000 },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: '回答2进行中...' }],
+            duration: 800,
+            stopReason: 'pending',
+            timing: { stepStartMs: 3000 },
+          },
+        ],
+        true
+      );
+      const textItems = timeline.filter((item) => item.kind === 'text');
+      expect(textItems).toHaveLength(2);
+      expect(textItems[0]).toMatchObject({
+        kind: 'text',
+        turnDurationMs: 1200,
+      });
+      expect(textItems[1]).toMatchObject({
+        kind: 'text',
+      });
+      expect(textItems[1].turnDurationMs).toBeUndefined();
+    });
+
+    it('若无 stepRunMs/toolDurationMs，则以 assistant 时间戳与 user 时间戳之差作为耗时兜底', () => {
+      const timeline = buildTimeline(
+        [
+          { role: 'user', content: [{ type: 'text', text: '你好' }], timestamp: 1000 },
+          { role: 'assistant', content: [{ type: 'text', text: '你好呀' }], timestamp: 3500 },
+        ],
+        false
+      );
+      const textItems = timeline.filter((item) => item.kind === 'text');
+      expect(textItems).toHaveLength(1);
+      expect(textItems[0]).toMatchObject({
+        kind: 'text',
+        turnEnd: true,
+        turnDurationMs: 2500, // 3500 - 1000
+      });
+    });
+
+    it('最新一轮 stopReason=pending 时不展示耗时（即使 running=false）', () => {
+      const timeline = buildTimeline(
+        [
+          { role: 'user', content: [{ type: 'text', text: '你好' }], timestamp: 1000 },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: '半截' }],
+            duration: 2000,
+            stopReason: 'pending',
+            timing: { stepStartMs: 1000, completedMs: 3000 },
+          },
+        ],
+        false
+      );
+      const textItems = timeline.filter((item) => item.kind === 'text');
+      expect(textItems[0]).toMatchObject({ kind: 'text', turnEnd: true });
+      expect(textItems[0].kind === 'text' && textItems[0].turnDurationMs).toBeUndefined();
+    });
+
+    it('仅有 duration、无 timing.completedMs 时不计入活跃用时', () => {
+      const timeline = buildTimeline(
+        [
+          { role: 'user', content: [{ type: 'text', text: '你好' }] },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: '你好呀' }],
+            duration: 5000,
+            stopReason: 'stop',
+          },
+        ],
+        false
+      );
+      const textItems = timeline.filter((item) => item.kind === 'text');
+      expect(textItems[0]).toMatchObject({ kind: 'text', turnEnd: true });
+      expect(textItems[0].kind === 'text' && textItems[0].turnDurationMs).toBeUndefined();
+    });
+
+    it('有 ask_user 但缺 step 计时时，不用墙钟差兜底（避免把等待算进去）', () => {
+      const timeline = buildTimeline(
+        [
+          { role: 'user', content: [{ type: 'text', text: '问个问题' }], timestamp: 1000 },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'toolCall', id: 'q1', name: 'ask_user', arguments: { question: '确定？' } },
+            ],
+            stopReason: 'toolUse',
+          },
+          {
+            role: 'toolResult',
+            toolCallId: 'q1',
+            toolName: 'ask_user',
+            content: [{ type: 'text', text: '确定' }],
+          },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: '好的' }],
+            timestamp: 70_000,
+            stopReason: 'stop',
+          },
+        ],
+        false
+      );
+      const textItems = timeline.filter((item) => item.kind === 'text');
+      expect(textItems[0]).toMatchObject({ kind: 'text', turnEnd: true });
+      expect(textItems[0].kind === 'text' && textItems[0].turnDurationMs).toBeUndefined();
+    });
+  });
+
   it('toolResult 折进对应 toolCall 条目，不单独成行', () => {
     const timeline = buildTimeline(
       [
