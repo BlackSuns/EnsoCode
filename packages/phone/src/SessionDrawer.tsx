@@ -44,6 +44,7 @@ import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
+import { Z_INDEX } from '@/lib/z-index';
 import {
   COLLAPSED_SESSION_LIMIT,
   nextRevealedExtra,
@@ -278,7 +279,7 @@ export function SessionDrawer({
               <SelectTrigger className="w-full" size="sm">
                 <SelectValue />
               </SelectTrigger>
-              <SelectPopup>
+              <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
                 <SelectItem value={ALL_GROUP_ID}>全部</SelectItem>
                 {groups
                   .slice()
