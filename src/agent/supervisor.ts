@@ -1252,6 +1252,7 @@ export class SessionSupervisor {
           });
           return;
         }
+        this.truncateProjectionForRewind(managed, command.userIndexFromEnd);
         let filesRestored = false;
         if (command.restoreFiles && managed.checkpoints) {
           try {
@@ -1261,12 +1262,6 @@ export class SessionSupervisor {
             );
           } catch (error) {
             console.error('[rewind] file restore failed:', toErrorMessage(error));
-            this.options.emit({
-              type: 'rewind-done',
-              identity: managed.identity,
-              seq: ++managed.seq,
-            });
-            return;
           }
         }
         const result = await managed.session.navigateTree(target.id);
@@ -1277,7 +1272,7 @@ export class SessionSupervisor {
                 : []
             )
           : [];
-        this.reconcileMessages(managed, this.transcript(managed));
+        this.replaceMessagesAfterRewind(managed);
         this.options.emit({
           type: 'rewind-done',
           identity: managed.identity,
@@ -3033,6 +3028,47 @@ export class SessionSupervisor {
         length: projected.length,
       });
     }
+  }
+
+  /** 纯回退是严格前缀：先裁投影，UI 不必等 navigateTree / 文件还原。 */
+  private truncateProjectionForRewind(managed: ManagedSession, userIndexFromEnd: number): void {
+    if (!Number.isInteger(userIndexFromEnd) || userIndexFromEnd < 0) return;
+    const users: number[] = [];
+    for (let i = 0; i < managed.messages.length; i++) {
+      if (managed.messages[i]?.role === 'user') users.push(i);
+    }
+    const keep = users[users.length - 1 - userIndexFromEnd];
+    if (keep === undefined || keep >= managed.messages.length) return;
+    managed.messages.length = keep;
+    managed.timings.length = keep;
+    this.options.emit({
+      type: 'messages-truncated',
+      identity: managed.identity,
+      seq: ++managed.seq,
+      length: keep,
+    });
+  }
+
+  /** 回退后只对齐长度，不把前缀逐条 upsert 回去。 */
+  private replaceMessagesAfterRewind(managed: ManagedSession): void {
+    const projected = this.transcript(managed)
+      .map(projectMessage)
+      .filter((message): message is ProjectedMessage => message !== null)
+      .map((rawMessage, index) => this.withTiming(managed, index, rawMessage));
+    const previousLength = managed.messages.length;
+    if (projected.length < previousLength) {
+      managed.messages = projected;
+      managed.timings.length = projected.length;
+      this.options.emit({
+        type: 'messages-truncated',
+        identity: managed.identity,
+        seq: ++managed.seq,
+        length: projected.length,
+      });
+      return;
+    }
+    managed.messages = projected;
+    managed.timings.length = projected.length;
   }
 
   /** 重试倒计时中则打断并等待本轮收尾；返回是否发生了打断（用户输入接管重试） */

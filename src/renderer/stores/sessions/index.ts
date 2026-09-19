@@ -66,6 +66,7 @@ import { createElectronPersistStorage, openPersistWriteGate } from '@/stores/set
 import { purgeConversationAuthority } from './authorityCleanup';
 import {
   canWakeConversationForRewind,
+  rewindKeepCount,
   rewindWorkerPhase,
   shouldSendRewindCommand,
 } from './conversationRewind';
@@ -484,6 +485,16 @@ export const useSessionsStore = create<SessionsState>()(
        */
       const pendingTitleBaselines = new Map<string, string>();
       const rewindInFlight = new Set<string>();
+
+      function applyOptimisticRewind(conversationId: string, userIndexFromEnd: number): void {
+        set((state) => {
+          const current = state.conversations[conversationId];
+          if (!current) return state;
+          const keep = rewindKeepCount(current.messages, userIndexFromEnd);
+          if (keep === null || keep >= current.messages.length) return state;
+          return patch(state, conversationId, { messages: current.messages.slice(0, keep) });
+        });
+      }
 
       /**
        * 标题总结在飞的开/关必须走这两个 helper：保证不变量
@@ -3307,6 +3318,7 @@ export const useSessionsStore = create<SessionsState>()(
           }
           if (rewindInFlight.has(conversationId)) return;
           if (shouldSendRewindCommand(conversation)) {
+            applyOptimisticRewind(conversationId, userIndexFromEnd);
             void window.electronAPI.agent.rewind(conversationId, userIndexFromEnd, restoreFiles);
             return;
           }
@@ -3342,6 +3354,7 @@ export const useSessionsStore = create<SessionsState>()(
                 shouldSendRewindCommand(after) &&
                 after.sessionFile === sessionFile
               ) {
+                applyOptimisticRewind(conversationId, userIndexFromEnd);
                 void window.electronAPI.agent.rewind(
                   conversationId,
                   userIndexFromEnd,

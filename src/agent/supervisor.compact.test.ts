@@ -247,6 +247,86 @@ describe('SessionSupervisor compact failure', () => {
     ]);
     await supervisor.shutdown();
   });
+
+  it('rewind 在 navigateTree 完成前先 truncated，且不逐条 upsert 前缀', async () => {
+    const events: AgentWorkerEvent[] = [];
+    const supervisor = new SessionSupervisor({
+      emit: (event) => events.push(event),
+      agentDir: '/tmp/agent',
+      sessionDir: mkdtempSync(path.join(tmpdir(), 'enso-rewind-')),
+    });
+    supervisor.handleCommand({
+      type: 'spawn-parent',
+      identity: parent,
+      cwd: '/workspace',
+      model,
+    });
+    await waitFor(events, 'parent-ready');
+    const parentSession = mocks.sessions[0] as ReturnType<typeof session>;
+
+    const user = (text: string) => ({
+      role: 'user',
+      content: [{ type: 'text', text }],
+    });
+    const assistant = (text: string) => ({
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+    });
+    parentSession.emit({ type: 'message_start', message: user('one') });
+    parentSession.emit({ type: 'message_start', message: assistant('a') });
+    parentSession.emit({ type: 'message_start', message: user('two') });
+    parentSession.emit({ type: 'message_start', message: assistant('b') });
+
+    (mocks.managers[0] as { getBranch: () => unknown[] }).getBranch().push(
+      {
+        type: 'message',
+        message: user('one'),
+        id: 'entry-user-1',
+        timestamp: 1,
+      },
+      {
+        type: 'message',
+        message: user('two'),
+        id: 'entry-user-2',
+        timestamp: 2,
+      }
+    );
+
+    let release!: (value: { cancelled: boolean; editorText: string }) => void;
+    const pending = new Promise<{ cancelled: boolean; editorText: string }>((resolve) => {
+      release = resolve;
+    });
+    parentSession.navigateTree = vi.fn(async () => {
+      parentSession.messages = [user('one'), assistant('a')];
+      return pending;
+    });
+
+    events.length = 0;
+    supervisor.handleCommand({
+      type: 'rewind',
+      identity: parent,
+      userIndexFromEnd: 0,
+    });
+    await settle();
+
+    expect(events.some((event) => event.type === 'messages-truncated')).toBe(true);
+    expect(events.find((event) => event.type === 'messages-truncated')).toMatchObject({
+      length: 2,
+    });
+    expect(events.some((event) => event.type === 'rewind-done')).toBe(false);
+
+    release({ cancelled: false, editorText: 'two' });
+    await settle();
+    await settle();
+
+    expect(parentSession.navigateTree).toHaveBeenCalledWith('entry-user-2');
+    expect(events.filter((event) => event.type === 'message-upsert')).toEqual([]);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'rewind-done', editorText: 'two' })
+    );
+
+    await supervisor.shutdown();
+  });
 });
 
 describe('SessionSupervisor failTurn compaction cleanup', () => {

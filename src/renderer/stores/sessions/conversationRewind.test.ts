@@ -3,6 +3,7 @@ import {
   canShowConversationRewind,
   canWakeConversationForRewind,
   resolveRewindConfirm,
+  rewindKeepCount,
   rewindWorkerPhase,
   shouldSendRewindCommand,
   userIndexFromEndForTimelineKey,
@@ -176,5 +177,26 @@ describe('userIndexFromEndForTimelineKey', () => {
     expect(userIndexFromEndForTimelineKey({ messages }, 1)).toBe(null);
     expect(userIndexFromEndForTimelineKey({ messages }, Number.NaN)).toBe(null);
     expect(userIndexFromEndForTimelineKey({ messages }, 1.5)).toBe(null);
+  });
+});
+
+describe('rewindKeepCount', () => {
+  const messages = [
+    { role: 'user' },
+    { role: 'assistant' },
+    { role: 'user' },
+    { role: 'assistant' },
+  ];
+
+  it('回退最后一条 user 时保留它之前的前缀', () => {
+    expect(rewindKeepCount(messages, 0)).toBe(2);
+    expect(rewindKeepCount(messages, 1)).toBe(0);
+  });
+
+  it('对不上或非法 fromEnd 返回 null', () => {
+    expect(rewindKeepCount(messages, 2)).toBe(null);
+    expect(rewindKeepCount(messages, -1)).toBe(null);
+    expect(rewindKeepCount(messages, 0.5)).toBe(null);
+    expect(rewindKeepCount([{ role: 'assistant' }], 0)).toBe(null);
   });
 });

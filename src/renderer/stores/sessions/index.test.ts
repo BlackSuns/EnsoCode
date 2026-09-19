@@ -3145,6 +3145,36 @@ describe('rewind 在 failed 状态放行、running 仍拦截', () => {
     expect(agentRewind).toHaveBeenCalledWith('parent', 0, false);
   });
 
+  it('热会话回退立刻截掉目标 user 及之后，不空等 worker', () => {
+    const user = (text: string) => ({
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+    });
+    const assistant = (text: string) => ({
+      role: 'assistant' as const,
+      content: [{ type: 'text' as const, text }],
+    });
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: true,
+          spawning: false,
+          status: 'idle' as const,
+          generation: 'g1',
+          messages: [user('one'), assistant('a'), user('two'), assistant('b')],
+        },
+      },
+    }));
+    sessionsModule.useSessionsStore.getState().rewind('parent', 0, false);
+    expect(agentRewind).toHaveBeenCalledWith('parent', 0, false);
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent.messages).toEqual([
+      user('one'),
+      assistant('a'),
+    ]);
+  });
+
   it('status:running 时不调用 window.electronAPI.agent.rewind', () => {
     sessionsModule.useSessionsStore.setState((state) => ({
       conversations: {

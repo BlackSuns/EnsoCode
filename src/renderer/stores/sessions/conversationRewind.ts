@@ -104,3 +104,18 @@ export function userIndexFromEndForTimelineKey(
   return conversation.messages.slice(localIndex + 1).filter((message) => message.role === 'user')
     .length;
 }
+
+/** 回退到倒数第 N+1 条 user：保留它之前的消息（不含该 user）。对不上返回 null。 */
+export function rewindKeepCount(
+  messages: readonly { role: string }[],
+  userIndexFromEnd: number
+): number | null {
+  if (!Number.isInteger(userIndexFromEnd) || userIndexFromEnd < 0) return null;
+  const users: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i]?.role === 'user') users.push(i);
+  }
+  const target = users[users.length - 1 - userIndexFromEnd];
+  if (target === undefined) return null;
+  return target;
+}
