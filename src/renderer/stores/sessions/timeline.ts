@@ -21,6 +21,9 @@ export type TimelineItem =
       text: string;
       images: { data: string; mimeType: string }[];
       timestamp?: number;
+      turnDurationMs?: number;
+      collapsed?: boolean;
+      canCollapse?: boolean;
     }
   | {
       kind: 'text';
@@ -539,6 +542,7 @@ function buildMessageTimeline(
   let turnSteps = 0;
   let turnUserTimestamp: number | undefined;
   let turnHadAskUser = false;
+  let currentTurnUserItem: Extract<TimelineItem, { kind: 'user' }> | undefined;
   messages.forEach((message, messageIndex) => {
     const isLastMessage = messageIndex === messages.length - 1;
     const absIndex = historyBaseIndex + messageIndex;
@@ -563,13 +567,20 @@ function buildMessageTimeline(
         return;
       }
       if (text || images.length > 0) {
-        items.push({
+        const hasNextReply =
+          messageIndex + 1 < messages.length && messages[messageIndex + 1].role !== 'user';
+        const isLastTurn = !messages.slice(messageIndex + 1).some((m) => m.role === 'user');
+        const canCollapse = hasNextReply && !(running && isLastTurn);
+        const userItem: Extract<TimelineItem, { kind: 'user' }> = {
           kind: 'user',
           key: `${absIndex}`,
           text,
           images,
           timestamp: message.timestamp,
-        });
+          canCollapse,
+        };
+        items.push(userItem);
+        currentTurnUserItem = userItem;
       }
       return;
     }
@@ -623,6 +634,9 @@ function buildMessageTimeline(
         ) {
           turnDurationMs = endTimestamp - turnUserTimestamp;
         }
+      }
+      if (currentTurnUserItem && turnDurationMs !== undefined) {
+        currentTurnUserItem.turnDurationMs = turnDurationMs;
       }
     }
     // 「流式中」= 最后一个有内容的 part：pi 流式时 thinking/text 后面常已跟着
@@ -1219,16 +1233,70 @@ export function foldTimeline(
   items: TimelineItem[],
   running: boolean,
   expandedKeys: ReadonlySet<string>,
-  options: { compact?: boolean } = {}
+  options: {
+    compact?: boolean;
+    collapsedTurns?: ReadonlySet<string>;
+    expandedTurns?: ReadonlySet<string>;
+    autoCollapseCompletedTurns?: boolean;
+  } = {}
 ): TimelineItem[] {
   const compact = options.compact === true;
-  const lastUserIndex = items.findLastIndex((item) => item.kind === 'user');
+  const autoCollapse = options.autoCollapseCompletedTurns === true;
+  const collapsedTurns = options.collapsedTurns;
+  const expandedTurns = options.expandedTurns;
+  const origLastUserIndex = items.findLastIndex((item) => item.kind === 'user');
+
+  // 第一步：轮次折叠（Turn Collapse）。
+  // 正在生成的最新一轮（running && isLastUser）不折叠，确保实时输出可见。
+  let sourceItems: TimelineItem[] = items;
+  if (autoCollapse || (collapsedTurns && collapsedTurns.size > 0)) {
+    const nextItems: TimelineItem[] = [];
+    let idx = 0;
+    while (idx < items.length) {
+      const item = items[idx];
+      if (item.kind === 'user') {
+        const isLastUser = idx === origLastUserIndex;
+        const isLiveRunning = running && isLastUser;
+        let isCollapsed = false;
+        if (!isLiveRunning) {
+          if (autoCollapse) {
+            // 自动折叠规则：
+            // - 最后一轮（isLastUser）：默认保持展开供用户查看输出内容；发送新消息后才会变为历史轮次自动折叠；
+            // - 历史轮次（!isLastUser）：只要可折叠（canCollapse），默认自动折叠；
+            // - 用户显式操作：expandedTurns 展开，collapsedTurns 收起。
+            const defaultCollapsed = !isLastUser && item.canCollapse === true;
+            if (expandedTurns?.has(item.key)) {
+              isCollapsed = false;
+            } else if (collapsedTurns?.has(item.key)) {
+              isCollapsed = true;
+            } else {
+              isCollapsed = defaultCollapsed;
+            }
+          } else {
+            isCollapsed = collapsedTurns?.has(item.key) === true;
+          }
+        }
+        nextItems.push(isCollapsed ? { ...item, collapsed: true } : item);
+        idx += 1;
+        if (isCollapsed) {
+          while (idx < items.length && items[idx].kind !== 'user') {
+            idx += 1;
+          }
+        }
+      } else {
+        nextItems.push(item);
+        idx += 1;
+      }
+    }
+    sourceItems = nextItems;
+  }
+  const lastUserIndex = sourceItems.findLastIndex((item) => item.kind === 'user');
   const inSegment = (s: TimelineItem): boolean =>
     s.kind === 'thinking' || (s.kind === 'tool' && (!compact || isReadOnlyTool(s)));
   const result: TimelineItem[] = [];
   let i = 0;
-  while (i < items.length) {
-    const item = items[i];
+  while (i < sourceItems.length) {
+    const item = sourceItems[i];
     if (!inSegment(item)) {
       result.push(item);
       i += 1;
@@ -1236,8 +1304,8 @@ export function foldTimeline(
     }
     // 收集连续段
     let end = i;
-    while (end < items.length && inSegment(items[end])) end += 1;
-    const segment = mergeAdjacentThinking(items.slice(i, end));
+    while (end < sourceItems.length && inSegment(sourceItems[end])) end += 1;
+    const segment = mergeAdjacentThinking(sourceItems.slice(i, end));
     const liveSegment = !compact && running && lastUserIndex >= 0 && i > lastUserIndex;
     // 钉住的行不进组：edit 的 diff、write 的内容、todo 清单是核心产物。
     // compact 下 running 只读行进组（避免完成后从平铺跳进组头抽动）；
