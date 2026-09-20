@@ -70,10 +70,10 @@ import {
 import { GroupEditorDialog } from '@/components/chat/GroupEditorDialog';
 import { GroupSelector } from '@/components/chat/GroupSelector';
 import { ImportSessionDialog } from '@/components/chat/ImportSessionDialog';
+import { openDirectoryFromMenu, openDirectoryLabel } from '@/components/chat/openDirectoryAction';
 import { ProjectSettingsDialog } from '@/components/chat/ProjectSettingsDialog';
 import { reloadConversationFromMenu } from '@/components/chat/reloadConversationAction';
 import { NodeSwitcher } from '@/components/nodes/NodeSwitcher';
-import { revealLabel } from '@/components/sidepanel/fileTreeMenu';
 import {
   ContextMenu,
   ContextMenuItem,
@@ -981,28 +981,9 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                         {
                           kind: 'item' as const,
                           key: 'reveal',
-                          label: t(revealLabel()),
+                          label: t(openDirectoryLabel(window.electronAPI.env.platform)),
                           icon: <FolderOpen />,
-                          onSelect: async () => {
-                            try {
-                              const result = await window.electronAPI.projects.reveal({
-                                projectId: project.id,
-                              });
-                              if (!result.ok) {
-                                addToast({
-                                  type: 'error',
-                                  title: t('Could not complete the file action.'),
-                                  description: result.error,
-                                });
-                              }
-                            } catch (error) {
-                              addToast({
-                                type: 'error',
-                                title: t('Could not complete the file action.'),
-                                description: String(error),
-                              });
-                            }
-                          },
+                          onSelect: () => openDirectoryFromMenu({ projectId: project.id }, t),
                         },
                       ]
                     : []),
@@ -2108,6 +2089,11 @@ function ConversationRow({
   onRemove,
 }: ConversationRowProps) {
   const { t } = useI18n();
+  const localProject = useSettingsStore((state) =>
+    state.projects.some(
+      (project) => project.id === conversation.projectId && project.kind !== 'ssh'
+    )
+  );
   const [renaming, setRenaming] = useState(false);
   const worktree = useSessionsStore((state) => state.conversations[id]?.worktree);
   const workspaceBusy = useSessionsStore((state) =>
@@ -2305,6 +2291,20 @@ function ConversationRow({
             <RefreshCw className={conversation.reloading ? 'animate-spin' : undefined} />
             {t('Reload conversation')}
           </ContextMenuItem>
+          {localProject && (
+            <ContextMenuItem
+              disabled={workspaceBusy || worktreeMissing || worktreeStatus?.exists === false}
+              onClick={() =>
+                void openDirectoryFromMenu(
+                  { projectId: conversation.projectId, conversationId: id },
+                  t
+                )
+              }
+            >
+              <FolderOpen />
+              {t(openDirectoryLabel(window.electronAPI.env.platform))}
+            </ContextMenuItem>
+          )}
           {!archived && (
             <ContextMenuItem onClick={() => onTogglePin(id)}>
               <PinIcon />

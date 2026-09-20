@@ -8,8 +8,16 @@ const mocks = vi.hoisted(() => ({
   projection: vi.fn(),
   removeConversationSessionFiles: vi.fn(),
   project: vi.fn(),
+  conversation: vi.fn(),
+  sessionWorktree: vi.fn(),
+  statSync: vi.fn(),
   openPath: vi.fn(),
 }));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, statSync: mocks.statSync };
+});
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -33,8 +41,10 @@ vi.mock('./agent', () => ({
     removeProject: mocks.removeProject,
     projection: mocks.projection,
     project: mocks.project,
+    conversation: mocks.conversation,
   }),
 }));
+vi.mock('./worktree', () => ({ sessionWorktree: mocks.sessionWorktree }));
 vi.mock('../services/recentProjects', () => ({ getRecentProjects: () => [] }));
 
 import { IPC_CHANNELS } from '@shared/types';
@@ -56,6 +66,14 @@ describe('project authority IPC', () => {
       kind: 'local',
       canonicalPath: '/repo/enso',
     });
+    mocks.conversation.mockReset().mockReturnValue({
+      conversationId: 'conversation-1',
+      projectId: 'project-1',
+      kind: 'root',
+      lifecycle: 'ready',
+    });
+    mocks.sessionWorktree.mockReset();
+    mocks.statSync.mockReset().mockReturnValue({ isDirectory: () => true });
     mocks.openPath.mockReset().mockResolvedValue('');
     registerProjectHandlers();
   });
@@ -154,6 +172,8 @@ describe('project authority IPC', () => {
       {},
       { projectId: 42 },
       { projectId: '' },
+      { projectId: 'project-1', conversationId: 42 },
+      { projectId: 'project-1', conversationId: '' },
     ]) {
       await expect(reveal(event(1), request)).resolves.toEqual({
         ok: false,
@@ -200,6 +220,103 @@ describe('project authority IPC', () => {
     const reveal = mocks.handlers.get(IPC_CHANNELS.PROJECTS_REVEAL)!;
     await expect(reveal(event(1), { projectId: 'project-1' })).resolves.toEqual({ ok: true });
     expect(mocks.openPath).toHaveBeenCalledWith('/repo/enso');
+  });
+
+  it('reveal 会话优先打开 Main 登记的 Windows worktree 路径', async () => {
+    const reveal = mocks.handlers.get(IPC_CHANNELS.PROJECTS_REVEAL)!;
+    const repoPath = String.raw`C:\Users\enso\project`;
+    const worktreePath = String.raw`D:\EnsoCode\worktrees\project-1\conversation-1`;
+    mocks.project.mockReturnValue({
+      projectId: 'project-1',
+      state: 'active',
+      kind: 'local',
+      canonicalPath: repoPath,
+    });
+    mocks.sessionWorktree.mockReturnValue({
+      conversationId: 'conversation-1',
+      projectId: 'project-1',
+      repoPath,
+      path: worktreePath,
+    });
+
+    await expect(
+      reveal(event(1), { projectId: 'project-1', conversationId: 'conversation-1' })
+    ).resolves.toEqual({ ok: true });
+    expect(mocks.openPath).toHaveBeenCalledWith(worktreePath);
+  });
+
+  it('reveal 会话无 worktree 时打开权威项目根目录', async () => {
+    const reveal = mocks.handlers.get(IPC_CHANNELS.PROJECTS_REVEAL)!;
+    await expect(
+      reveal(event(1), {
+        projectId: 'project-1',
+        conversationId: 'conversation-1',
+        path: '../../forged',
+      })
+    ).resolves.toEqual({ ok: true });
+    expect(mocks.openPath).toHaveBeenCalledWith('/repo/enso');
+  });
+
+  it.each([
+    ['不存在', undefined],
+    ['已结束', { projectId: 'project-1', kind: 'root', lifecycle: 'ended' }],
+    ['归属其它项目', { projectId: 'project-2', kind: 'root', lifecycle: 'ready' }],
+    ['子会话', { projectId: 'project-1', kind: 'child', lifecycle: 'ready' }],
+  ])('reveal 拒绝%s的会话', async (_label, conversation) => {
+    const reveal = mocks.handlers.get(IPC_CHANNELS.PROJECTS_REVEAL)!;
+    mocks.conversation.mockReturnValue(conversation);
+    await expect(
+      reveal(event(1), { projectId: 'project-1', conversationId: 'conversation-1' })
+    ).resolves.toEqual({ ok: false, error: 'unavailable' });
+    expect(mocks.openPath).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      conversationId: 'conversation-1',
+      projectId: 'project-2',
+      repoPath: '/repo/enso',
+      path: '/forged/project',
+    },
+    {
+      conversationId: 'conversation-1',
+      projectId: 'project-1',
+      repoPath: '/repo/other',
+      path: '/forged/project',
+    },
+  ])('reveal 拒绝与权威项目不匹配的 worktree 记录', async (worktree) => {
+    const reveal = mocks.handlers.get(IPC_CHANNELS.PROJECTS_REVEAL)!;
+    mocks.sessionWorktree.mockReturnValue(worktree);
+    await expect(
+      reveal(event(1), { projectId: 'project-1', conversationId: 'conversation-1' })
+    ).resolves.toEqual({ ok: false, error: 'unavailable' });
+    expect(mocks.openPath).not.toHaveBeenCalled();
+  });
+
+  it('reveal 工作目录已丢失时返回 unavailable，不回退项目根目录', async () => {
+    const reveal = mocks.handlers.get(IPC_CHANNELS.PROJECTS_REVEAL)!;
+    mocks.sessionWorktree.mockReturnValue({
+      conversationId: 'conversation-1',
+      projectId: 'project-1',
+      repoPath: '/repo/enso',
+      path: '/worktrees/missing',
+    });
+    mocks.statSync.mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+    await expect(
+      reveal(event(1), { projectId: 'project-1', conversationId: 'conversation-1' })
+    ).resolves.toEqual({ ok: false, error: 'unavailable' });
+    expect(mocks.openPath).not.toHaveBeenCalled();
+  });
+
+  it('reveal 将 shell.openPath 异常转换为结构化失败', async () => {
+    const reveal = mocks.handlers.get(IPC_CHANNELS.PROJECTS_REVEAL)!;
+    mocks.openPath.mockRejectedValue(new Error('Failed to open path'));
+    await expect(reveal(event(1), { projectId: 'project-1' })).resolves.toEqual({
+      ok: false,
+      error: 'Failed to open path',
+    });
   });
 
   it('reveal 在 openPath 返回失败原因时透传该原因', async () => {
