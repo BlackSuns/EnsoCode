@@ -168,6 +168,11 @@ export interface ConfigSyncInstructionResource {
   content: string;
 }
 
+export interface ConfigSyncSystemPromptResource {
+  id: string;
+  content: string;
+}
+
 export interface ConfigSyncBundle {
   format: 'enso-config';
   version: 1;
@@ -176,6 +181,8 @@ export interface ConfigSyncBundle {
   resources: {
     skills: ConfigSyncSkillResource[];
     instructions: ConfigSyncInstructionResource[];
+    /** v1 向后兼容可选；旧包缺省为空 */
+    systemPrompts?: ConfigSyncSystemPromptResource[];
   };
   secretsIncluded: boolean;
 }

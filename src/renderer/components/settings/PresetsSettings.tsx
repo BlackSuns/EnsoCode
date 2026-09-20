@@ -1,5 +1,5 @@
 import type { InstructionEntry, Preset } from '@shared/types';
-import { Eye, Layers, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Eye, Layers, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import * as React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { useI18n } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { ListFilterBar, matchesFilter } from './ListFilterBar';
@@ -25,6 +26,7 @@ export function PresetsSettings() {
   const defaultPresetId = useSettingsStore((state) => state.defaultPresetId);
   const setDefaultPresetId = useSettingsStore((state) => state.setDefaultPresetId);
   const [editing, setEditing] = React.useState<Preset | 'new' | null>(null);
+  const [previewDefault, setPreviewDefault] = React.useState(false);
 
   return (
     <div className="space-y-6">
@@ -33,7 +35,7 @@ export function PresetsSettings() {
           <h3 className="font-medium text-lg">{t('Presets')}</h3>
           <p className="text-muted-foreground text-sm">
             {t(
-              'Injection bundles of skills, MCP servers and instruction files, chosen per conversation'
+              'Role descriptions, skills, MCP servers and instruction files, chosen per conversation'
             )}
           </p>
         </div>
@@ -50,6 +52,7 @@ export function PresetsSettings() {
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-2 text-sm font-medium">
               {t('Global')}
+              <Badge variant="outline">{t('Read-only')}</Badge>
               {defaultPresetId === 'default' && <Badge variant="secondary">{t('Default')}</Badge>}
             </p>
             <p className="text-muted-foreground text-xs">
@@ -61,37 +64,50 @@ export function PresetsSettings() {
               {t('Set as default')}
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={t('View default role description')}
+            onClick={() => setPreviewDefault(true)}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
         </div>
 
-        {presets.map((preset) => (
-          <div key={preset.id} className="flex items-center gap-3 rounded-md border px-3 py-2.5">
-            <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-2 truncate text-sm font-medium">
-                {preset.name}
-                {defaultPresetId === preset.id && <Badge variant="secondary">{t('Default')}</Badge>}
-              </p>
-              <p className="text-muted-foreground text-xs">
-                {t('{{skills}} skills · {{mcp}} MCP · {{instruction}} instruction', {
-                  skills: preset.skillIds.length,
-                  mcp: preset.mcpServerIds.length,
-                  instruction: preset.instructionId ? 1 : 0,
-                })}
-              </p>
-            </div>
-            {defaultPresetId !== preset.id && (
-              <Button variant="ghost" size="sm" onClick={() => setDefaultPresetId(preset.id)}>
-                {t('Set as default')}
+        {presets
+          .filter((preset) => preset.id !== 'default')
+          .map((preset) => (
+            <div key={preset.id} className="flex items-center gap-3 rounded-md border px-3 py-2.5">
+              <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-2 truncate text-sm font-medium">
+                  {preset.name}
+                  {preset.systemPromptId && <Badge variant="outline">{t('Custom role')}</Badge>}
+                  {defaultPresetId === preset.id && (
+                    <Badge variant="secondary">{t('Default')}</Badge>
+                  )}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {t('{{skills}} skills · {{mcp}} MCP · {{instruction}} instruction', {
+                    skills: preset.skillIds.length,
+                    mcp: preset.mcpServerIds.length,
+                    instruction: preset.instructionId ? 1 : 0,
+                  })}
+                </p>
+              </div>
+              {defaultPresetId !== preset.id && (
+                <Button variant="ghost" size="sm" onClick={() => setDefaultPresetId(preset.id)}>
+                  {t('Set as default')}
+                </Button>
+              )}
+              <Button variant="ghost" size="icon" onClick={() => setEditing(preset)}>
+                <Pencil className="h-4 w-4" />
               </Button>
-            )}
-            <Button variant="ghost" size="icon" onClick={() => setEditing(preset)}>
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => removePreset(preset.id)}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        ))}
+              <Button variant="ghost" size="icon" onClick={() => removePreset(preset.id)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
       </div>
 
       {editing !== null && (
@@ -100,6 +116,7 @@ export function PresetsSettings() {
           onClose={() => setEditing(null)}
         />
       )}
+      {previewDefault && <DefaultSystemPromptDialog onClose={() => setPreviewDefault(false)} />}
     </div>
   );
 }
@@ -124,19 +141,58 @@ export function PresetEditDialog({
   const [instructionId, setInstructionId] = React.useState<string | undefined>(
     preset?.instructionId
   );
+  const [customPrompt, setCustomPrompt] = React.useState(Boolean(preset?.systemPromptId));
+  const prompt = useSystemPromptContent(preset?.systemPromptId);
+  const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState('');
 
   const toggle = (list: string[], id: string): string[] =>
     list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 
-  const save = () => {
-    const payload = { name: name.trim() || t('Untitled'), skillIds, mcpServerIds, instructionId };
-    if (preset) updatePreset(preset.id, payload);
-    else addPreset(payload);
-    onClose();
+  const save = async () => {
+    if (
+      saving ||
+      prompt.loading ||
+      prompt.error ||
+      (customPrompt && prompt.selectionError) ||
+      preset?.id === 'default'
+    )
+      return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      let systemPromptId: string | undefined;
+      if (customPrompt) {
+        if (!prompt.content.trim()) throw new Error(t('System prompt cannot be empty'));
+        systemPromptId = preset?.systemPromptId;
+        if (!systemPromptId || prompt.content !== prompt.originalContent) {
+          systemPromptId = crypto.randomUUID();
+          const result = await window.electronAPI.presets.writeSystemPrompt(
+            systemPromptId,
+            prompt.content
+          );
+          if (!result.ok) throw new Error(result.error || t('Failed to save system prompt'));
+        }
+      }
+      const payload = {
+        name: name.trim() || t('Untitled'),
+        skillIds,
+        mcpServerIds,
+        instructionId,
+        systemPromptId,
+      };
+      if (preset) updatePreset(preset.id, payload);
+      else addPreset(payload);
+      onClose();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent className="max-w-xl" disableNestedTransform>
         <DialogHeader>
           <DialogTitle>{preset ? t('Edit preset') : t('New preset')}</DialogTitle>
@@ -145,7 +201,36 @@ export function PresetEditDialog({
         <DialogPanel className="space-y-4">
           <Field>
             <FieldLabel>{t('Name')}</FieldLabel>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
+            <Input value={name} disabled={saving} onChange={(e) => setName(e.target.value)} />
+          </Field>
+
+          <Field className="w-full">
+            <FieldLabel>{t('Role description')}</FieldLabel>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={customPrompt}
+                disabled={saving || prompt.loading || Boolean(prompt.error)}
+                onCheckedChange={(checked) => setCustomPrompt(Boolean(checked))}
+              />
+              {t('Replace pi opening role description')}
+            </label>
+            {customPrompt && (
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'Only replaces the opening role paragraph. Available tools and everything after it stay unchanged. Applies to new and cold-restored sessions.'
+                )}
+              </p>
+            )}
+            {(customPrompt || prompt.error) && (
+              <SystemPromptText
+                content={prompt.content}
+                readOnly={saving}
+                loading={prompt.loading}
+                error={prompt.error || prompt.selectionError}
+                onChange={prompt.setContent}
+                onRetry={prompt.retry}
+              />
+            )}
           </Field>
 
           <PickList
@@ -217,10 +302,151 @@ export function PresetEditDialog({
         </DialogPanel>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          {saveError && (
+            <p role="alert" className="mr-auto text-sm text-destructive">
+              {saveError}
+            </p>
+          )}
+          <Button variant="outline" disabled={saving} onClick={onClose}>
             {t('Cancel')}
           </Button>
-          <Button onClick={save}>{t('Save')}</Button>
+          <Button
+            disabled={
+              saving ||
+              prompt.loading ||
+              Boolean(prompt.error) ||
+              (customPrompt && (Boolean(prompt.selectionError) || !prompt.content.trim()))
+            }
+            onClick={save}
+          >
+            {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            {t('Save')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function useSystemPromptContent(id?: string) {
+  const { t } = useI18n();
+  const [content, setContent] = React.useState('');
+  const [originalContent, setOriginalContent] = React.useState('');
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState('');
+  const [selectionError, setSelectionError] = React.useState('');
+  const [attempt, setAttempt] = React.useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt retries failed file reads.
+  React.useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setError('');
+    setSelectionError('');
+    const readDefault = window.electronAPI.presets.readSystemPrompt();
+    Promise.all([readDefault, id ? window.electronAPI.presets.readSystemPrompt(id) : readDefault])
+      .then(([builtin, selected]) => {
+        if (!alive) return;
+        if (!builtin.ok) {
+          setError(builtin.error || t('Failed to read system prompt'));
+          return;
+        }
+        if (!selected.ok) {
+          setSelectionError(selected.error || t('Failed to read system prompt'));
+          return;
+        }
+        setOriginalContent(selected.content);
+        setContent(selected.content);
+      })
+      .catch((reason: unknown) => {
+        if (alive) setError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id, attempt, t]);
+  return {
+    content,
+    setContent,
+    originalContent,
+    loading,
+    error,
+    selectionError,
+    retry: () => setAttempt((value) => value + 1),
+  };
+}
+
+function SystemPromptText({
+  content,
+  readOnly,
+  loading,
+  error,
+  onChange,
+  onRetry,
+}: {
+  content: string;
+  readOnly: boolean;
+  loading: boolean;
+  error: string;
+  onChange?: (content: string) => void;
+  onRetry: () => void;
+}) {
+  const { t } = useI18n();
+  if (loading) return <p className="text-sm text-muted-foreground">{t('Loading...')}</p>;
+  if (error)
+    return (
+      <div className="space-y-2">
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          {t('Retry')}
+        </Button>
+      </div>
+    );
+  return (
+    <Textarea
+      aria-label={t('Role description')}
+      className="h-32 w-full resize-y font-mono text-xs leading-relaxed"
+      value={content}
+      readOnly={readOnly}
+      spellCheck={false}
+      onChange={(event) => onChange?.(event.target.value)}
+    />
+  );
+}
+
+function DefaultSystemPromptDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
+  const prompt = useSystemPromptContent();
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>
+            {t('Global')} · {t('Built-in default (read-only)')}
+          </DialogTitle>
+        </DialogHeader>
+        <DialogPanel className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {t(
+              'This is the pi opening role paragraph. Custom presets replace only this paragraph; tools, guidelines and project context stay unchanged.'
+            )}
+          </p>
+          <SystemPromptText
+            content={prompt.content}
+            readOnly
+            loading={prompt.loading}
+            error={prompt.error}
+            onRetry={prompt.retry}
+          />
+        </DialogPanel>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t('Close')}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

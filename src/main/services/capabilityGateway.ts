@@ -541,6 +541,8 @@ function parsePresetFields(
       : typeof existing?.instructionId === 'string'
         ? existing.instructionId
         : undefined;
+  const systemPromptId =
+    typeof existing?.systemPromptId === 'string' ? existing.systemPromptId : undefined;
   return {
     ok: true,
     value: {
@@ -548,6 +550,7 @@ function parsePresetFields(
       skillIds,
       mcpServerIds,
       ...(instructionId ? { instructionId } : {}),
+      ...(systemPromptId ? { systemPromptId } : {}),
     },
   };
 }
@@ -1146,9 +1149,8 @@ export function createCapabilityHandlers(
       const id = requiredString(params, 'id');
       if (!id) return invalid('id is required');
       const stale = context.assertExecutionCurrent();
-      return (
-        stale ?? updateArrayById(services, 'presets', id, () => null, context.ownerWebContentsId)
-      );
+      if (stale) return stale;
+      return updateArrayById(services, 'presets', id, () => null, context.ownerWebContentsId);
     },
     'presets.set-default': (context, params) => {
       const id = requiredString(params, 'id');

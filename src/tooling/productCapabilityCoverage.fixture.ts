@@ -358,6 +358,8 @@ export const IPC_PRODUCT_COVERAGE = {
   INSTRUCTIONS_WRITE: surfaces('instructions.edit-local-copy'),
   INSTRUCTIONS_WRITE_SOURCE: surfaces('instructions.overwrite-source'),
   INSTRUCTIONS_DELETE: surfaces('instructions.remove'),
+  PRESETS_SYSTEM_PROMPT_READ: excluded('Settings-only preset editor content read.'),
+  PRESETS_SYSTEM_PROMPT_WRITE: excluded('Settings-only preset editor content write.'),
   AGENT_SPAWN: excluded('Lazy worker lifecycle command behind conversation send.'),
   AGENT_PROMPT: surfaces('conversations.send'),
   AGENT_STEER: surfaces('conversations.queue.send-now'),

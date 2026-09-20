@@ -131,7 +131,7 @@ export function ConfigSyncSettings() {
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <p>
             {t(
-              'OAuth login sessions are never transferred. Skill and instruction contents require an encrypted export.'
+              'OAuth login sessions are never transferred. Skill, instruction, and system prompt contents require an encrypted export.'
             )}
           </p>
         </div>

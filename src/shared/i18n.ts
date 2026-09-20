@@ -1270,6 +1270,20 @@ export const zhTranslations: Record<string, string> = {
   Presets: '预设',
   'New preset': '新建预设',
   'Edit preset': '编辑预设',
+  'Role descriptions, skills, MCP servers and instruction files, chosen per conversation':
+    '角色描述 / 技能 / MCP / 指令文件的组合，按对话选用',
+  'View default role description': '查看默认角色描述',
+  'Custom role': '自定义角色',
+  'Role description': '角色描述',
+  'Replace pi opening role description': '替换 pi 开头的角色描述',
+  'Built-in default (read-only)': '内置默认（只读）',
+  'System prompt cannot be empty': '系统提示词不能为空',
+  'Failed to save system prompt': '系统提示词保存失败',
+  'Failed to read system prompt': '系统提示词读取失败',
+  'Only replaces the opening role paragraph. Available tools and everything after it stay unchanged. Applies to new and cold-restored sessions.':
+    '仅替换开头的角色段落，Available tools 及之后的全部内容保持不变。新建及冷恢复的会话生效。',
+  'This is the pi opening role paragraph. Custom presets replace only this paragraph; tools, guidelines and project context stay unchanged.':
+    '这是 pi 开头的角色段落。自定义预设只替换这段，工具、使用准则和项目上下文均保持不变。',
   Global: '全局',
   'Set as default': '设为默认',
   Default: '默认',
@@ -1433,8 +1447,8 @@ export const zhTranslations: Record<string, string> = {
   'Import configuration': '导入配置',
   'Export configuration': '导出配置',
   Export: '导出',
-  'OAuth login sessions are never transferred. Skill and instruction contents require an encrypted export.':
-    'OAuth 登录态不会迁移。技能和指令内容需要使用加密导出。',
+  'OAuth login sessions are never transferred. Skill, instruction, and system prompt contents require an encrypted export.':
+    'OAuth 登录态不会迁移。技能、指令和系统提示词正文需要使用加密导出。',
   'Create a portable .enso-config package for another device.':
     '创建可在另一台设备使用的 .enso-config 配置包。',
   'File contents can be private': '文件内容可能包含私密信息',
@@ -1507,7 +1521,8 @@ export const zhTranslations: Record<string, string> = {
   'Export password is too short.': '导出密码太短。',
   'Configuration package is too large.': '配置包过大。',
   'Unable to export configuration.': '无法导出配置。',
-  'Skill and instruction contents require an encrypted export.': '技能和指令内容需要使用加密导出。',
+  'Skill, instruction, and system prompt contents require an encrypted export.':
+    '技能、指令和系统提示词正文需要使用加密导出。',
   'Invalid import request.': '导入请求无效。',
   'Invalid configuration package.': '配置包无效。',
   'Unable to read configuration package.': '无法读取配置包。',

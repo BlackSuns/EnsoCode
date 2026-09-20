@@ -591,6 +591,8 @@ export type AgentCommand =
       remote?: AgentRemoteConfig;
       /** 旁路会话：首条 prompt 前缀注入，消费一次 */
       rolePrompt?: string;
+      /** 仅普通 parent：替换 pi 默认提示词开头的角色段落，其余运行时内容保留 */
+      systemPrompt?: string;
     }
   | {
       type: 'spawn-child';
@@ -2057,6 +2059,7 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
           'windowsLocalShell',
           'remote',
           'rolePrompt',
+          'systemPrompt',
         ]) ||
         !parseSessionIdentity(value.identity) ||
         typeof value.cwd !== 'string' ||
@@ -2086,7 +2089,8 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
             value.subagentModels.some((entry) => parseSubagentModelOption(entry) === null))) ||
         (value.approvalReviewer !== undefined &&
           parseSpawnModelConfig(value.approvalReviewer) === null) ||
-        (value.rolePrompt !== undefined && !isNonEmptyString(value.rolePrompt))
+        (value.rolePrompt !== undefined && !isNonEmptyString(value.rolePrompt)) ||
+        (value.systemPrompt !== undefined && !isNonEmptyString(value.systemPrompt))
       ) {
         return null;
       }

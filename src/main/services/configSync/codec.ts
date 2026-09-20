@@ -142,7 +142,7 @@ const MCP_KEYS = [
   'omittedFields',
 ];
 const INSTRUCTION_KEYS = ['id', 'name', 'source', 'sourcePath', 'local', 'bytes', 'enabled'];
-const PRESET_KEYS = ['id', 'name', 'skillIds', 'mcpServerIds', 'instructionId'];
+const PRESET_KEYS = ['id', 'name', 'skillIds', 'mcpServerIds', 'instructionId', 'systemPromptId'];
 const AGENT_TYPE_KEYS = [
   'id',
   'name',
@@ -174,10 +174,11 @@ const MODEL_KEYS = [
   'contextWindow',
   'maxTokens',
 ];
-const RESOURCE_KEYS = ['skills', 'instructions'];
+const RESOURCE_KEYS = ['skills', 'instructions', 'systemPrompts'];
 const SKILL_RESOURCE_KEYS = ['id', 'files'];
 const FILE_KEYS = ['path', 'content', 'executable'];
 const INSTRUCTION_RESOURCE_KEYS = ['id', 'content'];
+const SYSTEM_PROMPT_RESOURCE_KEYS = ['id', 'content'];
 const ENCRYPTED_KEYS = ['format', 'version', 'kind', 'salt', 'iv', 'tag', 'ciphertext'];
 const FONT_WEIGHTS = [
   'normal',
@@ -583,6 +584,12 @@ function validatePreset(raw: unknown): RecordValue {
   idList(entry.skillIds, 'preset.skillIds');
   idList(entry.mcpServerIds, 'preset.mcpServerIds');
   if (entry.instructionId !== undefined) stringField(entry, 'instructionId', 'preset', false);
+  if (entry.systemPromptId !== undefined) {
+    const id = stringField(entry, 'systemPromptId', 'preset');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(id)) {
+      throw new Error('Invalid preset system prompt reference');
+    }
+  }
   return entry;
 }
 
@@ -667,7 +674,11 @@ function redactEndpoint(value: string): { value: string; omissions: string[] } {
 
 function assertPlainBundle(bundle: ConfigSyncBundle): void {
   if (bundle.secretsIncluded) throw new Error('Sensitive config sync payload must be encrypted');
-  if (bundle.resources.skills.length > 0 || bundle.resources.instructions.length > 0) {
+  if (
+    bundle.resources.skills.length > 0 ||
+    bundle.resources.instructions.length > 0 ||
+    (bundle.resources.systemPrompts?.length ?? 0) > 0
+  ) {
     throw new Error('Plain config sync bundle cannot include resource contents');
   }
   if (
@@ -754,12 +765,14 @@ function validateReferences(
 function validateResources(
   value: unknown,
   skillIds: Set<string>,
-  instructionBytes: Map<string, number>
+  instructionBytes: Map<string, number>,
+  systemPromptIds: Set<string>
 ): RecordValue {
   const resources = assertRecord(value, 'resources');
   assertExactKeys(resources, RESOURCE_KEYS, 'resources');
   const skills = arrayField(resources, 'skills', 'resources') ?? [];
   const instructions = arrayField(resources, 'instructions', 'resources') ?? [];
+  const systemPrompts = arrayField(resources, 'systemPrompts', 'resources', false) ?? [];
   const resourceSkillIds = new Set<string>();
   let totalBytes = 0;
   let fileCount = 0;
@@ -808,13 +821,36 @@ function validateResources(
     fileCount += 1;
     return { ...entry, content };
   });
+  const resourceSystemPromptIds = new Set<string>();
+  const systemPromptResources = systemPrompts.map((raw) => {
+    const entry = assertRecord(raw, 'system prompt resource');
+    assertExactKeys(entry, SYSTEM_PROMPT_RESOURCE_KEYS, 'system prompt resource');
+    const id = nonEmptyStringField(entry, 'id', 'system prompt resource');
+    if (!systemPromptIds.has(id) || resourceSystemPromptIds.has(id)) {
+      throw new Error('Invalid or duplicate system prompt resource id');
+    }
+    resourceSystemPromptIds.add(id);
+    const content = stringField(entry, 'content', 'system prompt resource');
+    if (!content.trim()) throw new Error('System prompt resource is empty');
+    const contentBytes = Buffer.byteLength(content, 'utf8');
+    if (contentBytes > MAX_FILE_BYTES) throw new Error('System prompt resource is too large');
+    totalBytes += contentBytes;
+    fileCount += 1;
+    return { ...entry, content };
+  });
   if (fileCount > MAX_FILES || totalBytes > MAX_RESOURCE_BYTES)
     throw new Error('Resource limits exceeded');
   for (const id of skillIds)
     if (!resourceSkillIds.has(id)) throw new Error('Missing skill resource');
   for (const id of instructionBytes.keys())
     if (!resourceInstructionIds.has(id)) throw new Error('Missing instruction resource');
-  return { skills: skillResources, instructions: instructionResources };
+  for (const id of systemPromptIds)
+    if (!resourceSystemPromptIds.has(id)) throw new Error('Missing system prompt resource');
+  return {
+    skills: skillResources,
+    instructions: instructionResources,
+    ...(resources.systemPrompts !== undefined ? { systemPrompts: systemPromptResources } : {}),
+  };
 }
 
 /** 严格校验未知输入并返回收窄后的版本 1 配置包。 */
@@ -965,7 +1001,12 @@ export function validateBundle(value: unknown): ConfigSyncBundle {
   const resources = validateResources(
     bundle.resources,
     new Set(skills.map((entry) => String(entry.id))),
-    new Map(instructions.map((entry) => [String(entry.id), Number(entry.bytes)]))
+    new Map(instructions.map((entry) => [String(entry.id), Number(entry.bytes)])),
+    new Set(
+      presets.flatMap((entry) =>
+        typeof entry.systemPromptId === 'string' ? [entry.systemPromptId] : []
+      )
+    )
   );
   const canonicalState: Record<string, unknown> = {
     ...state,
@@ -1072,7 +1113,11 @@ export async function encodeBundle(bundle: ConfigSyncBundle, password?: string):
     ? validateBundle(bundle)
     : validateBundle(redactBundle(bundle));
   if (!validated.secretsIncluded) {
-    if (validated.resources.skills.length > 0 || validated.resources.instructions.length > 0) {
+    if (
+      validated.resources.skills.length > 0 ||
+      validated.resources.instructions.length > 0 ||
+      (validated.resources.systemPrompts?.length ?? 0) > 0
+    ) {
       throw new Error('Plain config sync export cannot include resource contents; use encryption');
     }
     const bytes = Buffer.from(JSON.stringify(validated), 'utf8');

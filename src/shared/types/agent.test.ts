@@ -1706,3 +1706,12 @@ describe('apply_patch fileChanges 事件收窄', () => {
     }
   });
 });
+
+describe('spawn-parent system prompt 协议', () => {
+  it('spawn-parent 携 systemPrompt:非空字符串通过,脏值拒绝', () => {
+    const base = { type: 'spawn-parent', identity: parent, cwd: '/repo', model };
+    expect(parseAgentCommand({ ...base, systemPrompt: 'custom base prompt' })).not.toBeNull();
+    expect(parseAgentCommand({ ...base, systemPrompt: '' })).toBeNull();
+    expect(parseAgentCommand({ ...base, systemPrompt: 1 })).toBeNull();
+  });
+});

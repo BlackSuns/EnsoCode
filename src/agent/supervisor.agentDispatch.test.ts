@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
+import { DEFAULT_PERSONA_PROMPT } from '@shared/systemPrompt';
 import type { AgentCommand, AgentWorkerEvent } from '@shared/types/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -150,11 +151,36 @@ async function settleUntil(check: () => boolean, tries = 20): Promise<void> {
   }
 }
 
+function applyCustomPersona(options: Record<string, unknown> | undefined, systemPrompt: string) {
+  const extension = (
+    options?.extensionFactories as
+      | Array<{
+          name?: string;
+          factory(pi: {
+            on(
+              event: 'before_agent_start',
+              handler: (event: { systemPrompt: string }) => { systemPrompt: string }
+            ): void;
+          }): void;
+        }>
+      | undefined
+  )?.find((factory) => factory.name === 'custom-persona');
+  if (!extension) return systemPrompt;
+  let transform = (prompt: string) => prompt;
+  extension.factory({
+    on: (_event, handler) => {
+      transform = (prompt) => handler({ systemPrompt: prompt }).systemPrompt;
+    },
+  });
+  return transform(systemPrompt);
+}
+
 describe('SessionSupervisor deterministic child lifecycle', () => {
   beforeEach(() => {
     vi.useRealTimers();
     mocks.sessions.length = 0;
     mocks.managers.length = 0;
+    mocks.loaderOptions.length = 0;
     mocks.createAgentSession.mockReset();
     rmSync(path.join(tmpdir(), 'enso-dispatch-sessions'), { recursive: true, force: true });
     mocks.mcpToolsFor.mockReset().mockResolvedValue([]);
@@ -978,5 +1004,160 @@ describe('SessionSupervisor idle eviction', () => {
     expect(events.filter((event) => event.type === 'parent-ended')).toHaveLength(1);
     await supervisor.shutdown();
     vi.useRealTimers();
+  });
+});
+
+describe('SessionSupervisor custom parent system prompt', () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    mocks.sessions.length = 0;
+    mocks.managers.length = 0;
+    mocks.loaderOptions.length = 0;
+    mocks.createAgentSession.mockReset();
+    mocks.mcpToolsFor.mockReset().mockResolvedValue([]);
+    mocks.createAgentSession.mockImplementation(async (options: Record<string, unknown>) => ({
+      session: session(options),
+    }));
+  });
+
+  it('未配置自定义角色时完全沿用 pi 默认提示词组装', async () => {
+    const events: AgentWorkerEvent[] = [];
+    const supervisor = new SessionSupervisor({
+      emit: (event) => events.push(event),
+      agentDir: '/tmp/agent',
+      sessionDir: mkdtempSync(path.join(tmpdir(), 'enso-dispatch-default-persona-')),
+    });
+    supervisor.handleCommand({
+      type: 'spawn-parent',
+      identity: parent,
+      cwd: '/workspace',
+      model,
+    });
+    await waitFor(events, 'parent-ready');
+
+    const options = mocks.loaderOptions.at(-1);
+    expect(options?.systemPrompt).toBeUndefined();
+    expect(options?.systemPromptOverride).toBeUndefined();
+    expect(applyCustomPersona(options, DEFAULT_PERSONA_PROMPT)).toBe(DEFAULT_PERSONA_PROMPT);
+    await supervisor.shutdown();
+  });
+
+  it('路径字面量仅替换开头角色段落，并保留 pi 动态工具与全部后缀', async () => {
+    const events: AgentWorkerEvent[] = [];
+    const sessionDir = mkdtempSync(path.join(tmpdir(), 'enso-dispatch-literal-system-prompt-'));
+    const promptThatLooksLikePath = path.join(sessionDir, 'sensitive.txt');
+    writeFileSync(promptThatLooksLikePath, 'sensitive file contents');
+    const supervisor = new SessionSupervisor({
+      emit: (event) => events.push(event),
+      agentDir: '/tmp/agent',
+      sessionDir,
+    });
+    supervisor.handleCommand({
+      type: 'spawn-parent',
+      identity: parent,
+      cwd: '/workspace',
+      model,
+      systemPrompt: promptThatLooksLikePath,
+    } as AgentCommand);
+    await waitFor(events, 'parent-ready');
+
+    const options = mocks.loaderOptions.at(-1);
+    expect(options?.systemPrompt).toBeUndefined();
+    expect(options?.systemPromptOverride).toBeUndefined();
+    const suffix = [
+      'Available tools:',
+      '- dynamic_runtime_tool: Added by pi at runtime',
+      '',
+      'Guidelines:',
+      '- Keep dynamic guidance',
+      '',
+      '<project_context>project rules</project_context>',
+      '',
+      'Current working directory: /workspace',
+    ].join('\n');
+    expect(applyCustomPersona(options, `${DEFAULT_PERSONA_PROMPT}\n\n${suffix}`)).toBe(
+      `${promptThatLooksLikePath}\n\n${suffix}`
+    );
+    await supervisor.shutdown();
+    rmSync(sessionDir, { recursive: true, force: true });
+  });
+
+  it('自定义角色扩展只挂普通 parent，不进入 locked Enso 或 typed child', async () => {
+    const events: AgentWorkerEvent[] = [];
+    const supervisor = new SessionSupervisor({
+      emit: (event) => events.push(event),
+      agentDir: '/tmp/agent',
+      sessionDir: mkdtempSync(path.join(tmpdir(), 'enso-dispatch-system-prompt-')),
+    });
+    supervisor.handleCommand({
+      type: 'spawn-parent',
+      identity: parent,
+      cwd: '/workspace',
+      model,
+      systemPrompt: 'custom parent base',
+    } as AgentCommand);
+    await waitFor(events, 'parent-ready');
+    const parentLoader = mocks.loaderOptions.at(-1);
+    expect(parentLoader?.systemPromptOverride).toBeUndefined();
+    expect(applyCustomPersona(parentLoader, DEFAULT_PERSONA_PROMPT)).toBe('custom parent base');
+
+    supervisor.handleCommand({
+      type: 'spawn-child',
+      identity: child,
+      cwd: '/workspace',
+      config: {
+        typeKey: 'agent:enso',
+        displayName: 'Enso',
+        description: 'System Agent',
+        spawnSpecId: 'spawn-enso-system-prompt',
+        systemPrompt: 'locked role prompt',
+        model,
+        tools: 'enso-locked',
+        skillPaths: [],
+        skillBindingIds: [],
+        mcpServers: [],
+        mcpBindingIds: [],
+        systemPromptHash: 'enso-hash',
+        lockedProfileId: 'enso-locked-v1',
+      },
+    });
+    await waitFor(events, 'child-ready');
+    const lockedLoader = mocks.loaderOptions.at(-1);
+    expect(lockedLoader?.systemPrompt).toBeTruthy();
+    expect(applyCustomPersona(lockedLoader, DEFAULT_PERSONA_PROMPT)).toBe(DEFAULT_PERSONA_PROMPT);
+
+    supervisor.handleCommand({
+      type: 'spawn-child',
+      identity: {
+        sessionId: 'parent::cw-reviewer',
+        generation: '44444444-4444-4444-8444-444444444444',
+        parent,
+        instanceId: '55555555-5555-4555-8555-555555555555',
+        instanceName: 'Reviewer-55555555',
+        typeKey: 'builtin:reviewer',
+      },
+      cwd: '/workspace',
+      config: {
+        typeKey: 'builtin:reviewer',
+        displayName: 'Reviewer',
+        description: 'Review Agent',
+        spawnSpecId: 'spawn-reviewer-system-prompt',
+        systemPrompt: 'typed child role prompt',
+        model,
+        tools: 'readonly',
+        skillPaths: [],
+        skillBindingIds: [],
+        mcpServers: [],
+        mcpBindingIds: [],
+        systemPromptHash: 'reviewer-hash',
+      },
+    });
+    await settleUntil(() => events.filter((event) => event.type === 'child-ready').length === 2);
+    const typedChildLoader = mocks.loaderOptions.at(-1);
+    expect(typedChildLoader?.systemPrompt).toBeUndefined();
+    expect(applyCustomPersona(typedChildLoader, DEFAULT_PERSONA_PROMPT)).toBe(
+      DEFAULT_PERSONA_PROMPT
+    );
+    await supervisor.shutdown();
   });
 });

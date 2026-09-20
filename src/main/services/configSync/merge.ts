@@ -617,6 +617,7 @@ export function planImport(
   warnings: string[];
   skillIdMap: Record<string, string>;
   instructionIdMap: Record<string, string>;
+  presetIdMap: Record<string, string>;
 } {
   if (mode !== 'merge' && mode !== 'replace') throw new Error('Unsupported config sync mode');
   const state = clone(current);
@@ -677,6 +678,7 @@ export function planImport(
         'preset instruction'
       );
     }
+    if (entry.source.systemPromptId === undefined) delete next.systemPromptId;
     return next;
   });
 
@@ -865,5 +867,6 @@ export function planImport(
     ],
     skillIdMap: plans.skills.idMap,
     instructionIdMap: plans.instructions.idMap,
+    presetIdMap: plans.presets.idMap,
   };
 }

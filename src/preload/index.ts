@@ -363,6 +363,13 @@ const electronAPI = {
     delete: (id: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.INSTRUCTIONS_DELETE, id),
   },
 
+  presets: {
+    readSystemPrompt: (id?: string): Promise<{ ok: boolean; content: string; error?: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.PRESETS_SYSTEM_PROMPT_READ, id),
+    writeSystemPrompt: (id: string, content: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.PRESETS_SYSTEM_PROMPT_WRITE, id, content),
+  },
+
   dialog: {
     /** 打开系统目录选择框，取消时返回 null */
     selectDirectory: (): Promise<string | null> =>

@@ -729,3 +729,26 @@ describe('CapabilityGateway OAuth/default/secret/receipt', () => {
     expect(gateway.cacheSizes.pending).toBe(0);
   });
 });
+
+describe('CapabilityGateway preset system prompt lifecycle', () => {
+  it('capability 编辑预设时保留正文引用', async () => {
+    const { gateway, state } = fixture();
+    const systemPromptId = '4aade2cb-d2a1-47c3-a4a2-848f28571a97';
+    state.presets = [
+      {
+        id: 'preset-1',
+        name: 'Original',
+        skillIds: [],
+        mcpServerIds: [],
+        systemPromptId,
+      },
+    ];
+
+    await gateway.invoke(
+      request('preset-edit', 'presets.edit', { id: 'preset-1', name: 'Renamed' })
+    );
+    expect(state.presets).toEqual([
+      expect.objectContaining({ id: 'preset-1', name: 'Renamed', systemPromptId }),
+    ]);
+  });
+});

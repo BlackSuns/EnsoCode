@@ -1,6 +1,8 @@
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -317,7 +319,7 @@ describe('config sync sender-bound import flow', () => {
       )
     ).resolves.toEqual({
       ok: false,
-      error: 'Skill and instruction contents require an encrypted export.',
+      error: 'Skill, instruction, and system prompt contents require an encrypted export.',
     });
     settings.patchSettingsState('skills', []);
   });
@@ -526,5 +528,232 @@ describe('config sync sender-bound import flow', () => {
     expect(listFrom('src/main/services/configSync/merge.ts', 'SCALAR_SETTING_KEYS')).toEqual(
       sync.filter((field) => !collections.includes(field))
     );
+  });
+});
+
+describe('config sync preset system prompt resources', () => {
+  const bundleWithSystemPrompt = (
+    preset: { id: string; name: string; systemPromptId: string },
+    content: string
+  ): ConfigSyncBundle => ({
+    format: 'enso-config',
+    version: 1,
+    createdAt: '2025-09-05T00:00:00.000Z',
+    state: {
+      providers: [],
+      skills: [],
+      mcpServers: [],
+      instructions: [],
+      presets: [{ ...preset, skillIds: [], mcpServerIds: [] }],
+      agentTypes: [],
+      subagentModels: [],
+    },
+    resources: {
+      skills: [],
+      instructions: [],
+      systemPrompts: [{ id: preset.systemPromptId, content }],
+    },
+    secretsIncluded: true,
+  });
+
+  it('自定义预设正文经加密配置同步后仍由 UUID 引用恢复', async () => {
+    const presetId = 'preset-system-prompt';
+    const systemPromptId = '4aade2cb-d2a1-47c3-a4a2-848f28571a97';
+    const content = 'portable custom system prompt';
+    mkdirSync(join(userData, 'system-prompts'), { recursive: true });
+    writeFileSync(join(userData, 'system-prompts', `${systemPromptId}.md`), content);
+    settings.patchSettingsState('presets', [
+      { id: presetId, name: 'Portable', skillIds: [], mcpServerIds: [], systemPromptId },
+    ]);
+    const file = join(userData, 'system-prompt.enso-config');
+    try {
+      await expect(
+        service.exportConfigToPath({ includeSecrets: true, password: 'correct horse' }, file)
+      ).resolves.toMatchObject({ ok: true });
+      const decoded = await decodeBundle(readFileSync(file), 'correct horse');
+      expect(decoded.resources.systemPrompts).toEqual([{ id: systemPromptId, content }]);
+
+      rmSync(join(userData, 'system-prompts', `${systemPromptId}.md`));
+      settings.patchSettingsState('presets', []);
+      const opened = await service.openImportForSender(88, file);
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) return;
+      await expect(
+        service.previewImportForSender(88, opened.token, 'correct horse', 'merge')
+      ).resolves.toMatchObject({ ok: true });
+      await expect(service.commitImportForSender(88, opened.token, 'merge')).resolves.toMatchObject(
+        {
+          ok: true,
+        }
+      );
+      const persisted = JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf8'));
+      const importedPromptId = persisted['enso-settings'].state.presets[0].systemPromptId;
+      expect(importedPromptId).not.toBe(systemPromptId);
+      expect(readFileSync(join(userData, 'system-prompts', `${importedPromptId}.md`), 'utf8')).toBe(
+        content
+      );
+    } finally {
+      settings.patchSettingsState('presets', []);
+      settings.flushSettings();
+      rmSync(join(userData, 'system-prompts'), { recursive: true, force: true });
+    }
+  });
+
+  it('merge 同源 UUID 历史分叉时不覆盖未导入的本机预设正文', async () => {
+    const sharedPromptId = '11111111-1111-4111-8111-111111111111';
+    const localContent = 'local divergent prompt';
+    const importedContent = 'imported divergent prompt';
+    const file = join(userData, 'system-prompt-conflict.enso-config');
+    mkdirSync(join(userData, 'system-prompts'), { recursive: true });
+    writeFileSync(join(userData, 'system-prompts', `${sharedPromptId}.md`), localContent);
+    settings.patchSettingsState('presets', [
+      {
+        id: 'local-preset',
+        name: 'Local preset',
+        skillIds: [],
+        mcpServerIds: [],
+        systemPromptId: sharedPromptId,
+      },
+    ]);
+    writeFileSync(
+      file,
+      await encodeBundle(
+        bundleWithSystemPrompt(
+          { id: 'imported-preset', name: 'Imported preset', systemPromptId: sharedPromptId },
+          importedContent
+        ),
+        'correct horse'
+      )
+    );
+    try {
+      const opened = await service.openImportForSender(89, file);
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) return;
+      await expect(
+        service.previewImportForSender(89, opened.token, 'correct horse', 'merge')
+      ).resolves.toMatchObject({ ok: true });
+      await expect(service.commitImportForSender(89, opened.token, 'merge')).resolves.toMatchObject(
+        {
+          ok: true,
+        }
+      );
+
+      const persisted = JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf8'));
+      const presets = persisted['enso-settings'].state.presets as Array<{
+        id: string;
+        systemPromptId: string;
+      }>;
+      const local = presets.find((preset) => preset.id === 'local-preset');
+      const imported = presets.find((preset) => preset.id === 'imported-preset');
+      expect(local?.systemPromptId).toBe(sharedPromptId);
+      expect(imported?.systemPromptId).not.toBe(sharedPromptId);
+      expect(readFileSync(join(userData, 'system-prompts', `${sharedPromptId}.md`), 'utf8')).toBe(
+        localContent
+      );
+      expect(
+        readFileSync(join(userData, 'system-prompts', `${imported?.systemPromptId}.md`), 'utf8')
+      ).toBe(importedContent);
+    } finally {
+      settings.patchSettingsState('presets', []);
+      settings.flushSettings();
+      rmSync(join(userData, 'system-prompts'), { recursive: true, force: true });
+      rmSync(file, { force: true });
+    }
+  });
+
+  it('replace 为导入正文生成新 UUID，并保留备份仍可能引用的旧正文', async () => {
+    const oldPromptId = '22222222-2222-4222-8222-222222222222';
+    const sourcePromptId = '33333333-3333-4333-8333-333333333333';
+    const file = join(userData, 'system-prompt-replace.enso-config');
+    mkdirSync(join(userData, 'system-prompts'), { recursive: true });
+    writeFileSync(join(userData, 'system-prompts', `${oldPromptId}.md`), 'removed local prompt');
+    settings.patchSettingsState('presets', [
+      {
+        id: 'removed-local-preset',
+        name: 'Removed local preset',
+        skillIds: [],
+        mcpServerIds: [],
+        systemPromptId: oldPromptId,
+      },
+    ]);
+    writeFileSync(
+      file,
+      await encodeBundle(
+        bundleWithSystemPrompt(
+          { id: 'replacement-preset', name: 'Replacement', systemPromptId: sourcePromptId },
+          'replacement prompt'
+        ),
+        'correct horse'
+      )
+    );
+    try {
+      const opened = await service.openImportForSender(90, file);
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) return;
+      await expect(
+        service.previewImportForSender(90, opened.token, 'correct horse', 'replace')
+      ).resolves.toMatchObject({ ok: true });
+      await expect(
+        service.commitImportForSender(90, opened.token, 'replace')
+      ).resolves.toMatchObject({ ok: true });
+
+      const persisted = JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf8'));
+      const importedPromptId = persisted['enso-settings'].state.presets[0].systemPromptId;
+      expect(importedPromptId).not.toBe(sourcePromptId);
+      expect(existsSync(join(userData, 'system-prompts', `${oldPromptId}.md`))).toBe(true);
+      expect(readFileSync(join(userData, 'system-prompts', `${importedPromptId}.md`), 'utf8')).toBe(
+        'replacement prompt'
+      );
+    } finally {
+      settings.patchSettingsState('presets', []);
+      settings.flushSettings();
+      rmSync(join(userData, 'system-prompts'), { recursive: true, force: true });
+      rmSync(file, { force: true });
+    }
+  });
+
+  it('预览后设置发生变化导致提交失败时回滚新生成的正文文件', async () => {
+    const sourcePromptId = '44444444-4444-4444-8444-444444444444';
+    const file = join(userData, 'system-prompt-rollback.enso-config');
+    rmSync(join(userData, 'system-prompts'), { recursive: true, force: true });
+    settings.patchSettingsState('presets', []);
+    settings.patchSettingsState('theme', 'dark');
+    writeFileSync(
+      file,
+      await encodeBundle(
+        bundleWithSystemPrompt(
+          { id: 'rollback-preset', name: 'Rollback', systemPromptId: sourcePromptId },
+          'must be rolled back'
+        ),
+        'correct horse'
+      )
+    );
+    try {
+      const opened = await service.openImportForSender(91, file);
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) return;
+      await expect(
+        service.previewImportForSender(91, opened.token, 'correct horse', 'merge')
+      ).resolves.toMatchObject({ ok: true });
+      settings.patchSettingsState('theme', 'light');
+
+      await expect(service.commitImportForSender(91, opened.token, 'merge')).resolves.toMatchObject(
+        {
+          ok: false,
+        }
+      );
+      expect(existsSync(join(userData, 'system-prompts'))).toBe(true);
+      expect(readdirSync(join(userData, 'system-prompts'))).toEqual([]);
+      expect(
+        JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf8'))['enso-settings'].state
+          .presets
+      ).toEqual([]);
+    } finally {
+      settings.patchSettingsState('presets', []);
+      settings.patchSettingsState('theme', 'dark');
+      settings.flushSettings();
+      rmSync(join(userData, 'system-prompts'), { recursive: true, force: true });
+      rmSync(file, { force: true });
+    }
   });
 });

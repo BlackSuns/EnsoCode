@@ -35,6 +35,7 @@ import { ANTIGRAVITY_PROVIDER_ID, antigravityProviderConfig } from '@shared/prov
 import { DEVIN_PROVIDER_ID, devinProviderConfig } from '@shared/providers/devin';
 import type { SmartCompactMode } from '@shared/smartCompactMode';
 import { buildSshShellCommand, shellQuote } from '@shared/ssh';
+import { replacePersonaParagraph } from '@shared/systemPrompt';
 import type {
   AgentCommand,
   AgentRemoteConfig,
@@ -330,11 +331,14 @@ function createSessionResourceLoader(options: {
   compactStrategy?: CompactStrategy;
   smartCompactSummaryModel?: SpawnModelConfig;
   smartCompactMode?: SmartCompactMode;
+  /** 仅普通 parent：替换 pi 默认提示词开头的角色段落。 */
+  persona?: string;
 }): DefaultResourceLoader {
   const harness = options.loadHarnessAssets && !options.remoteAgentsFiles;
   const skillPaths = harness
     ? [...options.skillPaths, ...resolveHarnessSkillRoots(options.cwd)]
     : options.skillPaths;
+  const persona = options.persona;
   return new DefaultResourceLoader({
     cwd: options.cwd,
     agentDir: options.agentDir,
@@ -343,6 +347,19 @@ function createSessionResourceLoader(options: {
     ...(skillPaths.length > 0 ? { additionalSkillPaths: skillPaths } : {}),
     // noExtensions 只挡磁盘上的项目/全局扩展；inline factory 不受影响，图片修剪对所有会话生效
     extensionFactories: [
+      ...(persona
+        ? [
+            {
+              name: 'custom-persona',
+              hidden: true,
+              factory: (pi) => {
+                pi.on('before_agent_start', (event) => ({
+                  systemPrompt: replacePersonaParagraph(event.systemPrompt, persona),
+                }));
+              },
+            } satisfies InlineExtension,
+          ]
+        : []),
       options.branchContext,
       applyPatchResultExtension,
       {
@@ -937,7 +954,8 @@ export class SessionSupervisor {
           command.smartCompactMode,
           command.memoryLanguage,
           command.editMode,
-          command.rolePrompt
+          command.rolePrompt,
+          command.systemPrompt
         );
         return;
       case 'spawn-child':
@@ -1354,7 +1372,8 @@ export class SessionSupervisor {
     smartCompactMode?: SmartCompactMode,
     memoryLanguage?: string,
     requestedEditMode?: EditMode,
-    rolePrompt?: string
+    rolePrompt?: string,
+    systemPrompt?: string
   ): Promise<void> {
     const sessionId = identity.sessionId;
     const sessionEditMode = resolveEditMode(requestedEditMode, hashlineEditEnabled);
@@ -1415,6 +1434,7 @@ export class SessionSupervisor {
       ...(remote ? { remoteSsh: { host: remote.host } } : {}),
       loadHarnessAssets,
       exploreFold,
+      persona: systemPrompt,
       ...(compactStrategy !== 'standard'
         ? {
             compactStrategy,

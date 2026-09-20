@@ -106,6 +106,10 @@ export const IPC_CHANNELS = {
   INSTRUCTIONS_WRITE_SOURCE: 'instructions:write-source',
   INSTRUCTIONS_DELETE: 'instructions:delete',
 
+  // Preset custom system prompt content (UUID-backed external files)
+  PRESETS_SYSTEM_PROMPT_READ: 'presets:system-prompt-read',
+  PRESETS_SYSTEM_PROMPT_WRITE: 'presets:system-prompt-write',
+
   // Agent sessions (Renderer → Main → utilityProcess)
   AGENT_SPAWN: 'agent:spawn',
   AGENT_PROMPT: 'agent:prompt',
