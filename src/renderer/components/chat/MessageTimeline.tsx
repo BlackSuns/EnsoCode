@@ -11,7 +11,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
+import { type ListProps, Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -43,6 +43,18 @@ function EmptyReveal({ className, children }: { className?: string; children: Re
 
 /** 贴底判定阈值（px）：与旧实现一致，离底 40px 内视为贴底 */
 const AT_BOTTOM_THRESHOLD = 40;
+
+function TimelineList({ style, ...props }: ListProps) {
+  const hidden = style?.visibility === 'hidden';
+  const [reveal, setReveal] = useState(false);
+  useEffect(() => {
+    if (!hidden) return;
+    // 初始 LAST 定位等待行高稳定；持续测高时不能无限隐藏正文（Footer 不受此门控）。
+    const timer = window.setTimeout(() => setReveal(true), 1000);
+    return () => window.clearTimeout(timer);
+  }, [hidden]);
+  return <div {...props} style={hidden && reveal ? { ...style, visibility: 'visible' } : style} />;
+}
 
 export interface MessageTimelineHandle {
   /** 滚到底并恢复跟随（发送消息 / 点回到底部按钮） */
@@ -557,6 +569,7 @@ export function MessageTimeline({
             }}
             className="h-full select-text"
             components={{
+              List: TimelineList,
               Header: renderHeader,
               Footer: renderFooter,
             }}
