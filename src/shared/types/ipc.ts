@@ -79,6 +79,7 @@ export const IPC_CHANNELS = {
   OAUTH_LOGIN_CANCEL: 'oauth-providers:login-cancel',
   OAUTH_LOGIN_REOPEN: 'oauth-providers:login-reopen',
   OAUTH_LOGOUT: 'oauth-providers:logout',
+  OAUTH_IMPORT_CODEX: 'oauth-providers:import-codex',
   OAUTH_LOGIN_EVENT: 'oauth-providers:login-event',
   OAUTH_ACCOUNT_INFO: 'oauth-providers:account-info',
   OAUTH_CREDENTIAL_KEYS_LIST: 'oauth:credential-keys-list',

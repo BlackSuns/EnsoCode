@@ -377,6 +377,11 @@ export const zhTranslations: Record<string, string> = {
   'Authorize this provider to add its available models.': '授权此提供商，以添加其可用模型。',
   'Connect subscription': '连接订阅',
   'Add another account': '添加其他账号',
+  'Import from Codex': '从 Codex 导入',
+  'Codex login not found. Sign in to Codex Desktop or CLI first.':
+    '未找到 Codex 登录态，请先在 Codex Desktop 或 CLI 中登录。',
+  'Codex is not signed in with a ChatGPT account.': 'Codex 未使用 ChatGPT 账号登录。',
+  'This ChatGPT account is already connected.': '该 ChatGPT 账号已连接。',
   'Resets {{time}}': '{{time}} 后重置',
   Local: '本地',
   'Default model': '默认模型',

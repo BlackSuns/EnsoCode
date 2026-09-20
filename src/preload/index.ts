@@ -71,6 +71,7 @@ import type {
   ModelMetaQuery,
   ModelMetaResult,
   OauthAccountUsage,
+  OauthCodexImportResult,
   OauthProviderInfo,
   PairCatalogPayload,
   PairCreatedSession,
@@ -311,6 +312,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.OAUTH_LOGIN_REOPEN, request),
     oauthLogout: (accountKey: string): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.OAUTH_LOGOUT, accountKey),
+    oauthImportCodex: (): Promise<OauthCodexImportResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.OAUTH_IMPORT_CODEX),
     oauthAccountUsage: (accountKey: string): Promise<OauthAccountUsage> =>
       ipcRenderer.invoke(IPC_CHANNELS.OAUTH_ACCOUNT_INFO, accountKey),
     onOauthLoginEvent: (callback: (event: OauthFlowEvent) => void): (() => void) => {

@@ -1107,3 +1107,98 @@ describe('Main OAuth 真凭证 key 读取', () => {
     }
   });
 });
+
+describe('从 Codex 本地登录态导入', () => {
+  const codexDir = mkdtempSync(path.join(tmpdir(), 'enso-codex-'));
+  const codexAuth = path.join(codexDir, 'auth.json');
+  const exp = Math.floor(Date.now() / 1000) + 3600;
+  const codexAccess = fakeJwt({
+    exp,
+    'https://api.openai.com/auth': { chatgpt_account_id: 'acct_codex', chatgpt_plan_type: 'pro' },
+    'https://api.openai.com/profile': { email: 'codex@example.com' },
+  });
+  const writeCodexAuth = (value: unknown) => writeFileSync(codexAuth, JSON.stringify(value));
+
+  afterAll(() => rmSync(codexDir, { recursive: true, force: true }));
+
+  it('文件不存在 → not-found，auth.json 不动', async () => {
+    const before = readFileSync(authFile(), 'utf8');
+    const { importCodexOauthCredential } = await import('./oauthProviders');
+    expect(
+      await importCodexOauthCredential(undefined, path.join(codexDir, 'missing.json'))
+    ).toEqual({ status: 'not-found' });
+    expect(readFileSync(authFile(), 'utf8')).toBe(before);
+  });
+
+  it('API key 模式 → not-logged-in', async () => {
+    writeCodexAuth({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-x', tokens: null });
+    const { importCodexOauthCredential } = await import('./oauthProviders');
+    expect(await importCodexOauthCredential(undefined, codexAuth)).toEqual({
+      status: 'not-logged-in',
+    });
+  });
+
+  it('损坏的 JSON → failed', async () => {
+    writeFileSync(codexAuth, '{oops');
+    const { importCodexOauthCredential } = await import('./oauthProviders');
+    expect(await importCodexOauthCredential(undefined, codexAuth)).toMatchObject({
+      status: 'failed',
+    });
+  });
+
+  it('导入后凭证经 pi 写入 auth.json 的下一个账号 key，列表可见且广播其它窗口', async () => {
+    const restore = withAuthJson(() => {});
+    const otherSend = vi.fn();
+    const source = { isDestroyed: () => false, send: vi.fn() };
+    electronMocks.windows.push(
+      { isDestroyed: () => false, webContents: source },
+      { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: otherSend } }
+    );
+    writeCodexAuth({
+      auth_mode: 'chatgpt',
+      tokens: {
+        id_token: 'id',
+        access_token: codexAccess,
+        refresh_token: 'codex-refresh',
+        account_id: 'acct_codex',
+      },
+    });
+    try {
+      const { importCodexOauthCredential, listOauthProviders } = await import('./oauthProviders');
+      const result = await importCodexOauthCredential(source as unknown as WebContents, codexAuth);
+      expect(result).toEqual({
+        status: 'imported',
+        account: {
+          key: 'openai-codex#2',
+          providerId: 'openai-codex',
+          email: 'codex@example.com',
+          plan: 'pro',
+        },
+      });
+      const stored = JSON.parse(readFileSync(authFile(), 'utf8'))['openai-codex#2'];
+      expect(stored).toEqual({
+        type: 'oauth',
+        access: codexAccess,
+        refresh: 'codex-refresh',
+        expires: exp * 1000,
+        accountId: 'acct_codex',
+      });
+      const codex = (await listOauthProviders()).find((p) => p.id === 'openai-codex');
+      expect(codex?.accounts.map((a) => a.key)).toEqual(['openai-codex', 'openai-codex#2']);
+      expect(otherSend).toHaveBeenCalledWith(IPC_CHANNELS.OAUTH_CREDENTIALS_CHANGED);
+      expect(source.send).not.toHaveBeenCalled();
+
+      // 同一 ChatGPT 账号再导一次：拒绝，不产生 #3
+      const again = await importCodexOauthCredential(undefined, codexAuth);
+      expect(again).toEqual({ status: 'duplicate', accountKey: 'openai-codex#2' });
+      expect(Object.keys(JSON.parse(readFileSync(authFile(), 'utf8')))).not.toContain(
+        'openai-codex#3'
+      );
+    } finally {
+      restore();
+      electronMocks.windows.splice(0);
+      const { listOauthProviders } = await import('./oauthProviders');
+      await listOauthProviders();
+    }
+  });
+});

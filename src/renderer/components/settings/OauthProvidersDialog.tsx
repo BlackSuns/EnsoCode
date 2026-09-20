@@ -1,9 +1,9 @@
 import type { OauthAccount, OauthAccountUsage, OauthProviderInfo } from '@shared/types';
-import { CircleAlert, Loader2, LogOut, Plus } from 'lucide-react';
+import { CircleAlert, Download, Loader2, LogOut, Plus } from 'lucide-react';
 import * as React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useI18n } from '@/i18n';
+import { type TFunction, useI18n } from '@/i18n';
 
 export const autoProviderName = (providerName: string, account: OauthAccount): string => {
   const label = account.email ?? (account.key === account.providerId ? null : account.key);
@@ -15,6 +15,30 @@ interface OauthProviderAccountsProps {
   loginBusy: boolean;
   onStartLogin: () => void;
   onChanged: () => Promise<void>;
+  /** 从本机 Codex 登录态导入成功后的回调；只有 openai-codex 会用到 */
+  onImported?: (account: OauthAccount) => Promise<void>;
+}
+
+/** 支持从本机应用复制已登录凭证的 provider */
+const CODEX_PROVIDER_ID = 'openai-codex';
+
+function importFailureMessage(
+  t: TFunction,
+  result: Exclude<
+    Awaited<ReturnType<typeof window.electronAPI.providers.oauthImportCodex>>,
+    { status: 'imported' }
+  >
+): string {
+  switch (result.status) {
+    case 'not-found':
+      return t('Codex login not found. Sign in to Codex Desktop or CLI first.');
+    case 'not-logged-in':
+      return t('Codex is not signed in with a ChatGPT account.');
+    case 'duplicate':
+      return t('This ChatGPT account is already connected.');
+    case 'failed':
+      return result.message;
+  }
 }
 
 /** 统一向导订阅分支里的账号详情；授权状态本身由 OauthLoginStep 单独承载。 */
@@ -23,10 +47,12 @@ export function OauthProviderAccounts({
   loginBusy,
   onStartLogin,
   onChanged,
+  onImported,
 }: OauthProviderAccountsProps) {
   const { t } = useI18n();
   const [usage, setUsage] = React.useState<Record<string, OauthAccountUsage>>({});
   const [loggingOut, setLoggingOut] = React.useState<string | null>(null);
+  const [importing, setImporting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -63,6 +89,24 @@ export function OauthProviderAccounts({
   };
 
   const canAddAccount = provider.accounts.length === 0 || provider.supportsMultipleAccounts;
+  const busy = loginBusy || loggingOut !== null || importing;
+
+  const handleImport = async () => {
+    setImporting(true);
+    setError(null);
+    try {
+      const result = await window.electronAPI.providers.oauthImportCodex();
+      if (result.status === 'imported') {
+        await onImported?.(result.account);
+      } else {
+        setError(importFailureMessage(t, result));
+      }
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : String(importError));
+    } finally {
+      setImporting(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -96,7 +140,7 @@ export function OauthProviderAccounts({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={loginBusy || loggingOut !== null}
+                disabled={busy}
                 onClick={() => void handleLogout(account.key)}
               >
                 {loggingOut === account.key ? (
@@ -119,14 +163,27 @@ export function OauthProviderAccounts({
       )}
 
       {canAddAccount && (
-        <Button
-          className="w-full"
-          disabled={loginBusy || loggingOut !== null}
-          onClick={onStartLogin}
-        >
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          {provider.accounts.length === 0 ? t('Connect subscription') : t('Add another account')}
-        </Button>
+        <div className="space-y-2">
+          <Button className="w-full" disabled={busy} onClick={onStartLogin}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            {provider.accounts.length === 0 ? t('Connect subscription') : t('Add another account')}
+          </Button>
+          {provider.id === CODEX_PROVIDER_ID && onImported && (
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled={busy}
+              onClick={() => void handleImport()}
+            >
+              {importing ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              {t('Import from Codex')}
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );

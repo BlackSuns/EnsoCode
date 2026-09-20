@@ -328,6 +328,12 @@ export function ProviderSetupWizard({ open, onOpenChange }: ProviderSetupWizardP
                         await refreshOauthCredentialState();
                         await refreshOauthProviders();
                       }}
+                      onImported={async (account) => {
+                        const infos = await refreshOauthProviders();
+                        const info = infos.find((provider) => provider.id === selectedOauth.id);
+                        if (info) upsertOauthAccount(info, account);
+                        await refreshOauthCredentialState();
+                      }}
                     />
                   )}
                 </DialogPanel>

@@ -339,6 +339,9 @@ export const IPC_PRODUCT_COVERAGE = {
   OAUTH_LOGIN_CANCEL: surfaces('providers.oauth.cancel-login'),
   OAUTH_LOGIN_REOPEN: surfaces('providers.oauth.reopen-login'),
   OAUTH_LOGOUT: surfaces('providers.oauth.logout'),
+  OAUTH_IMPORT_CODEX: excluded(
+    'Copies the local Codex ChatGPT login into auth.json; only reachable from the provider wizard UI.'
+  ),
   OAUTH_LOGIN_EVENT: excluded('Protected OAuth flow progress transport.'),
   OAUTH_ACCOUNT_INFO: surfaces('providers.oauth.usage'),
   OAUTH_CREDENTIAL_KEYS_LIST: excluded(

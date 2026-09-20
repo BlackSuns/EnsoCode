@@ -1,5 +1,6 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import type { ModelRuntime as ModelRuntimeType } from '@earendil-works/pi-coding-agent';
 import { isSameChildSessionIdentity } from '@shared/builtinAgents';
@@ -26,6 +27,7 @@ import { DEVIN_PROVIDER_ID, devinProviderConfig, fetchDevinUsage } from '@shared
 import type {
   OauthAccount,
   OauthAccountUsage,
+  OauthCodexImportResult,
   OauthLoginEvent,
   OauthProviderInfo,
   OauthUsageWindow,
@@ -33,6 +35,7 @@ import type {
 import { IPC_CHANNELS, providerIdOfAccountKey, sanitizeOauthLabel } from '@shared/types';
 import { app, BrowserWindow, shell, type WebContents } from 'electron';
 import { getWindowWebContents, sendToWindow } from '../windows/createAppWindow';
+import { parseCodexAuthJson } from './codexAuthImport';
 
 // pi-ai 不在依赖树顶层，auth 交互类型从 ModelRuntime.login 签名结构化提取
 type AuthInteraction = Parameters<ModelRuntimeType['login']>[2];
@@ -631,6 +634,98 @@ export async function oauthLogout(accountKey: string, sender?: WebContents): Pro
     delete meta[accountKey];
   });
   broadcastOauthCredentialsChanged(sender);
+}
+
+// ---- 从 Codex Desktop / CLI 导入 ----
+
+const CODEX_PROVIDER_ID = 'openai-codex';
+const defaultCodexAuthPath = (): string => path.join(os.homedir(), '.codex', 'auth.json');
+
+/** 已存凭证对应的 ChatGPT 账号 id：优先凭证自带字段，否则从 access JWT 解 */
+function storedCodexAccountId(credential: { access: string; accountId?: unknown }): string | null {
+  if (typeof credential.accountId === 'string' && credential.accountId) {
+    return credential.accountId;
+  }
+  const claim = obj(decodeJwtPayload(credential.access)?.['https://api.openai.com/auth']);
+  return typeof claim.chatgpt_account_id === 'string' && claim.chatgpt_account_id
+    ? claim.chatgpt_account_id
+    : null;
+}
+
+/**
+ * 把 `~/.codex/auth.json` 的 ChatGPT 登录态复制成本应用的一个 openai-codex 账号。
+ *
+ * 写入必须经 pi 的 `runtime.login`（内部 proper-lockfile 加锁，且同步 runtime 快照）；
+ * pi 不校验 login 返回的凭证来源，所以临时注册一个 `auth.oauth.login` 直接返回该凭证的
+ * provider 克隆即可，写完立刻注销、再按 auth.json 现状重建正常克隆。
+ * 只复制不共享：之后两边各自刷新自己的 token，不互相改写对方文件。
+ */
+export async function importCodexOauthCredential(
+  sender?: WebContents,
+  codexAuthPath: string = defaultCodexAuthPath()
+): Promise<OauthCodexImportResult> {
+  let raw: string;
+  try {
+    raw = await readFile(codexAuthPath, 'utf8');
+  } catch (error) {
+    const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+    if (code === 'ENOENT') return { status: 'not-found' };
+    return { status: 'failed', message: error instanceof Error ? error.message : String(error) };
+  }
+  const parsed = parseCodexAuthJson(raw);
+  if (parsed.status === 'not-logged-in') return parsed;
+  if (parsed.status === 'invalid') {
+    return { status: 'failed', message: 'Codex auth.json is not valid JSON' };
+  }
+  const { credential } = parsed;
+
+  const runtime = await getRuntime();
+  const base = runtime.getProvider(CODEX_PROVIDER_ID);
+  if (!base?.auth.oauth) {
+    return { status: 'failed', message: `unknown oauth provider: ${CODEX_PROVIDER_ID}` };
+  }
+  const { readStoredCredential } = await import('@earendil-works/pi-coding-agent');
+  const file = authPath();
+  const existingKeys = (await accountKeysOf(runtime)).get(CODEX_PROVIDER_ID) ?? [];
+  for (const key of existingKeys) {
+    const stored = readStoredCredential(key, file);
+    if (stored?.type === 'oauth' && storedCodexAccountId(stored) === credential.accountId) {
+      return { status: 'duplicate', accountKey: key };
+    }
+  }
+
+  const accountKey = nextAccountKey(CODEX_PROVIDER_ID, existingKeys);
+  const importer = Object.assign(Object.create(Object.getPrototypeOf(base)), base, {
+    id: accountKey,
+    auth: { ...base.auth, oauth: { ...base.auth.oauth, login: async () => credential } },
+    getModels: () => base.getModels().map((model) => ({ ...model, provider: accountKey })),
+  });
+  try {
+    runtime.registerNativeProvider(importer);
+    await runtime.login(accountKey, 'oauth', {
+      notify: () => {},
+      prompt: () => Promise.reject(new Error('import does not prompt')),
+    });
+  } catch (error) {
+    return {
+      status: 'failed',
+      message: sanitizeUpstreamBody(error instanceof Error ? error.message : String(error)).slice(
+        0,
+        300
+      ),
+    };
+  } finally {
+    // 裸 key 注销后回落到 pi 内置 provider；合成 key 由 sync 按凭证重建正常克隆
+    runtime.unregisterProvider(accountKey);
+    await syncAccountProviders(runtime);
+  }
+  const account: OauthAccount = {
+    key: accountKey,
+    providerId: CODEX_PROVIDER_ID,
+    ...identityFromCredential(CODEX_PROVIDER_ID, credential.access),
+  };
+  broadcastOauthCredentialsChanged(sender);
+  return { status: 'imported', account };
 }
 
 // ---- 额度（端点参照 @mtrojnar/pi-usage，MIT）----

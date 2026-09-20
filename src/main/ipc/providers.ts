@@ -10,6 +10,7 @@ import { queryModelMeta } from '../services/modelMeta';
 import {
   cancelOauthLogin,
   getOauthAccountUsage,
+  importCodexOauthCredential,
   listOauthProviders,
   oauthLogout,
   readStoredOauthCredentialKeys,
@@ -131,6 +132,11 @@ export function registerProviderHandlers(): void {
     if (typeof accountKey !== 'string') return;
     return oauthLogout(accountKey, event.sender);
   });
+
+  // 不接受任何入参：Codex 路径由 Main 固定推导，Renderer 不能指定磁盘路径
+  ipcMain.handle(IPC_CHANNELS.OAUTH_IMPORT_CODEX, (event) =>
+    importCodexOauthCredential(event.sender)
+  );
 
   ipcMain.handle(IPC_CHANNELS.OAUTH_ACCOUNT_INFO, (_event, accountKey: unknown) => {
     if (typeof accountKey !== 'string') return { key: '', windows: [], error: 'Invalid account' };

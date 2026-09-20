@@ -30,6 +30,7 @@ vi.mock('../services/modelMeta', () => ({ queryModelMeta: mocks.queryModelMeta }
 vi.mock('../services/oauthProviders', () => ({
   cancelOauthLogin: mocks.cancelOauthLogin,
   getOauthAccountUsage: vi.fn(),
+  importCodexOauthCredential: vi.fn(),
   listOauthProviders: vi.fn(),
   readStoredOauthCredentialKeys: mocks.readStoredOauthCredentialKeys,
   oauthLogout: vi.fn(),
