@@ -343,7 +343,7 @@ describe('buildTimeline', () => {
 
     it('无回复或处于 running 的最新轮次不可折叠，有回复的历史轮次可折叠', () => {
       const runningTimeline = buildTimeline(fixtureMessages, true);
-      const usersRunning = runningTimeline.filter((item) => item.kind === 'user');
+      const usersRunning = users(runningTimeline);
       expect(usersRunning[0].canCollapse).toBe(true);
       // 最新一轮仍在生成中，不可折叠
       expect(usersRunning[1].canCollapse).toBe(false);
@@ -353,7 +353,7 @@ describe('buildTimeline', () => {
         [{ role: 'user', content: [{ type: 'text', text: '孤立消息' }] }],
         false
       );
-      const singleUser = emptyReplyTimeline.find((item) => item.kind === 'user')!;
+      const singleUser = users(emptyReplyTimeline)[0];
       expect(singleUser.canCollapse).toBe(false);
     });
 
@@ -363,7 +363,7 @@ describe('buildTimeline', () => {
       expect(user1.kind).toBe('user');
 
       const folded = foldTimeline(timeline, false, new Set(), {
-        collapsedTurns: new Set([user1.key]),
+        turnOverrides: new Map([[user1.key, true]]),
       });
 
       // 折叠后：第一轮只剩 user 项，且标注 collapsed: true，保留 timestamp 与 turnDurationMs
@@ -383,7 +383,7 @@ describe('buildTimeline', () => {
         kind: 'user',
         text: '问题2',
       });
-      expect(folded[1].collapsed).toBeFalsy();
+      expect(users(folded)[1].collapsed).toBeFalsy();
       expect(folded[2]).toMatchObject({
         kind: 'text',
         text: '回答2',
@@ -393,42 +393,42 @@ describe('buildTimeline', () => {
     it('未折叠的轮次中 user 项标记 collapsed 为 false，回复内容完整平铺', () => {
       const timeline = buildTimeline(fixtureMessages, false);
       const folded = foldTimeline(timeline, false, new Set(), {
-        collapsedTurns: new Set(),
+        turnOverrides: new Map(),
       });
-      const userItems = folded.filter((item) => item.kind === 'user');
+      const userItems = users(folded);
       expect(userItems[0].collapsed).toBeFalsy();
       expect(userItems[1].collapsed).toBeFalsy();
     });
 
     it('running=true 时，正在生成的最新一轮不被折叠，确保实时输出可见', () => {
       const timeline = buildTimeline(fixtureMessages, true);
-      const user2 = timeline.find((item) => item.kind === 'user' && item.text === '问题2')!;
+      const user2 = userByText(timeline, '问题2');
 
-      // 即使 collapsedTurns 包含了最新轮次的 key
+      // 即使 turnOverrides 显式要求折叠最新轮次
       const folded = foldTimeline(timeline, true, new Set(), {
-        collapsedTurns: new Set([user2.key]),
+        turnOverrides: new Map([[user2.key, true]]),
       });
 
-      const user2Folded = folded.find((item) => item.kind === 'user' && item.text === '问题2')!;
+      const user2Folded = userByText(folded, '问题2');
       expect(user2Folded.collapsed).toBeFalsy();
       // 回复内容依然可见
       expect(folded.some((item) => item.kind === 'text' && item.text === '回答2')).toBe(true);
     });
 
-    it('从 collapsedTurns 移除 key 时，该轮回复重新完整展开', () => {
+    it('从 turnOverrides 移除 key 时，该轮回复重新完整展开', () => {
       const timeline = buildTimeline(fixtureMessages, false);
       const user1 = timeline[0];
 
       const collapsed = foldTimeline(timeline, false, new Set(), {
-        collapsedTurns: new Set([user1.key]),
+        turnOverrides: new Map([[user1.key, true]]),
       });
       expect(collapsed.map((item) => item.kind)).toEqual(['user', 'user', 'text']);
 
       const expanded = foldTimeline(timeline, false, new Set(), {
-        collapsedTurns: new Set(),
+        turnOverrides: new Map(),
       });
       expect(expanded.length).toBeGreaterThan(collapsed.length);
-      expect(expanded[0].collapsed).toBeFalsy();
+      expect(users(expanded)[0].collapsed).toBeFalsy();
     });
 
     describe('autoCollapseCompletedTurns (轮次完成后自动折叠)', () => {
@@ -439,13 +439,13 @@ describe('buildTimeline', () => {
         });
 
         // 历史已完结的轮次 1 自动折叠
-        const user1 = foldedRunning.find((i) => i.kind === 'user' && i.text === '问题1')!;
+        const user1 = userByText(foldedRunning, '问题1');
         expect(user1.collapsed).toBe(true);
         // 第一轮的内容已折叠隐藏
         expect(foldedRunning.some((i) => i.kind === 'text' && i.text === '回答1')).toBe(false);
 
         // 正在运行的本轮会话 2 必须保持展开，不可被折叠
-        const user2 = foldedRunning.find((i) => i.kind === 'user' && i.text === '问题2')!;
+        const user2 = userByText(foldedRunning, '问题2');
         expect(user2.collapsed).toBeFalsy();
         // 本轮的回答内容可见
         expect(foldedRunning.some((i) => i.kind === 'text' && i.text === '回答2')).toBe(true);
@@ -459,12 +459,12 @@ describe('buildTimeline', () => {
         });
 
         // 历史轮次 1 自动折叠
-        const user1 = foldedCompleted.find((i) => i.kind === 'user' && i.text === '问题1')!;
+        const user1 = userByText(foldedCompleted, '问题1');
         expect(user1.collapsed).toBe(true);
         expect(foldedCompleted.some((i) => i.kind === 'text' && i.text === '回答1')).toBe(false);
 
         // 最后一个会话 2 不自动折叠，保持展开供用户查看输出内容
-        const user2 = foldedCompleted.find((i) => i.kind === 'user' && i.text === '问题2')!;
+        const user2 = userByText(foldedCompleted, '问题2');
         expect(user2.collapsed).toBeFalsy();
         expect(foldedCompleted.some((i) => i.kind === 'text' && i.text === '回答2')).toBe(true);
       });
@@ -480,9 +480,9 @@ describe('buildTimeline', () => {
           autoCollapseCompletedTurns: true,
         });
 
-        const user1 = folded.find((i) => i.kind === 'user' && i.text === '问题1')!;
-        const user2 = folded.find((i) => i.kind === 'user' && i.text === '问题2')!;
-        const user3 = folded.find((i) => i.kind === 'user' && i.text === '问题3')!;
+        const user1 = userByText(folded, '问题1');
+        const user2 = userByText(folded, '问题2');
+        const user3 = userByText(folded, '问题3');
 
         // 轮次 1 与原最后一轮 2 现在都是历史轮次，均自动折叠
         expect(user1.collapsed).toBe(true);
@@ -495,37 +495,98 @@ describe('buildTimeline', () => {
         expect(folded.some((i) => i.kind === 'text' && i.text === '回答3')).toBe(true);
       });
 
-      it('通过 expandedTurns 显式展开已折叠的轮次', () => {
+      it('通过 turnOverrides 显式展开已折叠的轮次', () => {
         const completedTimeline = buildTimeline(fixtureMessages, false);
-        const user2 = completedTimeline.find((i) => i.kind === 'user' && i.text === '问题2')!;
+        const user2 = userByText(completedTimeline, '问题2');
         const user1Key = completedTimeline[0].key;
         const folded = foldTimeline(completedTimeline, false, new Set(), {
           autoCollapseCompletedTurns: true,
-          expandedTurns: new Set([user1Key]),
+          turnOverrides: new Map([[user1Key, false]]),
         });
 
-        const user1 = folded.find((i) => i.kind === 'user' && i.text === '问题1')!;
+        const user1 = userByText(folded, '问题1');
         expect(user1.collapsed).toBeFalsy();
         // 第一轮内容已展开可见
         expect(folded.some((i) => i.kind === 'text' && i.text === '回答1')).toBe(true);
 
         // 第二轮作为最后一轮，默认也是展开状态
-        const user2Folded = folded.find((i) => i.kind === 'user' && i.text === '问题2')!;
+        const user2Folded = userByText(folded, '问题2');
         expect(user2Folded.collapsed).toBeFalsy();
 
-        // 通过 collapsedTurns 显式收起最后一轮
+        // 通过 turnOverrides 显式收起最后一轮
         const foldedWithCollapsedLast = foldTimeline(completedTimeline, false, new Set(), {
           autoCollapseCompletedTurns: true,
-          collapsedTurns: new Set([user2.key]),
+          turnOverrides: new Map([[user2.key, true]]),
         });
-        const user2ExplicitlyCollapsed = foldedWithCollapsedLast.find(
-          (i) => i.kind === 'user' && i.text === '问题2'
-        )!;
+        const user2ExplicitlyCollapsed = userByText(foldedWithCollapsedLast, '问题2');
         expect(user2ExplicitlyCollapsed.collapsed).toBe(true);
         expect(foldedWithCollapsedLast.some((i) => i.kind === 'text' && i.text === '回答2')).toBe(
           false
         );
       });
+    });
+
+    it('后台任务注入消息（task-note）不回写耗时到上一条真实 user 消息', () => {
+      const timeline = buildTimeline(
+        [
+          { role: 'user', content: [{ type: 'text', text: '问题1' }], timestamp: 1000 },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: '回答1' }],
+            duration: 1000,
+            timing: { stepStartMs: 1000, completedMs: 2000 },
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: '<background-task-update>\n后台完成\n</background-task-update>',
+              },
+            ],
+            timestamp: 5000,
+          },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: '收到' }],
+            duration: 9000,
+            timing: { stepStartMs: 5000, completedMs: 14000 },
+          },
+          { role: 'user', content: [{ type: 'text', text: '问题2' }], timestamp: 20000 },
+          { role: 'assistant', content: [{ type: 'text', text: '回答2' }], duration: 100 },
+        ],
+        false
+      );
+      expect(userByText(timeline, '问题1').turnDurationMs).toBe(1000);
+    });
+
+    it('折叠轮次时压缩标记与错误行保留可见，不随回复一起隐藏', () => {
+      const timeline = buildTimeline(
+        [
+          { role: 'user', content: [{ type: 'text', text: '问题1' }], timestamp: 1000 },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: '回答1' }],
+            duration: 1000,
+            timing: { stepStartMs: 1000, completedMs: 2000 },
+          },
+          {
+            role: 'assistant',
+            content: [],
+            stopReason: 'error',
+            errorMessage: '模型出错',
+          },
+          { role: 'compactionSummary', content: [{ type: 'text', text: '摘要' }] },
+          { role: 'user', content: [{ type: 'text', text: '问题2' }], timestamp: 5000 },
+          { role: 'assistant', content: [{ type: 'text', text: '回答2' }], duration: 100 },
+        ],
+        false
+      );
+      const folded = foldTimeline(timeline, false, new Set(), {
+        autoCollapseCompletedTurns: true,
+      });
+      expect(folded.map((i) => i.kind)).toEqual(['user', 'error', 'compaction', 'user', 'text']);
+      expect(folded[0]).toMatchObject({ kind: 'user', text: '问题1', collapsed: true });
     });
   });
 
@@ -2315,3 +2376,12 @@ describe('completedEditWriteFingerprint', () => {
     );
   });
 });
+
+type UserItem = Extract<TimelineItem, { kind: 'user' }>;
+const users = (items: TimelineItem[]): UserItem[] =>
+  items.filter((item): item is UserItem => item.kind === 'user');
+const userByText = (items: TimelineItem[], text: string): UserItem => {
+  const found = users(items).find((item) => item.text === text);
+  if (!found) throw new Error(`user item not found: ${text}`);
+  return found;
+};

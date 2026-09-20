@@ -79,8 +79,8 @@ interface TimelineRowProps {
   item: TimelineItem;
   /** tool-group 组头点击展开/收拢 */
   onToggleGroup?: (key: string) => void;
-  /** 轮次（Turn）折叠/展开 */
-  onToggleTurn?: (key: string) => void;
+  /** 轮次（Turn）折叠/展开：行自身知道目标状态，父级不必回查 */
+  onToggleTurn?: (key: string, collapsed: boolean) => void;
 }
 
 /**
@@ -868,14 +868,14 @@ function CollapsedTurnBar({
   turnKey: string;
   timestamp?: number;
   turnDurationMs?: number;
-  onToggle?: (key: string) => void;
+  onToggle?: (key: string, collapsed: boolean) => void;
 }) {
   const { t } = useI18n();
   return (
     <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80 select-none">
       <button
         type="button"
-        onClick={() => onToggle?.(turnKey)}
+        onClick={() => onToggle?.(turnKey, false)}
         className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground cursor-pointer border border-border/40"
         title={t('Expand')}
       >
@@ -901,7 +901,7 @@ function UserMeta({
   messageIndex: number;
   timestamp?: number;
   canCollapse?: boolean;
-  onToggleTurn?: (key: string) => void;
+  onToggleTurn?: (key: string, collapsed: boolean) => void;
 }) {
   const { t } = useI18n();
   return (
@@ -910,7 +910,7 @@ function UserMeta({
       {canCollapse && onToggleTurn && (
         <button
           type="button"
-          onClick={() => onToggleTurn(turnKey)}
+          onClick={() => onToggleTurn(turnKey, true)}
           className={cn(userActionClass, 'cursor-pointer opacity-0 group-hover/user:opacity-100')}
           title={t('Collapse')}
         >

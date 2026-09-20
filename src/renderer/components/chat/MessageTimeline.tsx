@@ -157,38 +157,25 @@ export function MessageTimeline({
       return next;
     });
   }, []);
-  // 轮次展开态：完结轮次默认自动折叠；expandedTurns 记录用户主动展开的轮次（会话内记忆）
-  const [expandedTurns, setExpandedTurns] = useState<ReadonlySet<string>>(new Set());
-  const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<string>>(new Set());
+  // 轮次折叠态：用户显式展开/收起过的轮次（会话内记忆），未记录的轮次按 autoCollapseTurns 默认值
+  const [turnOverrides, setTurnOverrides] = useState<ReadonlyMap<string, boolean>>(new Map());
+  const autoCollapseTurns = useSettingsStore((s) => s.autoCollapseTurns);
   const compact = useSettingsStore((s) => s.compactReadOnlyTools);
   const folded = useMemo(
     () =>
       foldTimeline(items, running, expandedGroups, {
         compact,
-        autoCollapseCompletedTurns: true,
-        expandedTurns,
-        collapsedTurns,
+        autoCollapseCompletedTurns: autoCollapseTurns,
+        turnOverrides,
       }),
-    [items, running, expandedGroups, compact, expandedTurns, collapsedTurns]
+    [items, running, expandedGroups, compact, autoCollapseTurns, turnOverrides]
   );
-  const toggleTurn = useCallback(
-    (key: string) => {
-      const currentItem = folded.find((item) => item.kind === 'user' && item.key === key);
-      const isCurrentlyCollapsed = currentItem?.kind === 'user' && currentItem.collapsed === true;
-      if (isCurrentlyCollapsed) {
-        setCollapsedTurns((prev) =>
-          prev.has(key) ? new Set([...prev].filter((k) => k !== key)) : prev
-        );
-        setExpandedTurns((prev) => (prev.has(key) ? prev : new Set([...prev, key])));
-      } else {
-        setExpandedTurns((prev) =>
-          prev.has(key) ? new Set([...prev].filter((k) => k !== key)) : prev
-        );
-        setCollapsedTurns((prev) => (prev.has(key) ? prev : new Set([...prev, key])));
-      }
-    },
-    [folded]
-  );
+  // 引用必须稳定：TimelineRow 的 memo 比较不含回调
+  const setTurnCollapsed = useCallback((key: string, collapsed: boolean) => {
+    setTurnOverrides((prev) =>
+      prev.get(key) === collapsed ? prev : new Map(prev).set(key, collapsed)
+    );
+  }, []);
 
   // 导航条数据：每条 user 轮次 + 其后首个回答摘要
   const navItems = useMemo(() => {
@@ -316,36 +303,48 @@ export function MessageTimeline({
     [pinToBottom, scrollToBottom]
   );
   useEffect(() => () => observerRef.current?.disconnect(), []);
-  const jumpTo = (key: string) => {
-    let ownerTurnKey: string | null = null;
-    let currentTurnKey: string | null = null;
-    for (const item of items) {
-      if (item.kind === 'user') currentTurnKey = item.key;
-      if (item.key === key) {
-        ownerTurnKey = currentTurnKey;
-        break;
-      }
-    }
-    if (ownerTurnKey) {
-      const keyToExpand = ownerTurnKey;
-      setExpandedTurns((prev) => (prev.has(keyToExpand) ? prev : new Set([...prev, keyToExpand])));
-      setCollapsedTurns((prev) =>
-        prev.has(keyToExpand) ? new Set([...prev].filter((k) => k !== keyToExpand)) : prev
-      );
-    }
+  const foldedIndexOf = (key: string): number =>
+    folded.findIndex(
+      (item) => item.key === key || (item.kind === 'tool-group' && groupContainsKey(item, key))
+    );
+  const scrollToFoldedKey = (key: string): void => {
     if (!virtualize) {
       scrollerRef.current
         ?.querySelector(`[data-nav-key="${CSS.escape(key)}"]`)
         ?.scrollIntoView({ block: 'center' });
       return;
     }
-    const index = folded.findIndex(
-      (item) => item.key === key || (item.kind === 'tool-group' && groupContainsKey(item, key))
-    );
-    if (index >= 0) {
-      virtuosoRef.current?.scrollToIndex({ index, align: 'center' });
-    }
+    const index = foldedIndexOf(key);
+    if (index >= 0) virtuosoRef.current?.scrollToIndex({ index, align: 'center' });
   };
+  /** 目标藏在折叠轮次里：先展开，等 folded 重算后再滚动（同步滚动拿到的是旧 folded / 旧 DOM） */
+  const pendingJumpRef = useRef<string | null>(null);
+  const jumpTo = (key: string) => {
+    if (foldedIndexOf(key) >= 0) {
+      pendingJumpRef.current = null;
+      scrollToFoldedKey(key);
+      return;
+    }
+    let ownerTurnKey: string | null = null;
+    let found = false;
+    for (const item of items) {
+      if (item.kind === 'user') ownerTurnKey = item.key;
+      if (item.key === key) {
+        found = true;
+        break;
+      }
+    }
+    if (!found || !ownerTurnKey) return;
+    pendingJumpRef.current = key;
+    setTurnCollapsed(ownerTurnKey, false);
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在 folded 重算后消费待跳转 key
+  useLayoutEffect(() => {
+    const key = pendingJumpRef.current;
+    if (!key || foldedIndexOf(key) < 0) return;
+    pendingJumpRef.current = null;
+    scrollToFoldedKey(key);
+  }, [folded]);
 
   useImperativeHandle(ref, () => ({
     scrollToBottom,
@@ -391,7 +390,7 @@ export function MessageTimeline({
         className={cn(CHAT_COL, rowGap(item, index), '[overflow-wrap:anywhere]')}
       >
         <RowErrorBoundary itemKey={item.key}>
-          <TimelineRow item={item} onToggleGroup={toggleGroup} onToggleTurn={toggleTurn} />
+          <TimelineRow item={item} onToggleGroup={toggleGroup} onToggleTurn={setTurnCollapsed} />
         </RowErrorBoundary>
       </div>
     );
