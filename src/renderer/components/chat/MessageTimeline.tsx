@@ -159,14 +159,7 @@ export function MessageTimeline({
   }, []);
   // 轮次展开态：完结轮次默认自动折叠；expandedTurns 记录用户主动展开的轮次（会话内记忆）
   const [expandedTurns, setExpandedTurns] = useState<ReadonlySet<string>>(new Set());
-  const toggleTurn = useCallback((key: string) => {
-    setExpandedTurns((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<string>>(new Set());
   const compact = useSettingsStore((s) => s.compactReadOnlyTools);
   const folded = useMemo(
     () =>
@@ -174,8 +167,27 @@ export function MessageTimeline({
         compact,
         autoCollapseCompletedTurns: true,
         expandedTurns,
+        collapsedTurns,
       }),
-    [items, running, expandedGroups, compact, expandedTurns]
+    [items, running, expandedGroups, compact, expandedTurns, collapsedTurns]
+  );
+  const toggleTurn = useCallback(
+    (key: string) => {
+      const currentItem = folded.find((item) => item.kind === 'user' && item.key === key);
+      const isCurrentlyCollapsed = currentItem?.kind === 'user' && currentItem.collapsed === true;
+      if (isCurrentlyCollapsed) {
+        setCollapsedTurns((prev) =>
+          prev.has(key) ? new Set([...prev].filter((k) => k !== key)) : prev
+        );
+        setExpandedTurns((prev) => (prev.has(key) ? prev : new Set([...prev, key])));
+      } else {
+        setExpandedTurns((prev) =>
+          prev.has(key) ? new Set([...prev].filter((k) => k !== key)) : prev
+        );
+        setCollapsedTurns((prev) => (prev.has(key) ? prev : new Set([...prev, key])));
+      }
+    },
+    [folded]
   );
 
   // 导航条数据：每条 user 轮次 + 其后首个回答摘要
@@ -314,12 +326,12 @@ export function MessageTimeline({
         break;
       }
     }
-    if (ownerTurnKey && !expandedTurns.has(ownerTurnKey)) {
-      setExpandedTurns((prev) => {
-        const next = new Set(prev);
-        next.add(ownerTurnKey as string);
-        return next;
-      });
+    if (ownerTurnKey) {
+      const keyToExpand = ownerTurnKey;
+      setExpandedTurns((prev) => (prev.has(keyToExpand) ? prev : new Set([...prev, keyToExpand])));
+      setCollapsedTurns((prev) =>
+        prev.has(keyToExpand) ? new Set([...prev].filter((k) => k !== keyToExpand)) : prev
+      );
     }
     if (!virtualize) {
       scrollerRef.current

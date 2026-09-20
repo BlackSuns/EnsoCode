@@ -451,24 +451,53 @@ describe('buildTimeline', () => {
         expect(foldedRunning.some((i) => i.kind === 'text' && i.text === '回答2')).toBe(true);
       });
 
-      it('本轮会话完成后(running=false)，本轮自动变为折叠状态', () => {
-        // 当 running 变为 false，整个会话已完结
+      it('会话完成后(running=false)，最后一个会话不自动折叠以便查看输出，历史轮次自动折叠', () => {
+        // 当 running 变为 false，整个会话已完结，但最新的一轮（最后一个会话）保持展开
         const completedTimeline = buildTimeline(fixtureMessages, false);
         const foldedCompleted = foldTimeline(completedTimeline, false, new Set(), {
           autoCollapseCompletedTurns: true,
         });
 
-        // 此时第一轮和第二轮均已完结，自动折叠
+        // 历史轮次 1 自动折叠
         const user1 = foldedCompleted.find((i) => i.kind === 'user' && i.text === '问题1')!;
+        expect(user1.collapsed).toBe(true);
+        expect(foldedCompleted.some((i) => i.kind === 'text' && i.text === '回答1')).toBe(false);
+
+        // 最后一个会话 2 不自动折叠，保持展开供用户查看输出内容
         const user2 = foldedCompleted.find((i) => i.kind === 'user' && i.text === '问题2')!;
+        expect(user2.collapsed).toBeFalsy();
+        expect(foldedCompleted.some((i) => i.kind === 'text' && i.text === '回答2')).toBe(true);
+      });
+
+      it('发送新消息后，原最后一轮成为历史轮次并自动折叠，新消息成为最后一轮保持展开', () => {
+        const threeTurnMessages: ProjectedMessage[] = [
+          ...fixtureMessages,
+          { role: 'user', content: [{ type: 'text', text: '问题3' }], timestamp: 9000 },
+          { role: 'assistant', content: [{ type: 'text', text: '回答3' }], duration: 1000 },
+        ];
+        const threeTimeline = buildTimeline(threeTurnMessages, false);
+        const folded = foldTimeline(threeTimeline, false, new Set(), {
+          autoCollapseCompletedTurns: true,
+        });
+
+        const user1 = folded.find((i) => i.kind === 'user' && i.text === '问题1')!;
+        const user2 = folded.find((i) => i.kind === 'user' && i.text === '问题2')!;
+        const user3 = folded.find((i) => i.kind === 'user' && i.text === '问题3')!;
+
+        // 轮次 1 与原最后一轮 2 现在都是历史轮次，均自动折叠
         expect(user1.collapsed).toBe(true);
         expect(user2.collapsed).toBe(true);
-        // 两轮的回复内容都被折叠，只剩下 user 项
-        expect(foldedCompleted.map((i) => i.kind)).toEqual(['user', 'user']);
+        expect(folded.some((i) => i.kind === 'text' && i.text === '回答1')).toBe(false);
+        expect(folded.some((i) => i.kind === 'text' && i.text === '回答2')).toBe(false);
+
+        // 新消息（轮次 3）作为最新的最后一个会话，保持展开
+        expect(user3.collapsed).toBeFalsy();
+        expect(folded.some((i) => i.kind === 'text' && i.text === '回答3')).toBe(true);
       });
 
       it('通过 expandedTurns 显式展开已折叠的轮次', () => {
         const completedTimeline = buildTimeline(fixtureMessages, false);
+        const user2 = completedTimeline.find((i) => i.kind === 'user' && i.text === '问题2')!;
         const user1Key = completedTimeline[0].key;
         const folded = foldTimeline(completedTimeline, false, new Set(), {
           autoCollapseCompletedTurns: true,
@@ -480,9 +509,22 @@ describe('buildTimeline', () => {
         // 第一轮内容已展开可见
         expect(folded.some((i) => i.kind === 'text' && i.text === '回答1')).toBe(true);
 
-        // 第二轮仍保持自动折叠
-        const user2 = folded.find((i) => i.kind === 'user' && i.text === '问题2')!;
-        expect(user2.collapsed).toBe(true);
+        // 第二轮作为最后一轮，默认也是展开状态
+        const user2Folded = folded.find((i) => i.kind === 'user' && i.text === '问题2')!;
+        expect(user2Folded.collapsed).toBeFalsy();
+
+        // 通过 collapsedTurns 显式收起最后一轮
+        const foldedWithCollapsedLast = foldTimeline(completedTimeline, false, new Set(), {
+          autoCollapseCompletedTurns: true,
+          collapsedTurns: new Set([user2.key]),
+        });
+        const user2ExplicitlyCollapsed = foldedWithCollapsedLast.find(
+          (i) => i.kind === 'user' && i.text === '问题2'
+        )!;
+        expect(user2ExplicitlyCollapsed.collapsed).toBe(true);
+        expect(foldedWithCollapsedLast.some((i) => i.kind === 'text' && i.text === '回答2')).toBe(
+          false
+        );
       });
     });
   });

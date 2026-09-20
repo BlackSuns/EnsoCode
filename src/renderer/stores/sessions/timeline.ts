@@ -1254,9 +1254,18 @@ export function foldTimeline(
         let isCollapsed = false;
         if (!isLiveRunning) {
           if (autoCollapse) {
-            const isManuallyExpanded = expandedTurns?.has(item.key) === true;
-            const isManuallyCollapsed = collapsedTurns?.has(item.key) === true;
-            isCollapsed = (item.canCollapse === true || isManuallyCollapsed) && !isManuallyExpanded;
+            // 自动折叠规则：
+            // - 最后一轮（isLastUser）：默认保持展开供用户查看输出内容；发送新消息后才会变为历史轮次自动折叠；
+            // - 历史轮次（!isLastUser）：只要可折叠（canCollapse），默认自动折叠；
+            // - 用户显式操作：expandedTurns 展开，collapsedTurns 收起。
+            const defaultCollapsed = !isLastUser && item.canCollapse === true;
+            if (expandedTurns?.has(item.key)) {
+              isCollapsed = false;
+            } else if (collapsedTurns?.has(item.key)) {
+              isCollapsed = true;
+            } else {
+              isCollapsed = defaultCollapsed;
+            }
           } else {
             isCollapsed = collapsedTurns?.has(item.key) === true;
           }
