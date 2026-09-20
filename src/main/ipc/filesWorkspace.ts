@@ -591,8 +591,20 @@ export function registerFilesWorkspaceHandlers(): void {
       if (!cwd) return { ok: false, error: 'unavailable' };
       const abs = resolveLocalUnderCwd(cwd, parsed.rel);
       if (!abs) return { ok: false, error: 'invalid-path' };
-      shell.showItemInFolder(abs);
-      return { ok: true };
+      try {
+        const stat = statSync(abs);
+        if (stat.isDirectory()) {
+          const failure = await shell.openPath(abs);
+          return failure ? { ok: false, error: failure } : { ok: true };
+        }
+        if (!stat.isFile()) return { ok: false, error: 'unavailable' };
+        // 文件（包括 .exe）只在资源管理器中定位，不交给 shell.openPath，避免执行。
+        // Files, including .exe files, are selected in the file manager instead of being executed via shell.openPath.
+        shell.showItemInFolder(abs);
+        return { ok: true };
+      } catch {
+        return { ok: false, error: 'unavailable' };
+      }
     }
   );
 

@@ -28,6 +28,7 @@ import { ConversationStatusIndicator } from './ConversationStatusIndicator';
 import { CoworkerTabs } from './CoworkerTabs';
 import { routeComposerPayload } from './composerRouting';
 import { GoalBar } from './GoalBar';
+import { MarkdownLinkContext } from './Markdown';
 import { MessageQueue } from './MessageQueue';
 import { CHAT_COL, type MessageTimelineHandle } from './MessageTimeline';
 import { ModelPicker } from './ModelPicker';
@@ -307,12 +308,20 @@ export function ChatView() {
               </span>
             </div>
           )}
-          <TaskBar
-            key={chrome.id}
-            sessionId={chrome.id}
-            tasks={chrome.backgroundTasks ?? []}
-            subagents={chrome.subagents ?? []}
-          />
+          <MarkdownLinkContext.Provider
+            value={{
+              conversationId: chrome.id,
+              projectId: chrome.projectId,
+              ...(toolCwd ? { cwd: toolCwd } : {}),
+            }}
+          >
+            <TaskBar
+              key={chrome.id}
+              sessionId={chrome.id}
+              tasks={chrome.backgroundTasks ?? []}
+              subagents={chrome.subagents ?? []}
+            />
+          </MarkdownLinkContext.Provider>
           <ApprovalBar
             key={capabilityApprovals[0]?.requestId ?? 'no-capability-approval'}
             approvals={capabilityApprovals}

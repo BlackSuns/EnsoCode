@@ -1,0 +1,70 @@
+import { describe, expect, it } from 'vitest';
+import { classifyMarkdownLink, toWorkspaceRelativePath } from './markdownLinks';
+
+describe('classifyMarkdownLink', () => {
+  it('保留网页链接交给默认浏览器', () => {
+    expect(classifyMarkdownLink('https://example.com/a%20b')).toEqual({ kind: 'external' });
+    expect(classifyMarkdownLink('http://example.com')).toEqual({ kind: 'external' });
+  });
+
+  it('识别 Windows 正反斜杠绝对路径与 file URL', () => {
+    expect(classifyMarkdownLink('H:\\code\\EnsoCode\\docs\\中文%20空间\\README.md')).toEqual({
+      kind: 'local',
+      path: 'H:\\code\\EnsoCode\\docs\\中文 空间\\README.md',
+    });
+    expect(
+      classifyMarkdownLink('H:/code/EnsoCode/dist/reveal-menu-0.1.32/EnsoCode-Setup-0.1.32.exe')
+    ).toEqual({
+      kind: 'local',
+      path: 'H:/code/EnsoCode/dist/reveal-menu-0.1.32/EnsoCode-Setup-0.1.32.exe',
+    });
+    expect(
+      classifyMarkdownLink(
+        'file:///H:/code/EnsoCode/docs/%E4%B8%AD%E6%96%87%20%E7%A9%BA%E6%A0%BC.md#L1'
+      )
+    ).toEqual({
+      kind: 'local',
+      path: 'H:/code/EnsoCode/docs/中文 空格.md',
+    });
+  });
+
+  it('识别工作区相对路径并拒绝危险协议', () => {
+    expect(classifyMarkdownLink('./docs/readme.md')).toEqual({
+      kind: 'local',
+      path: './docs/readme.md',
+    });
+    expect(classifyMarkdownLink('javascript:alert(1)')).toEqual({ kind: 'blocked' });
+    expect(classifyMarkdownLink('data:text/html,alert(1)')).toEqual({ kind: 'blocked' });
+  });
+});
+
+describe('toWorkspaceRelativePath', () => {
+  it('按 Windows 工作区根转换正反斜杠绝对路径', () => {
+    expect(
+      toWorkspaceRelativePath(
+        'H:\\code\\EnsoCode\\dist\\reveal-menu-0.1.32\\EnsoCode-Setup-0.1.32.exe',
+        'H:/code/EnsoCode'
+      )
+    ).toBe('dist/reveal-menu-0.1.32/EnsoCode-Setup-0.1.32.exe');
+  });
+
+  it('保留工作区相对路径并拒绝逃出工作区的路径', () => {
+    expect(toWorkspaceRelativePath('./docs/../README.md', 'H:/code/EnsoCode')).toBe('README.md');
+    expect(toWorkspaceRelativePath('../outside.txt', 'H:/code/EnsoCode')).toBeNull();
+    expect(
+      toWorkspaceRelativePath('H:/code/EnsoCode-other/file.txt', 'H:/code/EnsoCode')
+    ).toBeNull();
+  });
+
+  it('Windows 路径比较不区分盘符和大小写', () => {
+    expect(toWorkspaceRelativePath('h:\\CODE\\ensocode\\README.md', 'H:/code/EnsoCode')).toBe(
+      'README.md'
+    );
+  });
+
+  it('没有 worktree 时仍允许安全的相对路径交给 Main 校验', () => {
+    expect(toWorkspaceRelativePath('./docs/README.md')).toBe('docs/README.md');
+    expect(toWorkspaceRelativePath('../outside.txt')).toBeNull();
+    expect(toWorkspaceRelativePath('H:/outside.txt')).toBeNull();
+  });
+});
