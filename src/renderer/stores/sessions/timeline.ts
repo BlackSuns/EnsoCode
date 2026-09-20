@@ -537,6 +537,7 @@ function buildMessageTimeline(
     nextTurnRole[i] = seen;
     if (messages[i].role !== 'toolResult') seen = messages[i].role;
   }
+  const lastUserMessageIndex = messages.findLastIndex((m) => m.role === 'user');
   // 整轮计时只累计模型请求与非交互工具的真实执行耗时；用户回答、审批、排队等空档不计。
   let turnActiveMs = 0;
   let turnSteps = 0;
@@ -564,12 +565,14 @@ function buildMessageTimeline(
           summary: detail.split('\n', 1)[0] ?? detail,
           detail,
         });
+        // 注入消息不是用户轮次：后续回复的耗时不能回写到上一条真实 user 消息
+        currentTurnUserItem = undefined;
         return;
       }
       if (text || images.length > 0) {
         const hasNextReply =
           messageIndex + 1 < messages.length && messages[messageIndex + 1].role !== 'user';
-        const isLastTurn = !messages.slice(messageIndex + 1).some((m) => m.role === 'user');
+        const isLastTurn = messageIndex === lastUserMessageIndex;
         const canCollapse = hasNextReply && !(running && isLastTurn);
         const userItem: Extract<TimelineItem, { kind: 'user' }> = {
           kind: 'user',
@@ -1014,6 +1017,19 @@ export function buildTimeline(
 /** 折叠门槛：段内非 edit 工具数达到该值才收拢 */
 const FOLD_MIN_TOOLS = 3;
 
+/** 轮次折叠时可被隐藏的行：回复正文与工具；压缩标记、错误等会话状态行必须保留 */
+function isTurnSwallowable(item: TimelineItem): boolean {
+  switch (item.kind) {
+    case 'compaction':
+    case 'compaction-notice':
+    case 'compaction-progress':
+    case 'error':
+      return false;
+    default:
+      return true;
+  }
+}
+
 const SEARCH_TOOLS = new Set(['grep', 'find', 'glob', 'ls']);
 
 function classifyTool(
@@ -1235,51 +1251,36 @@ export function foldTimeline(
   expandedKeys: ReadonlySet<string>,
   options: {
     compact?: boolean;
-    collapsedTurns?: ReadonlySet<string>;
-    expandedTurns?: ReadonlySet<string>;
+    /** 用户显式操作过的轮次：key → 是否折叠；优先于自动折叠默认值 */
+    turnOverrides?: ReadonlyMap<string, boolean>;
     autoCollapseCompletedTurns?: boolean;
   } = {}
 ): TimelineItem[] {
   const compact = options.compact === true;
   const autoCollapse = options.autoCollapseCompletedTurns === true;
-  const collapsedTurns = options.collapsedTurns;
-  const expandedTurns = options.expandedTurns;
+  const turnOverrides = options.turnOverrides;
   const origLastUserIndex = items.findLastIndex((item) => item.kind === 'user');
 
-  // 第一步：轮次折叠（Turn Collapse）。
-  // 正在生成的最新一轮（running && isLastUser）不折叠，确保实时输出可见。
+  // 第一步：轮次折叠。正在生成的最新一轮不折叠，确保实时输出可见；
+  // 自动折叠只作用于历史轮次（最后一轮默认展开），显式操作优先于默认值。
+  // 压缩标记和错误行是会话状态，不随轮次隐藏。
   let sourceItems: TimelineItem[] = items;
-  if (autoCollapse || (collapsedTurns && collapsedTurns.size > 0)) {
+  if (autoCollapse || (turnOverrides && turnOverrides.size > 0)) {
     const nextItems: TimelineItem[] = [];
     let idx = 0;
     while (idx < items.length) {
       const item = items[idx];
       if (item.kind === 'user') {
         const isLastUser = idx === origLastUserIndex;
-        const isLiveRunning = running && isLastUser;
-        let isCollapsed = false;
-        if (!isLiveRunning) {
-          if (autoCollapse) {
-            // 自动折叠规则：
-            // - 最后一轮（isLastUser）：默认保持展开供用户查看输出内容；发送新消息后才会变为历史轮次自动折叠；
-            // - 历史轮次（!isLastUser）：只要可折叠（canCollapse），默认自动折叠；
-            // - 用户显式操作：expandedTurns 展开，collapsedTurns 收起。
-            const defaultCollapsed = !isLastUser && item.canCollapse === true;
-            if (expandedTurns?.has(item.key)) {
-              isCollapsed = false;
-            } else if (collapsedTurns?.has(item.key)) {
-              isCollapsed = true;
-            } else {
-              isCollapsed = defaultCollapsed;
-            }
-          } else {
-            isCollapsed = collapsedTurns?.has(item.key) === true;
-          }
-        }
+        const defaultCollapsed = autoCollapse && !isLastUser && item.canCollapse === true;
+        const isCollapsed =
+          !(running && isLastUser) && (turnOverrides?.get(item.key) ?? defaultCollapsed);
         nextItems.push(isCollapsed ? { ...item, collapsed: true } : item);
         idx += 1;
         if (isCollapsed) {
           while (idx < items.length && items[idx].kind !== 'user') {
+            const hidden = items[idx];
+            if (!isTurnSwallowable(hidden)) nextItems.push(hidden);
             idx += 1;
           }
         }

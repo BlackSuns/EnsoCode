@@ -133,6 +133,7 @@ export interface ConfigSyncState {
   openChangesOnFileEdit?: boolean;
   compactReadOnlyTools?: boolean;
   expandLiveEdits?: boolean;
+  autoCollapseTurns?: boolean;
   chatWide?: boolean;
   notifyMainAgentOnly?: boolean;
   maxActiveCoworkers?: number;

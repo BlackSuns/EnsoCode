@@ -187,6 +187,9 @@ export const zhTranslations: Record<string, string> = {
     '所选模型已不可用——将回退到当前会话模型。',
   'Show read/grep/find/ls as one-line rows and fold consecutive tool calls while the agent is still running':
     'read/grep/find/ls 显示为单行，agent 运行中也折叠连续的工具调用',
+  'Auto-collapse previous turns': '自动折叠历史轮次',
+  'After you send a new message, fold earlier turns down to the question, timestamp and duration; the latest turn stays expanded':
+    '发送新消息后，之前的轮次只保留提问、时间与用时；最后一轮保持展开',
   'Notify only for the main agent': '仅主 agent 发送完成通知',
   'Skip coworker completion and failure notifications on this computer and the paired phone. Questions and approvals still notify.':
     'coworker 的回合完成和失败不弹桌面或手机通知。提问和审批仍会提醒。',

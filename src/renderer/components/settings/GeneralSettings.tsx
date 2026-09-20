@@ -101,6 +101,8 @@ function SidePanelSection() {
   const setCompactReadOnlyTools = useSettingsStore((s) => s.setCompactReadOnlyTools);
   const expandLiveEdits = useSettingsStore((s) => s.expandLiveEdits);
   const setExpandLiveEdits = useSettingsStore((s) => s.setExpandLiveEdits);
+  const autoCollapseTurns = useSettingsStore((s) => s.autoCollapseTurns);
+  const setAutoCollapseTurns = useSettingsStore((s) => s.setAutoCollapseTurns);
   const generationStallTimeoutMin = useSettingsStore((s) => s.generationStallTimeoutMin);
   const setGenerationStallTimeoutMin = useSettingsStore((s) => s.setGenerationStallTimeoutMin);
   return (
@@ -131,6 +133,15 @@ function SidePanelSection() {
         )}
         checked={expandLiveEdits}
         onChange={setExpandLiveEdits}
+      />
+      <SwitchRow
+        rowId="general.autoCollapseTurns"
+        title={t('Auto-collapse previous turns')}
+        description={t(
+          'After you send a new message, fold earlier turns down to the question, timestamp and duration; the latest turn stays expanded'
+        )}
+        checked={autoCollapseTurns}
+        onChange={setAutoCollapseTurns}
       />
       <div
         className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5"

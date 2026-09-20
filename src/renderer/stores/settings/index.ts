@@ -138,6 +138,7 @@ const initialState = {
   openChangesOnFileEdit: false,
   compactReadOnlyTools: true,
   expandLiveEdits: true,
+  autoCollapseTurns: false,
   chatWide: false,
   notifyMainAgentOnly: true,
   maxActiveCoworkers: DEFAULT_MAX_ACTIVE_COWORKERS,
@@ -284,6 +285,7 @@ export const useSettingsStore = create<SettingsState>()(
       setOpenChangesOnFileEdit: (openChangesOnFileEdit) => set({ openChangesOnFileEdit }),
       setCompactReadOnlyTools: (compactReadOnlyTools) => set({ compactReadOnlyTools }),
       setExpandLiveEdits: (expandLiveEdits) => set({ expandLiveEdits }),
+      setAutoCollapseTurns: (autoCollapseTurns) => set({ autoCollapseTurns }),
       setChatWide: (chatWide) => {
         document.documentElement.classList.toggle('enso-chat-wide', chatWide);
         set({ chatWide });

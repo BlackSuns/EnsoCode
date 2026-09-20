@@ -198,6 +198,7 @@ describe('buildSettingsCatalog', () => {
     'general.openChangesOnFileEdit',
     'general.compactReadOnlyTools',
     'general.expandLiveEdits',
+    'general.autoCollapseTurns',
     'general.notifyMainAgentOnly',
     'general.smartCompactEnabled',
     'general.generationStallTimeout',

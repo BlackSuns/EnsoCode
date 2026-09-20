@@ -147,6 +147,11 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
     title: 'Expand file edits while running',
   },
   {
+    id: 'general.autoCollapseTurns',
+    category: 'general',
+    title: 'Auto-collapse previous turns',
+  },
+  {
     id: 'general.notifyMainAgentOnly',
     category: 'general',
     title: 'Notify only for the main agent',
