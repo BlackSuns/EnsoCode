@@ -35,8 +35,8 @@ const CODE_VIEW_OPTIONS = {
   stickyHeaders: true,
 } as const;
 
-// 内容矮于视口时不能 height:100%：CodeView sticky 会按视口把列表顶下去。
-const CODE_VIEW_STYLE = { height: 'auto', maxHeight: '100%', overflow: 'auto' } as const;
+// overflow+maxHeight:100% 会撑满父级，sticky 把折叠列表顶下去；flex 子项按内容收缩。
+const CODE_VIEW_STYLE = { height: 'max-content', overflow: 'auto' } as const;
 
 const NO_FILES: {
   files: never[];
@@ -330,8 +330,9 @@ export function ChangesView({
               </div>
             ))}
             {files.length > 0 && (
-              <div className="min-h-0 flex-1">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <CodeView
+                  className="min-h-0 w-full"
                   items={items}
                   style={CODE_VIEW_STYLE}
                   options={codeViewOptions}
