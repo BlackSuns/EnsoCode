@@ -10,21 +10,21 @@ describe('distinguishingPathLabels', () => {
     expect(distinguishingPathLabels([]).size).toBe(0);
   });
 
-  it('keeps a single path unchanged', () => {
-    expect(labels('app/src/main/java/Foo.kt')).toEqual(['app/src/main/java/Foo.kt']);
+  it('shows the last two parents even for a single long path', () => {
+    expect(labels('app/src/main/java/Foo.kt')).toEqual(['…/main/java/Foo.kt']);
   });
 
   it('keeps short shared parents so src/a.ts stays readable', () => {
     expect(labels('src/a.ts', 'src/b.ts')).toEqual(['src/a.ts', 'src/b.ts']);
   });
 
-  it('collapses a long shared prefix and keeps the last common parent', () => {
+  it('keeps the distinguishing suffix of paths with a long shared prefix', () => {
     expect(
       labels(
         'app/src/main/java/com/foo/featureA/ui/Page.kt',
         'app/src/main/java/com/foo/featureB/ui/Page.kt'
       )
-    ).toEqual(['…/foo/featureA/ui/Page.kt', '…/foo/featureB/ui/Page.kt']);
+    ).toEqual(['…/featureA/ui/Page.kt', '…/featureB/ui/Page.kt']);
   });
 
   it('does not collapse when the first segment already differs', () => {
@@ -42,5 +42,51 @@ describe('distinguishingPathLabels', () => {
     ]);
     expect(map.get('app\\src\\main\\java\\foo\\A.kt')).toBe('…/java/foo/A.kt');
     expect(map.get('app\\src\\main\\java\\bar\\B.kt')).toBe('…/java/bar/B.kt');
+  });
+
+  it('shortens Java paths even when assets and other modules are included', () => {
+    expect(
+      labels(
+        'app/src/main/assets/screensaver/',
+        'app/src/main/java/com/example/feature/screensaver/',
+        'app/src/main/java/com/example/ui/feature/screensaver/',
+        'shared/data/core/src/main/java/com/ivy/data/local/migration/',
+        'shared/data/core/src/main/java/com/ivy/data/remote/migration/',
+        'app/src/main/java/com/ivy/wallet/migrations/'
+      )
+    ).toEqual([
+      '…/main/assets/screensaver',
+      '…/example/feature/screensaver',
+      '…/ui/feature/screensaver',
+      '…/data/local/migration',
+      '…/data/remote/migration',
+      '…/ivy/wallet/migrations',
+    ]);
+  });
+
+  it('expands beyond two parents when needed to distinguish matching suffixes', () => {
+    expect(
+      labels(
+        'app/src/main/java/com/example/data/migration/Migration.kt',
+        'shared/src/main/java/com/example/data/migration/Migration.kt'
+      )
+    ).toEqual([
+      'app/src/main/java/com/example/data/migration/Migration.kt',
+      'shared/src/main/java/com/example/data/migration/Migration.kt',
+    ]);
+  });
+
+  it('does not let duplicate normalized paths force full prefixes', () => {
+    expect(labels('app/src/main/java/Foo.kt', 'app\\src\\main\\java\\Foo.kt')).toEqual([
+      '…/main/java/Foo.kt',
+      '…/main/java/Foo.kt',
+    ]);
+  });
+
+  it('distinguishes a complete path from a longer path ending with it', () => {
+    expect(labels('src/ui/Page.kt', 'app/src/ui/Page.kt')).toEqual([
+      'src/ui/Page.kt',
+      'app/src/ui/Page.kt',
+    ]);
   });
 });
