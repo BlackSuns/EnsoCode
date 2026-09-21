@@ -32,12 +32,31 @@ export interface ProtoMessage {
 	$unknown?: ProtoUnknownField[];
 }
 
+/**
+ * Recursively-optional initializer for a protobuf message. Nested message
+ * fields (and repeated message fields) are themselves deep-partial, matching
+ * protobuf-es `MessageInitShape` semantics — scalars stay as-is. A shallow
+ * `Partial<T>` wrongly forces every field of a nested message to be present.
+ *
+ * Distinguishing "message" from "scalar" relies on `ProtoMessage` having only
+ * optional members: a `bytes` field (`Uint8Array`) shares no property with it,
+ * so the weak-type rule keeps it a scalar. If `ProtoMessage` ever gains a
+ * required field, that guard breaks and bytes fields would be wrongly recursed.
+ */
+export type MessageInit<T> = {
+	[K in keyof T]?: T[K] extends (infer E)[]
+		? (E extends ProtoMessage ? MessageInit<E> : E)[]
+		: NonNullable<T[K]> extends ProtoMessage
+			? MessageInit<NonNullable<T[K]>>
+			: T[K];
+};
+
 /** A bidirectional codec for one protobuf message type. */
 export interface MessageCodec<T extends ProtoMessage = ProtoMessage> {
 	(value: T): Uint8Array;
 	(value: Uint8Array): T;
 	/** Creates a message with protobuf defaults for omitted fields. */
-	create(value?: Partial<T>): T;
+	create(value?: MessageInit<T>): T;
 	/** Encodes one message into protobuf wire bytes. */
 	encode(value: T): Uint8Array;
 	/** Decodes one protobuf message from wire bytes. */
@@ -149,7 +168,7 @@ export function pb<T extends ProtoMessage = ProtoMessage>(
 		return getCodec().encode(arg);
 	}) as MessageCodec<T>;
 
-	codec.create = (value?: Partial<T>): T => getCodec().create(value);
+	codec.create = (value?: MessageInit<T>): T => getCodec().create(value);
 	codec.encode = (value: T): Uint8Array => getCodec().encode(value);
 	codec.decode = (value: Uint8Array): T => getCodec().decode(value);
 	codec.toJson = (value: T): JsonValue => getCodec().toJson(value);
@@ -160,7 +179,7 @@ export function pb<T extends ProtoMessage = ProtoMessage>(
 /** Creates a message using its codec's protobuf defaults. */
 export function create<TMessage extends ProtoMessage>(
 	codec: MessageCodec<TMessage>,
-	value?: Partial<TMessage>,
+	value?: MessageInit<TMessage>,
 ): TMessage {
 	return codec.create(value);
 }
@@ -228,7 +247,7 @@ function compileCodec<T extends ProtoMessage>(typeName: string, fieldDescs: read
 		return codec.encode(arg);
 	}) as MessageCodec<T>;
 
-	codec.create = (value?: Partial<T>): T => {
+	codec.create = (value?: MessageInit<T>): T => {
 		const message = (typeName ? { $typeName: typeName } : {}) as T;
 		for (const f of compiledFields) {
 			f.initDefault(message);

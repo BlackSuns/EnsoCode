@@ -2569,7 +2569,7 @@ function ConversationDot({
     status: string;
     spawning: boolean;
     unread?: boolean;
-    pendingAsks?: { requestId: string }[];
+    pendingAsks?: readonly { requestId: string }[];
     hasRunningChild?: boolean;
   };
 }) {

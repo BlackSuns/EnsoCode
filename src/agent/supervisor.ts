@@ -1272,8 +1272,7 @@ export class SessionSupervisor {
         if (!result.cancelled) persistRewindLeaf(managed.session);
         const fallbackEditorText = Array.isArray(target.message.content)
           ? target.message.content
-              .filter((part) => part.type === 'text' && part.text)
-              .map((part) => part.text)
+              .flatMap((part) => (part.type === 'text' && part.text ? [part.text] : []))
               .join('')
           : '';
         const editorImages = Array.isArray(target.message.content)
