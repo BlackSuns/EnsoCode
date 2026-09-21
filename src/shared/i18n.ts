@@ -602,6 +602,17 @@ export const zhTranslations: Record<string, string> = {
   'Tool call timeout (seconds)': '工具调用超时（秒）',
   'This MCP server already exists': '该 MCP 服务器已存在',
   'Import MCP servers': '导入 MCP 服务器',
+  Form: '表单',
+  JSON: 'JSON',
+  'JSON configuration': 'JSON 配置',
+  Format: '格式化',
+  'Invalid JSON': 'JSON 格式错误',
+  'No MCP servers found in JSON': 'JSON 中没有有效的 MCP 服务器',
+  'JSON must describe a single MCP server': 'JSON 只能描述一台 MCP 服务器',
+  'JSON must describe a single MCP server to switch to the form':
+    '切回表单时 JSON 只能描述一台 MCP 服务器',
+  'Paste a server object or mcpServers JSON from Cursor / Claude Desktop':
+    '可粘贴单台配置，或 Cursor / Claude Desktop 的 mcpServers JSON',
   'Scan local AI apps and register the entries you want to reuse.':
     '扫描本机 AI 应用,登记你想复用的条目。',
   'Nothing importable found': '未发现可导入的条目',
