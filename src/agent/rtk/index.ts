@@ -4,81 +4,19 @@ import path from 'node:path';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { RtkToolStats } from '@shared/rtk';
 import { attachBackgroundCommandHooks, type PreparedBackgroundCommand } from '../backgroundTasks';
+import {
+  bindPowerShellRtk,
+  isPowerShellRtkCandidate,
+  isSafePowerShellRtkRewrite,
+  type PowerShellPart,
+  splitPowerShellCommand,
+} from './powershell';
+
+export { isPowerShellRtkCandidate } from './powershell';
 
 const DEFAULT_REWRITE_TIMEOUT_MS = 3_000;
 const DEFAULT_GAIN_TIMEOUT_MS = 3_000;
 const MAX_PROCESS_OUTPUT = 1_000_000;
-
-const POWERSHELL_ALIASES = new Set([
-  'cat',
-  'cd',
-  'clear',
-  'cls',
-  'copy',
-  'cp',
-  'curl',
-  'del',
-  'dir',
-  'echo',
-  'erase',
-  'gc',
-  'gci',
-  'gps',
-  'kill',
-  'ls',
-  'man',
-  'md',
-  'mkdir',
-  'move',
-  'mv',
-  'pwd',
-  'rd',
-  'ren',
-  'rename',
-  'rm',
-  'rmdir',
-  'sleep',
-  'sort',
-  'type',
-  'wget',
-  'where',
-]);
-
-const POWERSHELL_EXTERNALS = new Set([
-  'cargo',
-  'clang',
-  'cmake',
-  'deno',
-  'docker',
-  'docker-compose',
-  'dotnet',
-  'eslint',
-  'gh',
-  'git',
-  'go',
-  'golangci-lint',
-  'grep',
-  'jest',
-  'kubectl',
-  'make',
-  'mvn',
-  'node',
-  'npm',
-  'npx',
-  'pnpm',
-  'poetry',
-  'python',
-  'python3',
-  'pytest',
-  'rg',
-  'ruff',
-  'rustc',
-  'swift',
-  'tsc',
-  'uv',
-  'vitest',
-  'yarn',
-]);
 
 export interface RtkOptimizationOptions {
   binaryPath?: string;
@@ -228,13 +166,10 @@ function runtimeCommand(
     ]
       .map(([key, value]) => `$env:${key} = ${quotePowerShell(value)}`)
       .join('; ');
-    const trimmed = command.trimStart();
-    const invocation = /^rtk(?:\s|$)/i.test(trimmed)
-      ? `& ${quotePowerShell(binaryPath)}${trimmed.slice(3)}`
-      : command;
+    const invocation = bindPowerShellRtk(command, `& ${quotePowerShell(binaryPath)}`);
     return (
       `${assignments}; ` +
-      'Remove-Item Env:RTK_DISABLED,Env:RTK_NO_TOML,Env:RTK_RECALL,Env:RTK_TEE -ErrorAction SilentlyContinue; ' +
+      'Remove-Item Env:RTK_DISABLED,Env:RTK_NO_TOML,Env:RTK_RECALL,Env:RTK_TEE -ErrorAction Ignore; ' +
       invocation
     );
   }
@@ -356,38 +291,6 @@ function hasUnsafeBashWrapper(command: string): boolean {
   return false;
 }
 
-function hasPowerShellSyntax(command: string): boolean {
-  let quote: "'" | '"' | undefined;
-  for (const character of command) {
-    if (character === '`') {
-      if (quote !== "'") return true;
-      continue;
-    }
-    if (quote) {
-      if (quote === '"' && character === '$') return true;
-      if (character === quote) quote = undefined;
-      continue;
-    }
-    if (character === "'" || character === '"') {
-      quote = character;
-      continue;
-    }
-    if ('|;&$(){}<>\r\n'.includes(character)) return true;
-  }
-  return Boolean(quote);
-}
-
-export function isPowerShellRtkCandidate(command: string): boolean {
-  if (!command.trim() || hasPowerShellSyntax(command)) return false;
-  const first = command
-    .trimStart()
-    .match(/^([^\s]+)/)?.[1]
-    ?.toLowerCase();
-  if (!first || POWERSHELL_ALIASES.has(first)) return false;
-  if (/\.(?:exe|cmd|bat|com)$/i.test(first)) return true;
-  return POWERSHELL_EXTERNALS.has(first);
-}
-
 function isReadonlyRtkCommand(command: string): boolean {
   return (
     /^\s*rtk\s+recall(?:\s+(?:[a-f\d]{1,64}|--(?:full|list)|--(?:from|lines)\s+\d+))*\s*$/i.test(
@@ -477,15 +380,26 @@ async function prepareCommand(
   if (!options.binaryPath || !path.isAbsolute(options.binaryPath)) {
     return immediate(command, withReason('unavailable', command, 'binary-unavailable'));
   }
-  if (isAlreadyRtk(command) && !isReadonlyRtkCommand(command)) {
+  if (shell !== 'powershell' && isAlreadyRtk(command) && !isReadonlyRtkCommand(command)) {
     return immediate(command, withReason('bypassed', command, 'already-rtk'));
   }
-  if (
-    shell === 'powershell' &&
-    !isReadonlyRtkCommand(command) &&
-    !isPowerShellRtkCandidate(command)
-  ) {
-    return immediate(command, withReason('bypassed', command, 'powershell-syntax'));
+  let powerShellParts: PowerShellPart[] | undefined;
+  if (shell === 'powershell' && !isReadonlyRtkCommand(command)) {
+    powerShellParts = splitPowerShellCommand(command);
+    if (
+      powerShellParts?.some(
+        (part) => part.kind === 'statement' && /^\s*rtk(?:\s|$)/i.test(part.text)
+      )
+    ) {
+      return immediate(command, withReason('bypassed', command, 'already-rtk'));
+    }
+    if (
+      !powerShellParts?.some(
+        (part) => part.kind === 'statement' && isPowerShellRtkCandidate(part.text.trim())
+      )
+    ) {
+      return immediate(command, withReason('bypassed', command, 'powershell-syntax'));
+    }
   }
 
   let paths: RuntimePaths;
@@ -514,50 +428,122 @@ async function prepareCommand(
     };
   }
 
-  let rewritten: ProcessResult;
-  try {
-    rewritten = await runProcess(options.binaryPath, ['rewrite', command], {
-      cwd: options.cwd,
-      env: processEnv(paths),
-      timeoutMs: options.rewriteTimeoutMs ?? DEFAULT_REWRITE_TIMEOUT_MS,
-      signal,
-    });
-  } catch (error) {
-    await cleanup();
-    if (error instanceof Error && error.name === 'AbortError') throw error;
-    return immediate(command, withReason('unavailable', command, 'rewrite-error'));
-  }
-  if (rewritten.timedOut) {
-    await cleanup();
-    return immediate(command, withReason('unavailable', command, 'rewrite-timeout'));
-  }
-  if (rewritten.code === 1) {
-    await cleanup();
-    return immediate(command, withReason('unchanged', command, 'unsupported'));
-  }
-  if (rewritten.code !== 0 && rewritten.code !== 3) {
-    await cleanup();
-    return immediate(
-      command,
-      withReason(
-        rewritten.code === 2 ? 'bypassed' : 'unavailable',
+  let rewrittenCommand: string;
+  if (shell === 'powershell') {
+    const parts = powerShellParts as PowerShellPart[];
+    const rewriteDeadline = Date.now() + (options.rewriteTimeoutMs ?? DEFAULT_REWRITE_TIMEOUT_MS);
+    let changed = false;
+    let fallback = withReason('unchanged', command, 'unsupported');
+    for (const part of parts) {
+      if (part.kind !== 'statement') continue;
+      const original = part.text.trim();
+      if (!isPowerShellRtkCandidate(original)) continue;
+      const remainingMs = rewriteDeadline - Date.now();
+      if (remainingMs <= 0) {
+        fallback = withReason('unavailable', command, 'rewrite-timeout');
+        break;
+      }
+      let rewritten: ProcessResult;
+      try {
+        rewritten = await runProcess(options.binaryPath, ['rewrite', original], {
+          cwd: options.cwd,
+          env: processEnv(paths),
+          timeoutMs: remainingMs,
+          signal,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          await cleanup();
+          throw error;
+        }
+        fallback = withReason('unavailable', command, 'rewrite-error');
+        continue;
+      }
+      if (rewritten.timedOut) {
+        fallback = withReason('unavailable', command, 'rewrite-timeout');
+        break;
+      }
+      if (rewritten.code === 1) {
+        fallback = withReason('unchanged', command, 'unsupported');
+        continue;
+      }
+      if (rewritten.code !== 0 && rewritten.code !== 3) {
+        fallback = withReason(
+          rewritten.code === 2 ? 'bypassed' : 'unavailable',
+          command,
+          `rewrite-exit-${rewritten.code}`
+        );
+        continue;
+      }
+      const output = rewritten.stdout.trim();
+      if (!output) {
+        fallback = withReason('unavailable', command, 'empty-rewrite');
+        continue;
+      }
+      if (output === original) {
+        fallback = withReason('unchanged', command, 'same-command');
+        continue;
+      }
+      if (!isSafePowerShellRtkRewrite(output)) {
+        fallback = withReason('bypassed', command, 'unsafe-wrapper');
+        continue;
+      }
+      const leading = part.text.match(/^\s*/)?.[0] ?? '';
+      const trailing = part.text.match(/\s*$/)?.[0] ?? '';
+      part.text = `${leading}${output}${trailing}`;
+      changed = true;
+    }
+    if (!changed) {
+      await cleanup();
+      return immediate(command, fallback);
+    }
+    rewrittenCommand = parts.map((part) => part.text).join('');
+  } else {
+    let rewritten: ProcessResult;
+    try {
+      rewritten = await runProcess(options.binaryPath, ['rewrite', command], {
+        cwd: options.cwd,
+        env: processEnv(paths),
+        timeoutMs: options.rewriteTimeoutMs ?? DEFAULT_REWRITE_TIMEOUT_MS,
+        signal,
+      });
+    } catch (error) {
+      await cleanup();
+      if (error instanceof Error && error.name === 'AbortError') throw error;
+      return immediate(command, withReason('unavailable', command, 'rewrite-error'));
+    }
+    if (rewritten.timedOut) {
+      await cleanup();
+      return immediate(command, withReason('unavailable', command, 'rewrite-timeout'));
+    }
+    if (rewritten.code === 1) {
+      await cleanup();
+      return immediate(command, withReason('unchanged', command, 'unsupported'));
+    }
+    if (rewritten.code !== 0 && rewritten.code !== 3) {
+      await cleanup();
+      return immediate(
         command,
-        `rewrite-exit-${rewritten.code}`
-      )
-    );
-  }
-  const rewrittenCommand = rewritten.stdout.trim();
-  if (!rewrittenCommand) {
-    await cleanup();
-    return immediate(command, withReason('unavailable', command, 'empty-rewrite'));
-  }
-  if (rewrittenCommand === command) {
-    await cleanup();
-    return immediate(command, withReason('unchanged', command, 'same-command'));
-  }
-  if (shell === 'bash' && hasUnsafeBashWrapper(rewrittenCommand)) {
-    await cleanup();
-    return immediate(command, withReason('bypassed', command, 'unsafe-wrapper'));
+        withReason(
+          rewritten.code === 2 ? 'bypassed' : 'unavailable',
+          command,
+          `rewrite-exit-${rewritten.code}`
+        )
+      );
+    }
+    rewrittenCommand = rewritten.stdout.trim();
+    if (!rewrittenCommand) {
+      await cleanup();
+      return immediate(command, withReason('unavailable', command, 'empty-rewrite'));
+    }
+    if (rewrittenCommand === command) {
+      await cleanup();
+      return immediate(command, withReason('unchanged', command, 'same-command'));
+    }
+    if (hasUnsafeBashWrapper(rewrittenCommand)) {
+      await cleanup();
+      return immediate(command, withReason('bypassed', command, 'unsafe-wrapper'));
+    }
   }
 
   const pending: RtkToolStats = {
