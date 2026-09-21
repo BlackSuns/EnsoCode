@@ -29,6 +29,7 @@ import {
   positiveContextWindow,
   resolveCustomModelCapabilities,
 } from '@shared/modelCatalog';
+import { resolveOauthCatalogModel } from '@shared/oauthCatalog';
 import { ensureAccountProvider } from '@shared/piAccounts';
 import { resolvePiProviderBaseUrl } from '@shared/providerCatalog';
 import { ANTIGRAVITY_PROVIDER_ID, antigravityProviderConfig } from '@shared/providers/antigravity';
@@ -3871,7 +3872,15 @@ export function resolveBaseModel(runtime: ModelRuntime, model: SpawnModelConfig)
     // worker 与 Main 是两个 ModelRuntime 实例，只共用 auth.json。合成 id（第 2+ 个账号）
     // 的克隆 provider 必须在本进程也注册一遍，否则 getModel 取不到
     ensureAccountProvider(runtime, model.oauthAccountKey);
-    const oauthModel = runtime.getModel(model.oauthAccountKey, model.modelId);
+    const exact = runtime.getModel(model.oauthAccountKey, model.modelId);
+    const oauthModel =
+      exact ??
+      resolveOauthCatalogModel(
+        providerIdOfAccountKey(model.oauthAccountKey),
+        model.modelId,
+        runtime.getModels(model.oauthAccountKey),
+        undefined
+      );
     if (!oauthModel) {
       throw new Error(`oauth model not found: ${model.oauthAccountKey}/${model.modelId}`);
     }

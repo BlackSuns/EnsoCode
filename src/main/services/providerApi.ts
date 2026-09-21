@@ -57,7 +57,10 @@ export function toMessage(error: unknown): string {
   return String(error);
 }
 
-export async function listModels(config: ProviderApiConfig): Promise<ListModelsResult> {
+export async function listModels(
+  config: ProviderApiConfig,
+  extraHeaders?: Record<string, string>
+): Promise<ListModelsResult> {
   const base = resolveBase(config);
   const key = config.apiKey.trim();
   try {
@@ -78,6 +81,7 @@ export async function listModels(config: ProviderApiConfig): Promise<ListModelsR
         url = `${base}/models`;
         headers = { Authorization: `Bearer ${key}` };
     }
+    if (extraHeaders) headers = { ...headers, ...extraHeaders };
 
     let response = await request(url, { headers, redirect: 'manual' });
     if (

@@ -9,6 +9,7 @@ import type {
   OauthFlowLocator,
   StartOauthResult,
 } from '@shared/capabilities/types';
+import { expandOauthCatalog } from '@shared/oauthCatalog';
 import {
   ensureAccountProvider,
   nextAccountKey,
@@ -356,7 +357,7 @@ export async function listOauthProviders(): Promise<OauthProviderInfo[]> {
       loginLabel: provider.auth.oauth?.loginLabel,
       supportsMultipleAccounts: supportsMultipleAccounts(provider.id),
       accounts: (byProvider.get(provider.id) ?? []).map((key) => toAccount(provider.id, key)),
-      models: provider.getModels().map((model) => model.id),
+      models: expandOauthCatalog(provider.id, provider.getModels()).map((model) => model.id),
     }));
 }
 
