@@ -71,14 +71,17 @@ describe('派发父容器的 custom entry 必须能落盘', () => {
 });
 
 describe('回退叶子必须能跨重启恢复', () => {
-  const user = (text: string) => ({
-    role: 'user' as const,
-    content: [{ type: 'text' as const, text }],
-  });
-  const assistant = (text: string) => ({
-    role: 'assistant' as const,
-    content: [{ type: 'text' as const, text }],
-  });
+  type AppendableMessage = Parameters<SessionManager['appendMessage']>[0];
+  const user = (text: string): AppendableMessage =>
+    ({
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+    }) as unknown as AppendableMessage;
+  const assistant = (text: string): AppendableMessage =>
+    ({
+      role: 'assistant' as const,
+      content: [{ type: 'text' as const, text }],
+    }) as unknown as AppendableMessage;
 
   it('navigateTree 只改内存时，重开文件会回到回退前的叶子', () => {
     const manager = SessionManager.create(cwd, sessionDir);
@@ -98,7 +101,9 @@ describe('回退叶子必须能跨重启恢复', () => {
       .getBranch()
       .filter((entry) => entry.type === 'message' && entry.message.role === 'user')
       .map((entry) =>
-        entry.type === 'message' && Array.isArray(entry.message.content)
+        entry.type === 'message' &&
+        'content' in entry.message &&
+        Array.isArray(entry.message.content)
           ? entry.message.content.map((part: { text?: string }) => part.text).join('')
           : ''
       );
@@ -124,7 +129,9 @@ describe('回退叶子必须能跨重启恢复', () => {
       .getBranch()
       .filter((entry) => entry.type === 'message' && entry.message.role === 'user')
       .map((entry) =>
-        entry.type === 'message' && Array.isArray(entry.message.content)
+        entry.type === 'message' &&
+        'content' in entry.message &&
+        Array.isArray(entry.message.content)
           ? entry.message.content.map((part: { text?: string }) => part.text).join('')
           : ''
       );
