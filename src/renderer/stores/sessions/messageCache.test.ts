@@ -4,6 +4,8 @@ import {
   chatSurfaceBusy,
   chatTimelineBusy,
   evictColdMessages,
+  evictStampedColdMessages,
+  nextColdEvictDelay,
   isBulkyAgentEvent,
   isMessageCacheHot,
   MESSAGE_CACHE_TTL_MS,
@@ -61,6 +63,25 @@ describe('messageCache', () => {
       historyLoading: undefined,
     });
     expect(next.empty).toBe(conversations.empty);
+  });
+
+  it('requireStamp 不碰从未离开过、因而没有盖章的正文', () => {
+    const conversations = {
+      fresh: { messages: [1], customEntries: [] },
+      expired: { messages: [2], customEntries: [3] },
+    };
+    const next = evictStampedColdMessages(conversations, 'hot', { expired: 0 }, MESSAGE_CACHE_TTL_MS);
+    expect(next.fresh).toBe(conversations.fresh);
+    expect(next.expired.messages).toEqual([]);
+  });
+
+  it('下次回收看最早离开的会话，不从最近一次切换重计满 TTL', () => {
+    const ttl = 5_000;
+    expect(nextColdEvictDelay({ old: 1_000, recent: 4_000 }, 'current', 4_500, ttl)).toBe(1_500);
+    expect(nextColdEvictDelay({ old: 1_000 }, 'current', 6_000, ttl)).toBe(0);
+    expect(nextColdEvictDelay({ current: 1_000 }, 'current', 9_000, ttl)).toBeNull();
+    expect(nextColdEvictDelay({}, null, 9_000, ttl)).toBeNull();
+    expect(nextColdEvictDelay({ btw: 1_000 }, 'current', 9_000, ttl, new Set(['btw']))).toBeNull();
   });
 
   it('drops clocks for deleted conversations', () => {
