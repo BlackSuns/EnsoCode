@@ -12,7 +12,6 @@ const surfaces = (
 ): CoverageDisposition => ({ kind: 'surface', surfaceIds });
 
 const excluded = (reason: string): CoverageDisposition => ({ kind: 'excluded', reason });
-
 type SettingsActionKey = {
   [Key in keyof SettingsState]-?: SettingsState[Key] extends (...args: never[]) => unknown
     ? Key
@@ -40,6 +39,7 @@ export const SETTINGS_DATA_COVERAGE = {
   exploreFoldEnabled: excluded(
     'Explore-fold is a desktop session preference, not an Enso capability.'
   ),
+  rtkEnabled: excluded('RTK command compression is a desktop session preference.'),
   memoryEmbeddingModel: excluded('Memory embedding model choice is a desktop preference.'),
   memoryEmbeddingAutoDownload: excluded('Memory model download policy is a device preference.'),
   memoryModelIdleMinutes: excluded('Memory model idle unloading policy is a device preference.'),
@@ -66,6 +66,7 @@ export const SETTINGS_DATA_COVERAGE = {
   openChangesOnFileEdit: excluded('Renderer side-panel preference; not an Enso capability.'),
   compactReadOnlyTools: excluded('Renderer timeline density preference; not an Enso capability.'),
   expandLiveEdits: excluded('Renderer timeline expansion preference; not an Enso capability.'),
+  autoCollapseTurns: excluded('Renderer timeline collapse preference; not an Enso capability.'),
   chatWide: excluded('Renderer chat column width preference; not an Enso capability.'),
   notifyMainAgentOnly: excluded(
     'Desktop/phone completion notification preference; not an Enso capability.'
@@ -99,6 +100,7 @@ export const SETTINGS_DATA_COVERAGE = {
   subagentModels: surfaces('providers.subagent-models'),
   disabledBuiltinAgentTypes: surfaces('agent-types.toggle-builtin'),
   disabledBuiltinTools: surfaces('tools.toggle-builtin'),
+  subagentAllowedModes: surfaces('tools.toggle-builtin'),
   onboarded: surfaces('onboarding.complete'),
   keybindings: surfaces('general.keybindings.list'),
   projects: surfaces('projects.list'),
@@ -142,6 +144,7 @@ export const SETTINGS_ACTION_COVERAGE = {
   setExploreFoldEnabled: excluded(
     'Explore-fold is a desktop session preference, not an Enso capability.'
   ),
+  setRtkEnabled: excluded('RTK command compression is a desktop session preference.'),
   setMemoryEmbeddingModel: excluded('Memory embedding model choice is a desktop preference.'),
   setMemoryEmbeddingAutoDownload: excluded('Memory model download policy is a device preference.'),
   setMemoryModelIdleMinutes: excluded('Memory model idle unloading policy is a device preference.'),
@@ -172,6 +175,7 @@ export const SETTINGS_ACTION_COVERAGE = {
     'Renderer timeline density preference; not an Enso capability.'
   ),
   setExpandLiveEdits: excluded('Renderer timeline expansion preference; not an Enso capability.'),
+  setAutoCollapseTurns: excluded('Renderer timeline collapse preference; not an Enso capability.'),
   setChatWide: excluded('Renderer chat column width preference; not an Enso capability.'),
   setNotifyMainAgentOnly: excluded(
     'Desktop/phone completion notification preference; not an Enso capability.'
@@ -239,6 +243,7 @@ export const SETTINGS_ACTION_COVERAGE = {
   removeAgentType: surfaces('agent-types.delete'),
   toggleBuiltinAgentType: surfaces('agent-types.toggle-builtin'),
   toggleBuiltinTool: surfaces('tools.toggle-builtin'),
+  setSubagentAllowedModes: surfaces('tools.toggle-builtin'),
   setOnboarded: surfaces('onboarding.complete'),
   setKeybinding: surfaces('general.keybindings.set'),
   resetKeybinding: surfaces('general.keybindings.reset'),
@@ -251,6 +256,7 @@ export const SETTINGS_ACTION_COVERAGE = {
   setProjectAlias: surfaces('projects.list'),
   setProjectDefaultModel: surfaces('projects.list'),
   setProjectDisabledBuiltinTools: surfaces('projects.list'),
+  setProjectSubagentAllowedModes: surfaces('projects.list'),
   removeProject: surfaces('projects.remove'),
   setUsageModelPricing: excluded(
     'Local usage cost override for Settings → Usage; desktop-only estimate, not an Enso capability.'
@@ -277,7 +283,6 @@ export const SETTINGS_ACTION_COVERAGE = {
 
 export const BUILTIN_TOOL_COVERAGE: Readonly<Record<string, CoverageDisposition>> = {
   subagent: surfaces('coding-tools.subagent'),
-  coworker: surfaces('coding-tools.coworker', 'team.list-coworkers'),
   todo: surfaces('coding-tools.todo'),
   ask_user: surfaces('coding-tools.ask-user'),
   background_tasks: surfaces('coding-tools.background-task'),
@@ -335,6 +340,9 @@ export const IPC_PRODUCT_COVERAGE = {
   OAUTH_LOGIN_CANCEL: surfaces('providers.oauth.cancel-login'),
   OAUTH_LOGIN_REOPEN: surfaces('providers.oauth.reopen-login'),
   OAUTH_LOGOUT: surfaces('providers.oauth.logout'),
+  OAUTH_IMPORT_CODEX: excluded(
+    'Copies the local Codex ChatGPT login into auth.json; only reachable from the provider wizard UI.'
+  ),
   OAUTH_LOGIN_EVENT: excluded('Protected OAuth flow progress transport.'),
   OAUTH_ACCOUNT_INFO: surfaces('providers.oauth.usage'),
   OAUTH_CREDENTIAL_KEYS_LIST: excluded(
@@ -358,6 +366,8 @@ export const IPC_PRODUCT_COVERAGE = {
   INSTRUCTIONS_WRITE: surfaces('instructions.edit-local-copy'),
   INSTRUCTIONS_WRITE_SOURCE: surfaces('instructions.overwrite-source'),
   INSTRUCTIONS_DELETE: surfaces('instructions.remove'),
+  PRESETS_SYSTEM_PROMPT_READ: excluded('Settings-only preset editor content read.'),
+  PRESETS_SYSTEM_PROMPT_WRITE: excluded('Settings-only preset editor content write.'),
   AGENT_SPAWN: excluded('Lazy worker lifecycle command behind conversation send.'),
   AGENT_PROMPT: surfaces('conversations.send'),
   AGENT_STEER: surfaces('conversations.queue.send-now'),

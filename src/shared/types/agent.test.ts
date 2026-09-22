@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseAgentCommand,
+  parseAgentControlToolRequest,
   parseAgentSessionCustomEntry,
   parseAgentWorkerEvent,
   parseChildSessionIdentity,
@@ -73,7 +74,113 @@ const receipt = {
   sequence: 0,
 };
 
-describe('workspace switch internal protocol', () => {
+
+describe('agent control tool protocol', () => {
+  it('accepts normalized spawn/send/wait requests with bounded gate shape', () => {
+    expect(
+      parseAgentControlToolRequest({
+        operation: 'spawn',
+        mode: 'task',
+        description: 'review',
+        prompt: 'review it',
+        wait: false,
+        gate: { commandRef: 'tests' },
+      })
+    ).not.toBeNull();
+    expect(
+      parseAgentControlToolRequest({
+        operation: 'send',
+        agentId: 'agent-1',
+        message: 'fix issue',
+        delivery: 'next',
+        wait: false,
+        gate: { commandRef: 'tests' },
+      })
+    ).not.toBeNull();
+    expect(
+      parseAgentControlToolRequest({
+        operation: 'wait',
+        runIds: ['run-1', 'run-2'],
+        until: 'any',
+        timeoutMs: 100,
+      })
+    ).not.toBeNull();
+  });
+
+  it('rejects invalid operation combinations, duplicate waits and free shell gate', () => {
+    for (const request of [
+      {
+        operation: 'spawn',
+        mode: 'task',
+        description: 'x',
+        prompt: 'x',
+        wait: false,
+        agentId: 'x',
+      },
+      {
+        operation: 'send',
+        agentId: 'a',
+        message: 'x',
+        delivery: 'auto',
+        wait: false,
+        mode: 'task',
+      },
+      { operation: 'wait', runIds: ['same', 'same'], until: 'all' },
+      { operation: 'wait', runIds: [], until: 'all' },
+      { operation: 'report', runId: 'r', timeoutMs: 1 },
+      { operation: 'stop', runId: '' },
+      {
+        operation: 'spawn',
+        mode: 'task',
+        description: 'x',
+        prompt: 'x',
+        wait: false,
+        gate: 'pnpm test',
+      },
+      {
+        operation: 'spawn',
+        mode: 'task',
+        description: 'x',
+        prompt: 'x',
+        wait: false,
+        gate: { argv: [''] },
+      },
+      {
+        operation: 'spawn',
+        mode: 'task',
+        description: 'x',
+        prompt: 'x',
+        wait: false,
+        gate: { argv: ['pnpm', 'test'] },
+      },
+    ]) {
+      expect(parseAgentControlToolRequest(request)).toBeNull();
+    }
+  });
+
+  it('worker RPC binds an exact actor identity and request id in both directions', () => {
+    const request = { operation: 'report', runId: 'run-1' } as const;
+    const invoke = {
+      type: 'agent-control-invoke',
+      identity: parent,
+      seq: 3,
+      requestId: 'rpc-1',
+      request,
+    } as const;
+    expect(parseAgentWorkerEvent(invoke)).toEqual(invoke);
+    expect(
+      parseAgentCommand({
+        type: 'agent-control-result',
+        identity: parent,
+        requestId: 'rpc-1',
+        response: { ok: true, value: { runId: 'run-1' } },
+      })
+    ).not.toBeNull();
+    expect(parseAgentWorkerEvent({ ...invoke, identity: { sessionId: 'parent' } })).toBeNull();
+    expect(parseAgentWorkerEvent({ ...invoke, requestId: '' })).toBeNull();
+    expect(parseAgentCommand({ ...invoke, type: 'agent-control-result' })).toBeNull();
+  });
+
   it('accepts consumption only with exact session generation, sequence and operation nonce', () => {
     const event = {
       type: 'workspace-branch-context-consumed',
@@ -473,6 +580,44 @@ describe('parent/child commands', () => {
     });
     expect(parseAgentCommand({ ...base, windowsLocalShell: 'pwsh' })).toBeNull();
     expect(parseAgentCommand({ ...base, windowsLocalShell: true })).toBeNull();
+  });
+
+  it('spawn-parent 只接受布尔 RTK 开关，兼容未配置旧会话', () => {
+    const base = { type: 'spawn-parent', identity: parent, cwd: '/repo', model };
+    expect(parseAgentCommand(base)).toEqual(base);
+    for (const rtkEnabled of [true, false]) {
+      expect(parseAgentCommand({ ...base, rtkEnabled })).toEqual({ ...base, rtkEnabled });
+    }
+    for (const rtkEnabled of [0, 'false', null, {}]) {
+      expect(parseAgentCommand({ ...base, rtkEnabled })).toBeNull();
+    }
+  });
+
+  it('命令结果统计在 worker 边界校验，非法计数拒绝', () => {
+    const event = {
+      type: 'message-upsert',
+      identity: parent,
+      seq: 1,
+      index: 0,
+      message: {
+        role: 'toolResult',
+        toolName: 'bash',
+        content: [],
+        rtk: {
+          status: 'compressed',
+          originalCommand: 'git status',
+          inputTokens: 100,
+          outputTokens: 10,
+        },
+      },
+    };
+    expect(parseAgentWorkerEvent(event)).toEqual(event);
+    expect(
+      parseAgentWorkerEvent({
+        ...event,
+        message: { ...event.message, rtk: { ...event.message.rtk, inputTokens: -10 } },
+      })
+    ).toBeNull();
   });
 
   it('spawn-parent 携 remote:合法通过,坏 shape 拒绝', () => {
@@ -1704,5 +1849,14 @@ describe('apply_patch fileChanges 事件收窄', () => {
         parseAgentWorkerEvent({ ...event, message: { ...event.message, fileChanges } })
       ).toBeNull();
     }
+  });
+});
+
+describe('spawn-parent system prompt 协议', () => {
+  it('spawn-parent 携 systemPrompt:非空字符串通过,脏值拒绝', () => {
+    const base = { type: 'spawn-parent', identity: parent, cwd: '/repo', model };
+    expect(parseAgentCommand({ ...base, systemPrompt: 'custom base prompt' })).not.toBeNull();
+    expect(parseAgentCommand({ ...base, systemPrompt: '' })).toBeNull();
+    expect(parseAgentCommand({ ...base, systemPrompt: 1 })).toBeNull();
   });
 });

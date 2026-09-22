@@ -71,6 +71,7 @@ import type {
   ModelMetaQuery,
   ModelMetaResult,
   OauthAccountUsage,
+  OauthCodexImportResult,
   OauthProviderInfo,
   PairCatalogPayload,
   PairCreatedSession,
@@ -311,6 +312,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.OAUTH_LOGIN_REOPEN, request),
     oauthLogout: (accountKey: string): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.OAUTH_LOGOUT, accountKey),
+    oauthImportCodex: (): Promise<OauthCodexImportResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.OAUTH_IMPORT_CODEX),
     oauthAccountUsage: (accountKey: string): Promise<OauthAccountUsage> =>
       ipcRenderer.invoke(IPC_CHANNELS.OAUTH_ACCOUNT_INFO, accountKey),
     onOauthLoginEvent: (callback: (event: OauthFlowEvent) => void): (() => void) => {
@@ -363,6 +366,13 @@ const electronAPI = {
     delete: (id: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.INSTRUCTIONS_DELETE, id),
   },
 
+  presets: {
+    readSystemPrompt: (id?: string): Promise<{ ok: boolean; content: string; error?: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.PRESETS_SYSTEM_PROMPT_READ, id),
+    writeSystemPrompt: (id: string, content: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.PRESETS_SYSTEM_PROMPT_WRITE, id, content),
+  },
+
   dialog: {
     /** 打开系统目录选择框，取消时返回 null */
     selectDirectory: (): Promise<string | null> =>
@@ -375,8 +385,11 @@ const electronAPI = {
   projects: {
     /** 从本机编辑器 / 编程应用读取最近打开的目录 */
     getRecent: (): Promise<RecentProject[]> => ipcRenderer.invoke(IPC_CHANNELS.PROJECTS_GET_RECENT),
-    /** 在系统文件管理器里打开项目根目录；ssh 项目返回 unsupported */
-    reveal: (request: { projectId: string }): Promise<{ ok: boolean; error?: string }> =>
+    /** 在系统文件管理器里打开项目或会话的实际工作目录；ssh 项目返回 unsupported */
+    reveal: (request: {
+      projectId: string;
+      conversationId?: string;
+    }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROJECTS_REVEAL, request),
   },
 

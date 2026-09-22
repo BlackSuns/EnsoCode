@@ -20,7 +20,7 @@ import type {
   SkillEntry,
   SubagentModelEntry,
 } from '@shared/types';
-import type { ApprovalMode, ThinkingLevel } from '@shared/types/agent';
+import type { AgentMode, ApprovalMode, ThinkingLevel } from '@shared/types/agent';
 import type { ModelPricing, PricingTable } from '@shared/usage/pricing';
 import type { WindowsLocalShell } from '@shared/windowsLocalShell';
 import type { OauthCredentialSnapshot } from '@/stores/oauthCredentials';
@@ -110,6 +110,9 @@ export interface SettingsState {
   /** 探后折叠：模型可 explore_mark / explore_fold；缺省关 */
   exploreFoldEnabled: boolean;
 
+  /** RTK 命令压缩；缺省开，新建或冷恢复会话生效。 */
+  rtkEnabled: boolean;
+
   /** 文件编辑工具模式；缺省 apply_patch，新建或冷恢复会话生效。 */
   editMode: EditMode;
 
@@ -151,6 +154,8 @@ export interface SettingsState {
   compactReadOnlyTools: boolean;
   /** agent 运行中 edit/write 的行到位时自动展开 diff/内容；缺省 true */
   expandLiveEdits: boolean;
+  /** 发送新消息后自动折叠历史轮次，只留最后一轮展开；缺省 false */
+  autoCollapseTurns: boolean;
   /** 聊天列铺满：去掉两侧阶梯 max-w；缺省 false（居中阅读宽度） */
   chatWide: boolean;
   /** 仅主 agent 发送完成/失败通知；coworker 提问/审批仍提醒；缺省 true */
@@ -242,6 +247,8 @@ export interface SettingsState {
   disabledBuiltinAgentTypes: string[];
   /** 被关闭的内置工具（id 集合;默认全开） */
   disabledBuiltinTools: string[];
+  /** 统一 subagent 工具允许创建的 Agent 模式。 */
+  subagentAllowedModes: AgentMode[];
 
   /** 是否已完成首次运行引导；老用户（已有配置）视为已完成 */
   onboarded: boolean;
@@ -272,6 +279,7 @@ export interface SettingsState {
   setLoadHarnessAssets: (value: boolean) => void;
   setWindowsLocalShell: (value: WindowsLocalShell) => void;
   setExploreFoldEnabled: (value: boolean) => void;
+  setRtkEnabled: (value: boolean) => void;
   setMemoryEmbeddingModel: (value: string) => void;
   setMemoryEmbeddingAutoDownload: (value: boolean) => void;
   setMemoryModelIdleMinutes: (value: number) => void;
@@ -290,6 +298,7 @@ export interface SettingsState {
   setOpenChangesOnFileEdit: (value: boolean) => void;
   setCompactReadOnlyTools: (value: boolean) => void;
   setExpandLiveEdits: (value: boolean) => void;
+  setAutoCollapseTurns: (value: boolean) => void;
   setChatWide: (value: boolean) => void;
   setNotifyMainAgentOnly: (value: boolean) => void;
   setMaxActiveCoworkers: (value: number) => void;
@@ -384,6 +393,7 @@ export interface SettingsState {
   removeAgentType: (id: string) => void;
   toggleBuiltinAgentType: (name: string, enabled: boolean) => void;
   toggleBuiltinTool: (id: string, enabled: boolean) => void;
+  setSubagentAllowedModes: (modes: AgentMode[]) => void;
 
   // Onboarding
   setOnboarded: (value: boolean) => void;
@@ -432,6 +442,8 @@ export interface SettingsState {
   ) => void;
   /** null = 跟随全局；数组覆盖全局（空 = 本项目全开） */
   setProjectDisabledBuiltinTools: (projectId: string, disabled: string[] | null) => void;
+  /** null = 跟随全局；数组是项目级显式权限掩码。 */
+  setProjectSubagentAllowedModes: (projectId: string, modes: AgentMode[] | null) => void;
 
   /** 非法条目不写入，返回 false */
   setUsageModelPricing: (modelId: string, pricing: ModelPricing) => boolean;

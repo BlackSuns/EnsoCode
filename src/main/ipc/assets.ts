@@ -20,6 +20,7 @@ import {
   writeInstructionSource,
 } from '../services/instructionStore';
 import { listMcpOccupancyTools } from '../services/mcpOccupancy';
+import { readSystemPrompt, writeSystemPrompt } from '../services/systemPromptStore';
 import { readSettings } from './settings';
 
 function settingsState(): Record<string, unknown> {
@@ -138,4 +139,21 @@ export function registerAssetHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.INSTRUCTIONS_DELETE, (_event, id: unknown) => {
     if (typeof id === 'string') deleteInstruction(id);
   });
+
+  ipcMain.handle(IPC_CHANNELS.PRESETS_SYSTEM_PROMPT_READ, (_event, id: unknown) => {
+    if (id !== undefined && typeof id !== 'string') {
+      return { ok: false, content: '', error: 'Invalid id' };
+    }
+    return readSystemPrompt(id);
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.PRESETS_SYSTEM_PROMPT_WRITE,
+    (_event, id: unknown, content: unknown) => {
+      if (typeof id !== 'string' || typeof content !== 'string') {
+        return { ok: false, error: 'Invalid arguments' };
+      }
+      return writeSystemPrompt(id, content);
+    }
+  );
 }

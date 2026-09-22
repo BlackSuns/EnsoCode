@@ -74,12 +74,14 @@ import {
 import {
   btwHotSessionIds,
   evictColdMessages,
+  evictStampedColdMessages,
   hasAuthoritativeMessages,
   isBulkyAgentEvent,
   isMessageCacheHot,
   MESSAGE_CACHE_TTL_MS,
   needsHistoryHydration,
   needsWorkerSnapshot,
+  nextColdEvictDelay,
   pruneSessionClocks,
   stampViewDeparture,
   viewedConversationId,
@@ -3671,6 +3673,52 @@ function markParentHistoryAttempted(conversationId: string): void {
   });
 }
 
+function sweepColdMessages(current = useSessionsStore.getState()): void {
+  const next = evictColdMessages(
+    current.conversations,
+    viewedFromState(current),
+    lastViewedAt,
+    Date.now(),
+    MESSAGE_CACHE_TTL_MS,
+    btwHotSessionIds(current.conversations)
+  );
+  if (next !== current.conversations) useSessionsStore.setState({ conversations: next });
+}
+
+function sweepExpiredStamps(current = useSessionsStore.getState()): void {
+  const next = evictStampedColdMessages(
+    current.conversations,
+    viewedFromState(current),
+    lastViewedAt,
+    Date.now(),
+    MESSAGE_CACHE_TTL_MS,
+    btwHotSessionIds(current.conversations)
+  );
+  if (next !== current.conversations) useSessionsStore.setState({ conversations: next });
+}
+
+/** 只等待最早到期的离开时间。已过期的由 sweep 立刻清，不排 0 延迟以免空转。 */
+function armColdEvictTimer(): void {
+  if (evictTimer) clearTimeout(evictTimer);
+  evictTimer = null;
+  const current = useSessionsStore.getState();
+  const delay = nextColdEvictDelay(
+    lastViewedAt,
+    viewedFromState(current),
+    Date.now(),
+    MESSAGE_CACHE_TTL_MS,
+    btwHotSessionIds(current.conversations)
+  );
+  // 没有未来到期点时仍排一个满 TTL，清掉从未盖章的正文；0 表示刚扫过已过期项。
+  const wait = delay !== null && delay > 0 ? delay : MESSAGE_CACHE_TTL_MS;
+  evictTimer = setTimeout(() => {
+    evictTimer = null;
+    sweepColdMessages();
+    armColdEvictTimer();
+  }, wait);
+  evictTimer.unref?.();
+}
+
 useSessionsStore.subscribe((state) => {
   const viewed = viewedFromState(state);
   if (viewed === lastReportedViewedId) return;
@@ -3685,20 +3733,10 @@ useSessionsStore.subscribe((state) => {
     // worker 若还持有，快照比尾窗完整（审批 / 进行中轮次）；回空则由 sessionId 路由收回 started
     if (needsWorkerSnapshot(conversation)) void window.electronAPI.agent.requestSnapshot(viewed);
   }
-  if (evictTimer) clearTimeout(evictTimer);
-  evictTimer = setTimeout(() => {
-    const current = useSessionsStore.getState();
-    const next = evictColdMessages(
-      current.conversations,
-      viewedFromState(current),
-      lastViewedAt,
-      Date.now(),
-      MESSAGE_CACHE_TTL_MS,
-      btwHotSessionIds(current.conversations)
-    );
-    if (next !== current.conversations) useSessionsStore.setState({ conversations: next });
-  }, MESSAGE_CACHE_TTL_MS);
-  evictTimer.unref?.();
+  // 切 tab 不能把更早离开、已经过 TTL 的正文再留一个满 TTL。
+  // 没盖过章的不在这次清：同一次 set 可能刚写入，留给定时全量清。
+  sweepExpiredStamps(state);
+  armColdEvictTimer();
 });
 
 async function forkConversation(

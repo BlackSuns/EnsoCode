@@ -90,6 +90,7 @@ export function registerPairHandlers(): void {
       projects?: ProjectEntry[];
       projectGroups?: ProjectGroupEntry[];
       providers?: ProviderEntry[];
+      providersSettled?: boolean;
       projectPaths?: { id: string; path: string }[];
       theme?: HostAppearance;
       terminal?: TerminalPalette;
@@ -104,6 +105,7 @@ export function registerPairHandlers(): void {
       projects: Array.isArray(p.projects) ? p.projects : [],
       projectGroups: Array.isArray(p.projectGroups) ? p.projectGroups : [],
       providers: Array.isArray(p.providers) ? p.providers : [],
+      ...(p.providersSettled === false ? { providersSettled: false as const } : {}),
       projectPaths: Array.isArray(p.projectPaths) ? p.projectPaths : [],
       theme:
         p.theme === 'light' || p.theme === 'dark' || p.theme === 'sync-terminal'

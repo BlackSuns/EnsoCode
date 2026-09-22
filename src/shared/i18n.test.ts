@@ -82,6 +82,12 @@ const MAPPED_I18N_KEYS = [
   'Reveal in Finder',
   'Open Containing Folder',
   'Reveal in File Explorer',
+  // RtkToolStatsBar.STATUS_LABELS
+  'Compressed',
+  'Unchanged',
+  'Background task started',
+  'Bypassed',
+  'Unavailable',
 ] as const;
 
 const MODEL_CENTER_ENSO_I18N_KEYS = [
@@ -99,6 +105,10 @@ const MODEL_CENTER_ENSO_I18N_KEYS = [
   'No subscription account connected',
   'Connect subscription',
   'Add another account',
+  'Import from Codex',
+  'Codex login not found. Sign in to Codex Desktop or CLI first.',
+  'Codex is not signed in with a ChatGPT account.',
+  'This ChatGPT account is already connected.',
   'Resets {{time}}',
   'Could not load subscription providers',
   'Target',

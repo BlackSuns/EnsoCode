@@ -134,6 +134,7 @@ describe('设置持久化迁移', () => {
     expect(migrateSettings({ theme: 'dark', disabledBuiltinTools: [] }, 7)).toEqual({
       theme: 'dark',
       disabledBuiltinTools: ['memory'],
+      subagentAllowedModes: ['task', 'coworker'],
       editMode: 'apply_patch',
     });
   });
@@ -141,13 +142,19 @@ describe('设置持久化迁移', () => {
   it('v7 → v8 已有其它禁用项时只追加 memory，不覆盖用户选择', () => {
     expect(migrateSettings({ disabledBuiltinTools: ['browser'] }, 7)).toEqual({
       disabledBuiltinTools: ['browser', 'memory'],
+      subagentAllowedModes: ['task', 'coworker'],
       editMode: 'apply_patch',
     });
   });
 
   it('v7 → v8 已经关掉 memory 则不重复追加', () => {
     const state = { disabledBuiltinTools: ['memory', 'browser'] };
-    expect(migrateSettings(state, 7)).toEqual({ ...state, editMode: 'apply_patch' });
+    expect(migrateSettings(state, 7)).toEqual({
+      ...state,
+      disabledBuiltinTools: ['memory', 'browser'],
+      subagentAllowedModes: ['task', 'coworker'],
+      editMode: 'apply_patch',
+    });
   });
 
   it('v7 没有 disabledBuiltinTools 字段时不捏造（缺字段走 initialState 默认）', () => {
@@ -206,6 +213,53 @@ describe('设置持久化迁移', () => {
     });
     expect(migrateSettings({ editMode: 'apply_patch', bashInterceptEnabled: false }, 10)).toEqual({
       editMode: 'apply_patch',
+    });
+  });
+
+  it.each([
+    [[], [], ['task', 'coworker']],
+    [['coworker'], [], ['task']],
+    [['subagent'], [], ['coworker']],
+    [['subagent', 'coworker'], ['subagent'], []],
+  ] as const)(
+    'v12 → v13 把旧 task/coworker 开关迁为统一 mode 掩码（%j）',
+    (legacy, unifiedDisabled, modes) => {
+      expect(migrateSettings({ disabledBuiltinTools: [...legacy] }, 12)).toEqual({
+        disabledBuiltinTools: unifiedDisabled,
+        subagentAllowedModes: modes,
+      });
+    }
+  );
+
+  it('v12 → v13 同步迁移项目覆盖并保留项目覆盖', () => {
+    expect(
+      migrateSettings(
+        {
+          disabledBuiltinTools: ['browser'],
+          projects: [
+            { id: 'p1', disabledBuiltinTools: ['coworker'] },
+            { id: 'p2', disabledBuiltinTools: ['subagent'] },
+            { id: 'p3' },
+          ],
+        },
+        12
+      )
+    ).toEqual({
+      disabledBuiltinTools: ['browser'],
+      subagentAllowedModes: ['task', 'coworker'],
+      projects: [
+        {
+          id: 'p1',
+          disabledBuiltinTools: [],
+          subagentAllowedModes: ['task'],
+        },
+        {
+          id: 'p2',
+          disabledBuiltinTools: [],
+          subagentAllowedModes: ['coworker'],
+        },
+        { id: 'p3' },
+      ],
     });
   });
 

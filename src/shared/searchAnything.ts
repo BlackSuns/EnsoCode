@@ -147,6 +147,11 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
     title: 'Expand file edits while running',
   },
   {
+    id: 'general.autoCollapseTurns',
+    category: 'general',
+    title: 'Auto-collapse previous turns',
+  },
+  {
     id: 'general.notifyMainAgentOnly',
     category: 'general',
     title: 'Notify only for the main agent',
@@ -185,6 +190,13 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
       'How many coworkers one conversation can keep at once. Existing ones stay if you lower the limit; hire more only after dismissing. Subagents are not counted.',
   },
   { id: 'tools.root', category: 'tools', title: 'Built-in tools' },
+  {
+    id: 'tools.rtkEnabled',
+    category: 'tools',
+    title: 'RTK command compression',
+    description:
+      'Compress supported command output before it enters the model context. Takes effect on new conversations.',
+  },
   {
     id: 'tools.editMode',
     category: 'tools',

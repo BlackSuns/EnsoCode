@@ -15,7 +15,10 @@ const worktrees = [
 ];
 
 describe('usageProjectLabel', () => {
-  const aliases = buildUsageProjectAliases({ projects, worktrees });
+  const aliases = buildUsageProjectAliases({
+    projects,
+    worktrees,
+  });
 
   it('主工作树 cwd 仍用项目名', () => {
     expect(usageProjectLabel('enso-code', '/Users/x/project/enso-code', aliases)).toBe('enso-code');

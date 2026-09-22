@@ -28,11 +28,13 @@ import { ConversationStatusIndicator } from './ConversationStatusIndicator';
 import { CoworkerTabs } from './CoworkerTabs';
 import { routeComposerPayload } from './composerRouting';
 import { GoalBar } from './GoalBar';
+import { MarkdownLinkContext } from './Markdown';
 import { MessageQueue } from './MessageQueue';
 import { CHAT_COL, type MessageTimelineHandle } from './MessageTimeline';
 import { ModelPicker } from './ModelPicker';
 import { PresetPicker } from './PresetPicker';
 import { RetryBar } from './RetryBar';
+import { dedupeSlashCommands } from './skillCompletion';
 import { StatsLine } from './StatsLine';
 import { TaskBar } from './TaskBar';
 import { WorktreeMissingDialog } from './WorktreeMissingDialog';
@@ -192,19 +194,14 @@ export function ChatView() {
       name: `/skill:${skill.name}`,
       description: skill.description,
     }));
-    const seen = new Set([
-      goal.name,
-      compact.name,
-      ...fromSettings.map((command) => command.name),
-      ...fromProject.map((command) => command.name),
-    ]);
-    return [
+    // 设置里登记的同名技能优先；项目扫描和会话命令里的副本不再各占一行
+    return dedupeSlashCommands([
       goal,
       compact,
       ...fromSettings,
       ...fromProject,
-      ...chromeCommands.filter((command) => !seen.has(command.name)),
-    ];
+      ...chromeCommands,
+    ]);
   }, [t, skills, projectSkills, chromeCommands]);
 
   const timelineRef = useRef<MessageTimelineHandle>(null);
@@ -307,12 +304,20 @@ export function ChatView() {
               </span>
             </div>
           )}
-          <TaskBar
-            key={chrome.id}
-            sessionId={chrome.id}
-            tasks={chrome.backgroundTasks ?? []}
-            subagents={chrome.subagents ?? []}
-          />
+          <MarkdownLinkContext.Provider
+            value={{
+              conversationId: chrome.id,
+              projectId: chrome.projectId,
+              ...(toolCwd ? { cwd: toolCwd } : {}),
+            }}
+          >
+            <TaskBar
+              key={chrome.id}
+              sessionId={chrome.id}
+              tasks={chrome.backgroundTasks ?? []}
+              subagents={chrome.subagents ?? []}
+            />
+          </MarkdownLinkContext.Provider>
           <ApprovalBar
             key={capabilityApprovals[0]?.requestId ?? 'no-capability-approval'}
             approvals={capabilityApprovals}

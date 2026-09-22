@@ -31,6 +31,12 @@ import {
   settingsFingerprint,
 } from '../../ipc/settings';
 import { isValidId } from '../instructionStore';
+import {
+  deleteSystemPrompt,
+  isSystemPromptId,
+  readStoredSystemPrompt,
+  writeSystemPrompt,
+} from '../systemPromptStore';
 import { cleanupStagedResources, collectSkillResource, stageResources } from './assets';
 import {
   ConfigSyncCodecError,
@@ -65,6 +71,7 @@ export const CONFIG_SYNC_FIELD_POLICY = {
   loadHarnessAssets: { mode: 'portable' },
   windowsLocalShell: { mode: 'excluded', reason: 'platform-specific shell selection' },
   exploreFoldEnabled: { mode: 'portable' },
+  rtkEnabled: { mode: 'portable' },
   editMode: { mode: 'portable' },
   hashlineEditEnabled: { mode: 'excluded', reason: 'legacy read-only edit mode migration' },
   compactStrategy: { mode: 'portable' },
@@ -90,6 +97,7 @@ export const CONFIG_SYNC_FIELD_POLICY = {
   openChangesOnFileEdit: { mode: 'portable' },
   compactReadOnlyTools: { mode: 'portable' },
   expandLiveEdits: { mode: 'portable' },
+  autoCollapseTurns: { mode: 'portable' },
   chatWide: { mode: 'portable' },
   notifyMainAgentOnly: { mode: 'portable' },
   maxActiveCoworkers: { mode: 'portable' },
@@ -143,6 +151,7 @@ export const CONFIG_SYNC_FIELD_POLICY = {
   agentTypes: { mode: 'portable' },
   disabledBuiltinAgentTypes: { mode: 'portable' },
   disabledBuiltinTools: { mode: 'portable' },
+  subagentAllowedModes: { mode: 'portable' },
   onboarded: { mode: 'excluded', reason: 'device onboarding state' },
   keybindings: { mode: 'portable' },
   projects: { mode: 'excluded', reason: 'device-local paths and authority records' },
@@ -177,6 +186,17 @@ function stateOf(settings: Record<string, unknown> | null): Record<string, unkno
   if (!store || typeof store !== 'object') return {};
   const state = (store as Record<string, unknown>).state;
   return state && typeof state === 'object' ? (state as Record<string, unknown>) : {};
+}
+
+function referencedSystemPromptIds(value: unknown): Set<string> {
+  const ids = new Set<string>();
+  if (!Array.isArray(value)) return ids;
+  for (const preset of value) {
+    if (!preset || typeof preset !== 'object') continue;
+    const id = (preset as Record<string, unknown>).systemPromptId;
+    if (typeof id === 'string' && isSystemPromptId(id)) ids.add(id);
+  }
+  return ids;
 }
 
 function portableState(state: Record<string, unknown>): Record<string, unknown> {
@@ -231,6 +251,7 @@ function collectBundle(secretsIncluded: boolean): ConfigSyncBundle {
   const state = portableState(sourceState);
   const skills = [] as ConfigSyncBundle['resources']['skills'];
   const instructions = [] as ConfigSyncBundle['resources']['instructions'];
+  const systemPrompts = [] as NonNullable<ConfigSyncBundle['resources']['systemPrompts']>;
   const rawSkills = Array.isArray(sourceState.skills) ? sourceState.skills : [];
   const portableSkills = Array.isArray(state.skills) ? state.skills : [];
   const keptSkillIds = new Set<string>();
@@ -295,12 +316,27 @@ function collectBundle(secretsIncluded: boolean): ConfigSyncBundle {
     if (portable) portable.bytes = bytes;
     instructions.push({ id: instruction.id, content });
   }
+  const collectedSystemPromptIds = new Set<string>();
+  for (const value of Array.isArray(state.presets) ? state.presets : []) {
+    if (!value || typeof value !== 'object') continue;
+    const systemPromptId = (value as Record<string, unknown>).systemPromptId;
+    if (systemPromptId === undefined || collectedSystemPromptIds.has(String(systemPromptId))) {
+      continue;
+    }
+    if (typeof systemPromptId !== 'string' || !isSystemPromptId(systemPromptId)) {
+      throw new Error('System prompt source is unavailable');
+    }
+    const result = readStoredSystemPrompt(systemPromptId);
+    if (!result.ok) throw new Error('System prompt source is unavailable');
+    collectedSystemPromptIds.add(systemPromptId);
+    systemPrompts.push({ id: systemPromptId, content: result.content });
+  }
   return {
     format: 'enso-config',
     version: 1,
     createdAt: new Date().toISOString(),
     state,
-    resources: { skills, instructions },
+    resources: { skills, instructions, systemPrompts },
     secretsIncluded,
   } as unknown as ConfigSyncBundle;
 }
@@ -330,9 +366,13 @@ export async function exportConfigToPath(
     let bundle = collectBundle(options.includeSecrets);
     if (
       !options.includeSecrets &&
-      (bundle.resources.skills.length > 0 || bundle.resources.instructions.length > 0)
+      (bundle.resources.skills.length > 0 ||
+        bundle.resources.instructions.length > 0 ||
+        (bundle.resources.systemPrompts?.length ?? 0) > 0)
     ) {
-      return resultError('Skill and instruction contents require an encrypted export.');
+      return resultError(
+        'Skill, instruction, and system prompt contents require an encrypted export.'
+      );
     }
     if (!options.includeSecrets) bundle = redactBundle(bundle);
     const bytes = await encodeBundle(bundle, options.includeSecrets ? options.password : undefined);
@@ -467,7 +507,14 @@ export async function commitImportForSender(
     skillPaths: Map<string, string>;
     instructionPaths: Map<string, string>;
   } | null = null;
+  let stagedSystemPromptIds: string[] = [];
+  const rollbackSystemPrompts = (): void => {
+    for (const id of stagedSystemPromptIds) deleteSystemPrompt(id);
+    stagedSystemPromptIds = [];
+  };
   try {
+    const currentState = stateOf(readSettings());
+    const previousSystemPromptIds = referencedSystemPromptIds(currentState.presets);
     staged = stageResources(
       app.getPath('userData'),
       entry.bundle.resources.skills,
@@ -513,15 +560,51 @@ export async function commitImportForSender(
       }
       return item;
     });
+    const usedSystemPromptIds = new Set(previousSystemPromptIds);
+    const systemPromptIdMap = new Map<string, string>();
+    for (const resource of entry.bundle.resources.systemPrompts ?? []) {
+      let destinationId = randomUUID();
+      while (usedSystemPromptIds.has(destinationId) || readStoredSystemPrompt(destinationId).ok) {
+        destinationId = randomUUID();
+      }
+      usedSystemPromptIds.add(destinationId);
+      systemPromptIdMap.set(resource.id, destinationId);
+    }
+    const importedPromptIdsByPreset = new Map<string, string>();
+    for (const preset of entry.bundle.state.presets) {
+      if (!preset.systemPromptId) continue;
+      const presetId = entry.plan.presetIdMap[preset.id];
+      const promptId = systemPromptIdMap.get(preset.systemPromptId);
+      if (!presetId || !promptId) throw new Error('Unable to map system prompt resource');
+      importedPromptIdsByPreset.set(presetId, promptId);
+    }
+    const presets = Array.isArray(patch.presets) ? patch.presets : [];
+    patch.presets = presets.map((value) => {
+      if (!value || typeof value !== 'object') return value;
+      const item = { ...(value as Record<string, unknown>) };
+      const promptId = importedPromptIdsByPreset.get(String(item.id));
+      if (promptId) item.systemPromptId = promptId;
+      return item;
+    });
+    for (const resource of entry.bundle.resources.systemPrompts ?? []) {
+      const destinationId = systemPromptIdMap.get(resource.id);
+      if (!destinationId) throw new Error('Unable to map system prompt resource');
+      stagedSystemPromptIds.push(destinationId);
+      const written = writeSystemPrompt(destinationId, resource.content);
+      if (!written.ok) throw new Error('Unable to stage system prompt resource');
+    }
     const committed = commitSettingsTransaction(entry.fingerprint, patch);
     if (!committed.ok) {
       cleanupStagedResources([staged.batchRoot]);
+      rollbackSystemPrompts();
       return resultError(committed.error ?? 'Unable to commit configuration.');
     }
+    stagedSystemPromptIds = [];
     tokens.delete(token);
     return { ok: true, backupPath: committed.backupPath ?? '', warnings: entry.plan.warnings };
   } catch {
     if (staged) cleanupStagedResources([staged.batchRoot]);
+    rollbackSystemPrompts();
     return resultError('Unable to commit configuration.');
   }
 }

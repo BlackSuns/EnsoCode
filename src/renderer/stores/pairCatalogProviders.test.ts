@@ -1,6 +1,6 @@
 import type { ModelProvider } from '@shared/types';
 import { describe, expect, it } from 'vitest';
-import { toPairProviderEntries } from './pairCatalogProviders';
+import { pairProviderSyncPlan, toPairProviderEntries } from './pairCatalogProviders';
 
 function provider(id: string, overrides: Partial<ModelProvider> = {}): ModelProvider {
   return {
@@ -49,5 +49,38 @@ describe('toPairProviderEntries', () => {
         { revision: 1, availability: { status: 'loading' } }
       ).map((entry) => entry.id)
     ).toEqual(['api']);
+  });
+
+  it('只有 OAuth 且凭证未就绪时不结算，避免下发空列表', () => {
+    expect(
+      pairProviderSyncPlan([provider('oauth', { apiKey: '', oauthAccountKey: 'anthropic' })], {
+        revision: 1,
+        availability: { status: 'loading' },
+      })
+    ).toEqual({ entries: [], settled: false });
+    expect(
+      pairProviderSyncPlan([provider('oauth', { apiKey: '', oauthAccountKey: 'anthropic' })], {
+        revision: 0,
+        availability: { status: 'unloaded' },
+      }).settled
+    ).toBe(false);
+  });
+
+  it('API key 仍在时，OAuth 加载中也结算当前可见列表', () => {
+    const plan = pairProviderSyncPlan(
+      [provider('api'), provider('oauth', { apiKey: '', oauthAccountKey: 'anthropic' })],
+      { revision: 1, availability: { status: 'loading' } }
+    );
+    expect(plan.settled).toBe(true);
+    expect(plan.entries.map((entry) => entry.id)).toEqual(['api']);
+  });
+
+  it('凭证刷新失败是确定结果，要结算空列表', () => {
+    expect(
+      pairProviderSyncPlan([provider('oauth', { apiKey: '', oauthAccountKey: 'anthropic' })], {
+        revision: 2,
+        availability: { status: 'error', error: 'auth unavailable' },
+      })
+    ).toEqual({ entries: [], settled: true });
   });
 });

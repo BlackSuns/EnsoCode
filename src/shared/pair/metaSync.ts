@@ -48,7 +48,30 @@ export function providersSyncFingerprint(
   );
 }
 
-/** 进房连打 / oauth 短抖动：同一连接 1.5s 内 providers 只出一帧。 */
+export type ProviderEmitPlan =
+  | { kind: 'unchanged' }
+  | { kind: 'defer'; delayMs: number }
+  | { kind: 'send' };
+
+/**
+ * 进房连打 / oauth 短抖动：同一连接 1.5s 内 providers 只出一帧。
+ * 指纹变了但落在窗口里时必须延后补发。
+ * 当成已发出会把空列表锁死，手机就一直显示没有模型服务。
+ */
+export function planProviderEmit(
+  lastFp: string | undefined,
+  lastAt: number | undefined,
+  nextFp: string,
+  now: number,
+  windowMs = 1500
+): ProviderEmitPlan {
+  if (lastFp === nextFp) return { kind: 'unchanged' };
+  if (lastAt !== undefined && now - lastAt < windowMs) {
+    return { kind: 'defer', delayMs: Math.max(0, windowMs - (now - lastAt)) };
+  }
+  return { kind: 'send' };
+}
+
 export function shouldEmitProviders(
   lastFp: string | undefined,
   lastAt: number | undefined,
@@ -56,9 +79,19 @@ export function shouldEmitProviders(
   now: number,
   windowMs = 1500
 ): boolean {
-  if (lastFp === nextFp) return false;
-  if (lastAt !== undefined && now - lastAt < windowMs) return false;
-  return true;
+  return planProviderEmit(lastFp, lastAt, nextFp, now, windowMs).kind === 'send';
+}
+
+/** defer 的 providers 不能进本次发送集合，否则 stable 会提前锁上还没发出的指纹。 */
+export function providerChannelsToSend(
+  allowed: readonly PairMetaChannel[],
+  plan: ProviderEmitPlan
+): { channels: PairMetaChannel[]; deferMs?: number } {
+  if (plan.kind !== 'defer') return { channels: [...allowed] };
+  return {
+    channels: allowed.filter((key) => key !== 'providers'),
+    deferMs: plan.delayMs,
+  };
 }
 
 /** 列表会话剥掉聊天专用字段；当前订阅保留 cwd/排队/模型 */

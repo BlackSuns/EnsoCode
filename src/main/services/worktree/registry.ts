@@ -1,25 +1,57 @@
 /**
  * 会话 ↔ worktree 绑定的持久化注册表（main 权威）。
  * spawn cwd 授权（ipc/agent.ts persistedRootSpawn）依赖此表判断 worktree 路径合法性。
- * 单文件 JSON（userData/worktrees.json），量小，同步读写 + 内存缓存。
+ * 单文件 JSON（userData/worktrees.json），量小，原子替换落盘 + Main 唯一内存缓存。
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { SessionWorktree } from '../../../shared/types/worktree';
+import type {
+  SessionWorktree,
+  WorktreeUsageRecord,
+} from '../../../shared/types/worktree';
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSessionWorktree(value: unknown): value is SessionWorktree {
+  return (
+    isObject(value) &&
+    typeof value.conversationId === 'string' &&
+    typeof value.projectId === 'string' &&
+    typeof value.repoPath === 'string' &&
+    typeof value.path === 'string' &&
+    typeof value.branch === 'string' &&
+    (typeof value.baseBranch === 'string' || value.baseBranch === null) &&
+    typeof value.baseCommit === 'string' &&
+    typeof value.createdAt === 'number'
+  );
+}
+
+let sharedRegistry: { filePath: string; value: WorktreeRegistry } | undefined;
+
+export function getSharedWorktreeRegistry(filePath: string): WorktreeRegistry {
+  if (sharedRegistry && sharedRegistry.filePath !== filePath) {
+    throw new Error('Main worktree registry is already initialized with another path');
+  }
+  sharedRegistry ??= { filePath, value: new WorktreeRegistry(filePath) };
+  return sharedRegistry.value;
+}
 
 export class WorktreeRegistry {
   private records = new Map<string, SessionWorktree>();
-
   constructor(private readonly filePath: string) {
     try {
       const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
       if (parsed && typeof parsed === 'object') {
         for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
-          const r = value as SessionWorktree;
-          if (r && typeof r.path === 'string' && typeof r.branch === 'string') {
-            const name = typeof r.name === 'string' ? r.name.trim() : '';
-            this.records.set(id, { ...r, name: name && name.length <= 80 ? name : undefined });
+          if (isSessionWorktree(value)) {
+            const name = typeof value.name === 'string' ? value.name.trim() : '';
+            this.records.set(id, {
+              ...value,
+              name: name && name.length <= 80 ? name : undefined,
+            });
           }
         }
       }
@@ -35,6 +67,12 @@ export class WorktreeRegistry {
   set(record: SessionWorktree): void {
     this.records.set(record.conversationId, record);
     this.flush();
+  }
+
+  usageRecords(): WorktreeUsageRecord[] {
+    return [...this.records.values()].map(
+      ({ path, projectId, repoPath }) => ({ path, projectId, repoPath })
+    );
   }
 
   share(fromConversationId: string, toConversationId: string): void {
@@ -111,6 +149,14 @@ export class WorktreeRegistry {
 
   private flush(): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(Object.fromEntries(this.records), null, 2));
+    const entries = [...this.records.entries()];
+    const temporary = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      writeFileSync(temporary, JSON.stringify(Object.fromEntries(entries), null, 2));
+      renameSync(temporary, this.filePath);
+    } catch (error) {
+      rmSync(temporary, { force: true });
+      throw error;
+    }
   }
 }

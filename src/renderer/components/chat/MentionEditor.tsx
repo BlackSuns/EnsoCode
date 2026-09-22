@@ -6,6 +6,7 @@ import type {
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { extractMentionQuery, fileMentionBasename, type MentionSegment } from './mentionComposer';
+import { extractSkillQuery } from './skillCompletion';
 
 /**
  * contentEditable 提及编辑器:文件/会话以原子卡片(contenteditable=false)内联,
@@ -23,6 +24,8 @@ export interface MentionEditorState {
   mentionQuery: string | null;
   /** 光标处的 /query(仅编辑器首节点文本;null = 无) */
   slashQuery: string | null;
+  /** 光标处的 $query(null = 无活动技能 token) */
+  skillQuery: string | null;
 }
 
 export interface MentionEditorHandle {
@@ -35,8 +38,8 @@ export interface MentionEditorHandle {
   insertMention(
     candidate: FileMentionCandidate | ChatMentionCandidate | UiElementMentionCandidate
   ): void;
-  /** 仅移除光标处的 @token 或 /token(agent recipient、slash 选中用) */
-  consumeToken(prefix: '@' | '/'): void;
+  /** 仅移除光标处的 @token、/token 或 $token */
+  consumeToken(prefix: '@' | '/' | '$'): void;
   /** 在光标处插入文件卡片(拖拽文件用,无 token 语义) */
   insertFileChip(path: string): void;
   /** 在光标处插入纯文本 */
@@ -341,28 +344,33 @@ export const MentionEditor = forwardRef<MentionEditorHandle, MentionEditorProps>
       const hasMentions = segments.some((segment) => segment.type !== 'text');
       let mentionQuery: string | null = null;
       let slashQuery: string | null = null;
+      let skillQuery: string | null = null;
       const caret = caretContext(root);
       if (caret) {
         const before = caret.node.textContent?.slice(0, caret.offset) ?? '';
         mentionQuery = extractMentionQuery(before, before.length);
+        if (mentionQuery === null) skillQuery = extractSkillQuery(before, before.length);
         // slash 仅当光标在首个文本节点、且 token 从 0 开始
         if (mentionQuery === null && caret.node === root.firstChild && /^\/[^\s]*$/.test(before)) {
           slashQuery = before.slice(1);
         }
       }
-      onStateChange({ plainText, hasMentions, segments, mentionQuery, slashQuery });
+      onStateChange({ plainText, hasMentions, segments, mentionQuery, slashQuery, skillQuery });
     }, [onStateChange]);
 
-    /** 光标处活动 token 的范围(@ 或 /) */
+    /** 光标处活动 token 的范围(@、/ 或 $) */
     const activeTokenRange = useCallback(
-      (prefix: '@' | '/'): { node: Text; start: number; end: number } | null => {
+      (prefix: '@' | '/' | '$'): { node: Text; start: number; end: number } | null => {
         const root = rootRef.current;
         if (!root) return null;
         const caret = caretContext(root);
         if (!caret) return null;
         const before = caret.node.textContent?.slice(0, caret.offset) ?? '';
-        if (prefix === '@') {
-          const query = extractMentionQuery(before, before.length);
+        if (prefix === '@' || prefix === '$') {
+          const query =
+            prefix === '@'
+              ? extractMentionQuery(before, before.length)
+              : extractSkillQuery(before, before.length);
           if (query === null) return null;
           return { node: caret.node, start: before.length - query.length - 1, end: caret.offset };
         }
@@ -521,7 +529,9 @@ export const MentionEditor = forwardRef<MentionEditorHandle, MentionEditorProps>
           const segment = segmentFromChip(chip);
           if (segment) onChipActivate(segment);
         }}
-        onKeyUp={emitState}
+        onKeyUp={(event) => {
+          if (event.key !== 'Escape') emitState();
+        }}
         onMouseUp={emitState}
         onPaste={(event) => {
           if (event.clipboardData.files.length > 0) {

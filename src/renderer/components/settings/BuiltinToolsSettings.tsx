@@ -1,4 +1,5 @@
 import { BUILTIN_TOOLS, EDIT_MODES, type EditMode, isEditMode } from '@shared/types';
+import type { AgentMode } from '@shared/types/agent';
 import type { BrowserClearKind } from '@shared/types/browser';
 import { Globe, Wrench } from 'lucide-react';
 import { useState } from 'react';
@@ -29,8 +30,12 @@ export function BuiltinToolsSettings() {
   const { t } = useI18n();
   const disabled = useSettingsStore((state) => state.disabledBuiltinTools);
   const toggle = useSettingsStore((state) => state.toggleBuiltinTool);
+  const subagentAllowedModes = useSettingsStore((state) => state.subagentAllowedModes);
+  const setSubagentAllowedModes = useSettingsStore((state) => state.setSubagentAllowedModes);
   const exploreFoldEnabled = useSettingsStore((state) => state.exploreFoldEnabled);
   const setExploreFoldEnabled = useSettingsStore((state) => state.setExploreFoldEnabled);
+  const rtkEnabled = useSettingsStore((state) => state.rtkEnabled);
+  const setRtkEnabled = useSettingsStore((state) => state.setRtkEnabled);
   const editMode = useSettingsStore((state) => state.editMode);
   const setEditMode = useSettingsStore((state) => state.setEditMode);
   const occupancy = useOccupancyRows(
@@ -42,6 +47,14 @@ export function BuiltinToolsSettings() {
     occupancy.rows
   );
   const [cleared, setCleared] = useState<BrowserClearKind | null>(null);
+  const subagentEnabled = !disabled.includes('subagent');
+  const setMode = (mode: AgentMode, enabled: boolean) => {
+    setSubagentAllowedModes(
+      enabled
+        ? [...new Set([...subagentAllowedModes, mode])]
+        : subagentAllowedModes.filter((item) => item !== mode)
+    );
+  };
   const clear = async (kind: BrowserClearKind) => {
     await window.electronAPI.browser.clearData(kind);
     setCleared(kind);
@@ -80,6 +93,38 @@ export function BuiltinToolsSettings() {
         ))}
       </div>
 
+      <div
+        className="space-y-3 rounded-lg border px-3 py-2.5"
+        data-settings-row="tools.subagentModes"
+      >
+        <div>
+          <p className="font-medium text-sm">{t('Unified agent modes')}</p>
+          <p className="text-muted-foreground text-xs">
+            {t('Choose which Agent modes the unified subagent tool may create in new sessions.')}
+          </p>
+        </div>
+        {(
+          [
+            ['task', 'One-shot task agents'],
+            ['coworker', 'Persistent coworkers'],
+          ] as const
+        ).map(([mode, label]) => (
+          <div key={mode} className="flex items-center justify-between gap-4">
+            <span className="text-sm">{t(label)}</span>
+            <Switch
+              checked={subagentAllowedModes.includes(mode)}
+              disabled={!subagentEnabled}
+              onCheckedChange={(checked) => setMode(mode, checked)}
+            />
+          </div>
+        ))}
+        {!subagentEnabled && (
+          <p className="text-muted-foreground text-xs">
+            {t('The unified subagent tool is off. Re-enabling it keeps this mode selection.')}
+          </p>
+        )}
+      </div>
+
       <div className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
         <div>
           <p className="font-medium text-sm">{t('Explore fold')}</p>
@@ -90,6 +135,21 @@ export function BuiltinToolsSettings() {
           </p>
         </div>
         <Switch checked={exploreFoldEnabled} onCheckedChange={setExploreFoldEnabled} />
+      </div>
+
+      <div
+        className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5"
+        data-settings-row="tools.rtkEnabled"
+      >
+        <div className="min-w-0">
+          <p className="font-medium text-sm">{t('RTK command compression')}</p>
+          <p className="text-muted-foreground text-xs">
+            {t(
+              'Compress supported command output before it enters the model context. Takes effect on new conversations.'
+            )}
+          </p>
+        </div>
+        <Switch checked={rtkEnabled} onCheckedChange={setRtkEnabled} />
       </div>
 
       <div className="space-y-2 rounded-lg border px-3 py-2.5" data-settings-row="tools.editMode">

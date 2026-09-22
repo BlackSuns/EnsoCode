@@ -1,62 +1,9 @@
 import fs from 'node:fs';
-import type { McpTransport } from '@shared/types';
+import { type DiscoveredMcpServer, parseServerMap } from '@shared/mcpConfig';
 import { parse as parseToml } from 'smol-toml';
 
-export interface DiscoveredMcpServer {
-  name: string;
-  transport: McpTransport;
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-}
-
-const asText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
-
-const asStringArray = (value: unknown): string[] =>
-  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-
-const asStringRecord = (value: unknown): Record<string, string> => {
-  if (!value || typeof value !== 'object') return {};
-  const result: Record<string, string> = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof item === 'string') result[key] = item;
-  }
-  return result;
-};
-
-function toTransport(raw: unknown, url: string): McpTransport {
-  const value = asText(raw).toLowerCase();
-  if (value === 'sse') return 'sse';
-  if (value === 'http' || value === 'streamable-http') return 'http';
-  if (value === 'stdio') return 'stdio';
-  return url ? 'http' : 'stdio';
-}
-
-/** 解析 { name: { command, args, env, url, type } } 形态的服务器表 */
-export function parseServerMap(servers: unknown): DiscoveredMcpServer[] {
-  if (!servers || typeof servers !== 'object') return [];
-  const result: DiscoveredMcpServer[] = [];
-
-  for (const [name, raw] of Object.entries(servers as Record<string, unknown>)) {
-    if (!raw || typeof raw !== 'object') continue;
-    const config = raw as Record<string, unknown>;
-    const url = asText(config.url) || asText(config.serverUrl);
-    const command = asText(config.command);
-    if (!command && !url) continue;
-
-    result.push({
-      name,
-      transport: toTransport(config.type ?? config.transport, url),
-      command: command || undefined,
-      args: command ? asStringArray(config.args) : undefined,
-      env: command ? asStringRecord(config.env) : undefined,
-      url: url || undefined,
-    });
-  }
-
-  return result;
-}
+export type { DiscoveredMcpServer };
+export { parseServerMap };
 
 /** Claude Code (~/.claude.json)：合并全局与各项目下的 mcpServers */
 export function readClaudeMcp(file: string): DiscoveredMcpServer[] {

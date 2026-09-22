@@ -116,6 +116,21 @@ export const zhTranslations: Record<string, string> = {
   'No Composer for this selection': '没有可接收圈选的输入框',
   'Add to conversation': '添加到对话',
   'Browser data': '浏览器数据',
+  'RTK command compression': 'RTK 命令压缩',
+  'Compress supported command output before it enters the model context. Takes effect on new conversations.':
+    '在受支持的命令输出进入模型上下文前进行压缩。新会话生效。',
+  Compressed: '已压缩',
+  Unchanged: '未改变',
+  'Background task started': '后台任务已启动',
+  Bypassed: '已绕过',
+  Unavailable: '不可用',
+  'This is the startup receipt; see the task_output result for final statistics.':
+    '此处为启动回执，最终统计见 task_output 的结果。',
+  '~{{count}} tokens saved': '约节省 {{count}} tokens',
+  'Input estimate': '输入估算',
+  'Output estimate': '输出估算',
+  '{{count}} tokens': '{{count}} tokens',
+  Reason: '原因',
   'Cookies and site storage of the built-in browser, separate from the app itself.':
     '内嵌浏览器的 Cookie 与站点存储，与应用本身隔离。',
   Cleared: '已清除',
@@ -172,6 +187,9 @@ export const zhTranslations: Record<string, string> = {
     '所选模型已不可用——将回退到当前会话模型。',
   'Show read/grep/find/ls as one-line rows and fold consecutive tool calls while the agent is still running':
     'read/grep/find/ls 显示为单行，agent 运行中也折叠连续的工具调用',
+  'Auto-collapse previous turns': '自动折叠历史轮次',
+  'After you send a new message, fold earlier turns down to the question, timestamp and duration; the latest turn stays expanded':
+    '发送新消息后，之前的轮次只保留提问、时间与用时；最后一轮保持展开',
   'Notify only for the main agent': '仅主 agent 发送完成通知',
   'Skip coworker completion and failure notifications on this computer and the paired phone. Questions and approvals still notify.':
     'coworker 的回合完成和失败不弹桌面或手机通知。提问和审批仍会提醒。',
@@ -359,6 +377,11 @@ export const zhTranslations: Record<string, string> = {
   'Authorize this provider to add its available models.': '授权此提供商，以添加其可用模型。',
   'Connect subscription': '连接订阅',
   'Add another account': '添加其他账号',
+  'Import from Codex': '从 Codex 导入',
+  'Codex login not found. Sign in to Codex Desktop or CLI first.':
+    '未找到 Codex 登录态，请先在 Codex Desktop 或 CLI 中登录。',
+  'Codex is not signed in with a ChatGPT account.': 'Codex 未使用 ChatGPT 账号登录。',
+  'This ChatGPT account is already connected.': '该 ChatGPT 账号已连接。',
   'Resets {{time}}': '{{time}} 后重置',
   Local: '本地',
   'Default model': '默认模型',
@@ -422,11 +445,18 @@ export const zhTranslations: Record<string, string> = {
   'Open Markdown Preview': '打开 Markdown 预览',
   'View Source': '查看源码',
   'Reveal in Finder': '在访达中显示',
+  'Open in Finder': '在访达中打开',
+  'Open in File Explorer': '在资源管理器中打开',
+  'Open in File Manager': '在文件管理器中打开',
   'Open Containing Folder': '打开所在文件夹',
   'Reveal in File Explorer': '在资源管理器中显示',
   'A file or folder with that name already exists.': '已存在同名文件或文件夹。',
   'Invalid name.': '名称无效。',
   'Could not complete the file action.': '无法完成该文件操作。',
+  'Could not open local file link': '无法打开本地文件链接',
+  'The link is outside the current workspace.': '链接位于当前工作区之外。',
+  'This link is not available on the local computer.': '此链接不在本机工作区中，无法打开。',
+  'The linked file or folder is unavailable.': '链接的文件或文件夹不可用。',
   'Delete {{name}} permanently?': '永久删除 {{name}}？',
   'Close others': '关闭其他',
   'Close tabs to the right': '关闭右侧标签页',
@@ -576,6 +606,17 @@ export const zhTranslations: Record<string, string> = {
   'Tool call timeout (seconds)': '工具调用超时（秒）',
   'This MCP server already exists': '该 MCP 服务器已存在',
   'Import MCP servers': '导入 MCP 服务器',
+  Form: '表单',
+  JSON: 'JSON',
+  'JSON configuration': 'JSON 配置',
+  Format: '格式化',
+  'Invalid JSON': 'JSON 格式错误',
+  'No MCP servers found in JSON': 'JSON 中没有有效的 MCP 服务器',
+  'JSON must describe a single MCP server': 'JSON 只能描述一台 MCP 服务器',
+  'JSON must describe a single MCP server to switch to the form':
+    '切回表单时 JSON 只能描述一台 MCP 服务器',
+  'Paste a server object or mcpServers JSON from Cursor / Claude Desktop':
+    '可粘贴单台配置，或 Cursor / Claude Desktop 的 mcpServers JSON',
   'Scan local AI apps and register the entries you want to reuse.':
     '扫描本机 AI 应用,登记你想复用的条目。',
   'Nothing importable found': '未发现可导入的条目',
@@ -856,6 +897,7 @@ export const zhTranslations: Record<string, string> = {
   'Show {{n}} more': '展开其余 {{n}} 条',
   'Archive {{n}} conversations': '归档 {{n}} 条会话',
   Collapse: '收起',
+  Expand: '展开',
   'Expand sidebar': '展开侧边栏',
   'Approval required': '需要审批',
   'Waiting for your answer': '等待你回答',
@@ -1270,6 +1312,20 @@ export const zhTranslations: Record<string, string> = {
   Presets: '预设',
   'New preset': '新建预设',
   'Edit preset': '编辑预设',
+  'Role descriptions, skills, MCP servers and instruction files, chosen per conversation':
+    '角色描述 / 技能 / MCP / 指令文件的组合，按对话选用',
+  'View default role description': '查看默认角色描述',
+  'Custom role': '自定义角色',
+  'Role description': '角色描述',
+  'Replace pi opening role description': '替换 pi 开头的角色描述',
+  'Built-in default (read-only)': '内置默认（只读）',
+  'System prompt cannot be empty': '系统提示词不能为空',
+  'Failed to save system prompt': '系统提示词保存失败',
+  'Failed to read system prompt': '系统提示词读取失败',
+  'Only replaces the opening role paragraph. Available tools and everything after it stay unchanged. Applies to new and cold-restored sessions.':
+    '仅替换开头的角色段落，Available tools 及之后的全部内容保持不变。新建及冷恢复的会话生效。',
+  'This is the pi opening role paragraph. Custom presets replace only this paragraph; tools, guidelines and project context stay unchanged.':
+    '这是 pi 开头的角色段落。自定义预设只替换这段，工具、使用准则和项目上下文均保持不变。',
   Global: '全局',
   'Set as default': '设为默认',
   Default: '默认',
@@ -1433,8 +1489,8 @@ export const zhTranslations: Record<string, string> = {
   'Import configuration': '导入配置',
   'Export configuration': '导出配置',
   Export: '导出',
-  'OAuth login sessions are never transferred. Skill and instruction contents require an encrypted export.':
-    'OAuth 登录态不会迁移。技能和指令内容需要使用加密导出。',
+  'OAuth login sessions are never transferred. Skill, instruction, and system prompt contents require an encrypted export.':
+    'OAuth 登录态不会迁移。技能、指令和系统提示词正文需要使用加密导出。',
   'Create a portable .enso-config package for another device.':
     '创建可在另一台设备使用的 .enso-config 配置包。',
   'File contents can be private': '文件内容可能包含私密信息',
@@ -1507,7 +1563,8 @@ export const zhTranslations: Record<string, string> = {
   'Export password is too short.': '导出密码太短。',
   'Configuration package is too large.': '配置包过大。',
   'Unable to export configuration.': '无法导出配置。',
-  'Skill and instruction contents require an encrypted export.': '技能和指令内容需要使用加密导出。',
+  'Skill, instruction, and system prompt contents require an encrypted export.':
+    '技能、指令和系统提示词正文需要使用加密导出。',
   'Invalid import request.': '导入请求无效。',
   'Invalid configuration package.': '配置包无效。',
   'Unable to read configuration package.': '无法读取配置包。',
@@ -1538,6 +1595,18 @@ export const zhTranslations: Record<string, string> = {
   'Ask a side question without sending it to the main agent.': '旁路提问，不会发给主 agent。',
   'New Btw tab': '新建旁路标签',
   'Open a Btw tab in the side panel': '在右侧栏打开旁路对话',
+  'Unified agents: delegate one-shot tasks or keep persistent coworkers under Main control':
+    '统一 Agent：委派一次性任务，或在 Main 控制下保留持久 coworker',
+  'Unified agent modes': '统一 Agent 模式',
+  'Choose which Agent modes the unified subagent tool may create in new sessions.':
+    '选择统一 subagent 工具可在新会话中创建哪些 Agent 模式。',
+  'One-shot task agents': '一次性任务 Agent',
+  'Persistent coworkers': '持久 coworker',
+  'The unified subagent tool is off. Re-enabling it keeps this mode selection.':
+    '统一 subagent 工具已关闭。重新开启时会保留此模式选择。',
+  'Follow global unified agent modes': '跟随全局统一 Agent 模式',
+  'When off, this project uses its own explicit Agent mode permission mask.':
+    '关闭后，此项目使用自己明确配置的 Agent 模式权限掩码。',
 };
 
 export function normalizeLocale(input?: string): Locale {

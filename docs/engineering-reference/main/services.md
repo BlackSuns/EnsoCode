@@ -89,6 +89,16 @@ assistant 消息。不干预的后果是父会话文件从未创建，重启后 
 2. 回归测试断言**可观测结果**（文件落盘）而不是“调用了某私有方法”
 3. 在本节登记
 
+预设仅替换开头角色段落，不替换整份系统提示词。在 `before_agent_start` 用
+`replacePersonaParagraph` 匹配开头默认段落，`Available tools` 及之后的内容原样保留；
+不使用 loader 的 `systemPrompt` / `systemPromptOverride`，避免绕过 pi 默认工具准则生成。
+设置页默认预览也只展示 `DEFAULT_PERSONA_PROMPT`；升级 pi 时复检默认段落，匹配失败时
+保留原文并追加角色描述。回归见 `systemPrompt.test.ts`、`supervisor.agentDispatch.test.ts`。
+正文以 UUID 文件保存，Renderer 仅修改预设引用，Main
+在设置原子落盘成功后才清理取消引用的文件，不能在 debounce 期间先删正文；回归见
+`settingsPresetPrompts.test.ts`。配置导入为正文分配新 UUID，不覆盖本机同 ID 正文；旧导入
+正文保留给设置备份恢复使用。
+
 ## 扫描器的三件套结构
 
 `providerScan/` 和 `assetScan/` 都是同一套形状，新增扫描来源时照此扩展：

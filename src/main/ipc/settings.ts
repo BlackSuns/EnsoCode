@@ -14,6 +14,7 @@ import { IPC_CHANNELS, isEditMode, resolveEditMode } from '@shared/types';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { readStoredOauthCredentialKeys } from '../services/oauthProviders';
 import { parseTraySleepPolicy, type TraySleepPolicy } from '../services/pairPowerKeepAlive';
+import { deleteSystemPrompt, isSystemPromptId } from '../services/systemPromptStore';
 import { getWindowWebContents, sendToWindow } from '../windows/createAppWindow';
 
 function getSettingsPath(): string {
@@ -25,6 +26,7 @@ let cachedSettings: Record<string, unknown> | null = null;
 let pendingWrite: NodeJS.Timeout | null = null;
 let maxWaitTimer: NodeJS.Timeout | null = null;
 let isDirty = false;
+const pendingSystemPromptDeletes = new Set<string>();
 
 const DEBOUNCE_MS = 500;
 const MAX_WAIT_MS = 5000;
@@ -45,6 +47,7 @@ export const SETTINGS_STATE_FIELDS = [
   'loadHarnessAssets',
   'windowsLocalShell',
   'exploreFoldEnabled',
+  'rtkEnabled',
   'editMode',
   'hashlineEditEnabled',
   'compactStrategy',
@@ -58,6 +61,7 @@ export const SETTINGS_STATE_FIELDS = [
   'openChangesOnFileEdit',
   'compactReadOnlyTools',
   'expandLiveEdits',
+  'autoCollapseTurns',
   'chatWide',
   'notifyMainAgentOnly',
   'maxActiveCoworkers',
@@ -102,6 +106,7 @@ export const SETTINGS_STATE_FIELDS = [
   'agentTypes',
   'disabledBuiltinAgentTypes',
   'disabledBuiltinTools',
+  'subagentAllowedModes',
   'memoryEmbeddingModel',
   'memoryEmbeddingAutoDownload',
   'memoryModelIdleMinutes',
@@ -179,6 +184,17 @@ export interface SettingsPatchResult {
   error?: string;
 }
 
+function systemPromptIds(settings: Record<string, unknown> | null): Set<string> {
+  const presets = settingsStateOf(settings).presets;
+  const ids = new Set<string>();
+  for (const preset of Array.isArray(presets) ? presets : []) {
+    if (!preset || typeof preset !== 'object') continue;
+    const id = (preset as Record<string, unknown>).systemPromptId;
+    if (typeof id === 'string' && isSystemPromptId(id)) ids.add(id);
+  }
+  return ids;
+}
+
 export function readSettings(): Record<string, unknown> | null {
   if (cachedSettings !== null) {
     return cachedSettings;
@@ -202,6 +218,13 @@ function atomicWriteSettings(data: Record<string, unknown>): boolean {
     const tempPath = `${settingsPath}.tmp`;
     writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
     renameSync(tempPath, settingsPath);
+    // 正文只能在引用成功落盘后回收；失败/防抖窗口内必须保留旧磁盘配置的正文。
+    if (pendingSystemPromptDeletes.size > 0) {
+      const referenced = systemPromptIds(data);
+      for (const id of pendingSystemPromptDeletes) {
+        if (referenced.has(id) || deleteSystemPrompt(id).ok) pendingSystemPromptDeletes.delete(id);
+      }
+    }
     return true;
   } catch {
     return false;
@@ -274,10 +297,17 @@ function scheduleWrite(
   broadcast: SettingsBroadcast = 'exclude-sender'
 ): boolean {
   try {
-    const destructive = destructiveFields(readSettings(), data);
+    const previous = readSettings();
+    const destructive = destructiveFields(previous, data);
     if (destructive.length > 0) {
       flushSettings();
       snapshotBeforeDestructiveWrite(destructive);
+    }
+    if (settingsStateOf(previous).presets !== settingsStateOf(data).presets) {
+      const nextPromptIds = systemPromptIds(data);
+      for (const id of systemPromptIds(previous)) {
+        if (!nextPromptIds.has(id)) pendingSystemPromptDeletes.add(id);
+      }
     }
     cachedSettings = data;
     isDirty = true;

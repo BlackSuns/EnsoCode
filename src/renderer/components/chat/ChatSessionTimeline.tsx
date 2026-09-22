@@ -12,6 +12,7 @@ import {
 } from '@/stores/sessions/timeline';
 import { ChatFindBar, consumePendingFindQuery, OPEN_CHAT_FIND_EVENT } from './ChatFindBar';
 import { timelineSearchHits } from './chatSearch';
+import { MarkdownLinkContext } from './Markdown';
 import { MessageTimeline, type MessageTimelineHandle } from './MessageTimeline';
 
 const EMPTY_MESSAGES: ProjectedMessage[] = [];
@@ -28,6 +29,7 @@ export function ChatSessionTimeline({
   emptyTitle: string;
   timelineRef: RefObject<MessageTimelineHandle | null>;
 }) {
+  const projectId = useSessionsStore((state) => state.conversations[conversationId]?.projectId);
   const messages = useSessionsStore(
     (state) => state.conversations[conversationId]?.messages ?? EMPTY_MESSAGES
   );
@@ -192,8 +194,20 @@ export function ChatSessionTimeline({
     return () => window.removeEventListener('keydown', onKey);
   }, [findOpen, stepFind]);
 
+  const markdownLinkContext = useMemo(
+    () =>
+      projectId
+        ? {
+            conversationId,
+            projectId,
+            ...(cwd ? { cwd } : {}),
+          }
+        : null,
+    [conversationId, cwd, projectId]
+  );
+
   return (
-    <>
+    <MarkdownLinkContext.Provider value={markdownLinkContext}>
       {findOpen && (
         <ChatFindBar
           query={findQuery}
@@ -237,6 +251,6 @@ export function ChatSessionTimeline({
         searchQuery={findOpen ? findQuery : ''}
         activeHit={findOpen ? (findHits[findIndex] ?? null) : null}
       />
-    </>
+    </MarkdownLinkContext.Provider>
   );
 }

@@ -38,6 +38,7 @@ import { requestOpenChatModelPicker } from './ModelPicker';
 import type { ComposerPayload, MentionSegment } from './mentionComposer';
 import { createEditorPayload, mentionPopupLayout, resolvePopupKeyAction } from './mentionComposer';
 import { SlashChip, splitSlashCommand } from './SlashChip';
+import { filterComposerCommands } from './skillCompletion';
 
 interface ComposerProps {
   cwd?: string;
@@ -171,6 +172,7 @@ export function Composer({
     [mentionGroups, mentionQuery]
   );
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
+  const [skillQuery, setSkillQuery] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [openFolderId, setOpenFolderId] = useState<'agents' | 'chats' | null>(null);
   const [folderIndex, setFolderIndex] = useState(0);
@@ -202,6 +204,7 @@ export function Composer({
         return state.mentionQuery;
       });
       setSlashQuery(state.slashQuery);
+      setSkillQuery(state.skillQuery);
     },
     [onActivate]
   );
@@ -231,6 +234,7 @@ export function Composer({
       prevFocusKeyRef.current = focusKey;
       setMentionQuery(null);
       setSlashQuery(null);
+      setSkillQuery(null);
       setActiveIndex(0);
       setOpenFolderId(null);
       setFolderIndex(0);
@@ -256,19 +260,16 @@ export function Composer({
   }, [injectedDraft, injectedImages]);
 
   const subQuery = slashSubcommandQuery(slash, editorPlain.replaceAll('\uFFFC', ''));
-  const slashResults =
-    slashQuery === null
-      ? []
-      : commands
-          .filter((command) => command.name.toLowerCase().includes(slashQuery.toLowerCase()))
-          .slice(0, 10);
+  const slashResults = filterComposerCommands(commands, slashQuery, skillQuery);
   const subResults =
-    slashQuery === null && subQuery !== null ? filterSlashSubcommands(slash, subQuery) : [];
+    slashQuery === null && skillQuery === null && subQuery !== null
+      ? filterSlashSubcommands(slash, subQuery)
+      : [];
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset highlight when the filter token changes
   useEffect(() => {
     setActiveIndex(0);
-  }, [slashQuery, subQuery]);
+  }, [slashQuery, skillQuery, subQuery]);
 
   useEffect(() => {
     const item = slashListRef.current?.children[activeIndex] as HTMLElement | undefined;
@@ -290,7 +291,7 @@ export function Composer({
   const popupKind =
     mentionQuery !== null && mentionItems.length > 0
       ? 'mention'
-      : slashQuery !== null && slashResults.length > 0
+      : slashResults.length > 0
         ? 'slash'
         : subResults.length > 0
           ? 'slash-sub'
@@ -347,6 +348,7 @@ export function Composer({
       setRecipient(undefined);
       setMentionQuery(null);
       setSlashQuery(null);
+      setSkillQuery(null);
     },
     [images, onSend, recipient, slash]
   );
@@ -364,8 +366,9 @@ export function Composer({
       } else if (popupKind === 'slash') {
         const item = slashResults[activeIndex];
         if (!item) return;
-        editorRef.current?.consumeToken('/');
+        editorRef.current?.consumeToken(skillQuery !== null ? '$' : '/');
         setSlashQuery(null);
+        setSkillQuery(null);
         setSlash(item.name);
       } else if (popupKind === 'slash-sub') {
         const item = subResults[activeIndex];
@@ -382,6 +385,7 @@ export function Composer({
       pickMention,
       popupKind,
       slashResults,
+      skillQuery,
       subResults,
       applySlashSubcommand,
     ]
@@ -407,6 +411,7 @@ export function Composer({
     setRecipient(undefined);
     setMentionQuery(null);
     setSlashQuery(null);
+    setSkillQuery(null);
   };
 
   const ingestFiles = useCallback((files: File[]) => {
@@ -474,6 +479,7 @@ export function Composer({
         event.preventDefault();
         setMentionQuery(null);
         setSlashQuery(null);
+        setSkillQuery(null);
         setOpenFolderId(null);
         return;
       }
@@ -544,8 +550,9 @@ export function Composer({
               onClick={() => {
                 setActiveIndex(index);
                 if (popupKind === 'slash') {
-                  editorRef.current?.consumeToken('/');
+                  editorRef.current?.consumeToken(skillQuery !== null ? '$' : '/');
                   setSlashQuery(null);
+                  setSkillQuery(null);
                   setSlash(item.name);
                 } else {
                   applySlashSubcommand(item.name, false);
@@ -559,7 +566,9 @@ export function Composer({
               )}
             >
               <SlashSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="shrink-0 font-mono font-medium">{item.name}</span>
+              <span className="shrink-0 font-mono font-medium">
+                {skillQuery !== null ? `$${item.name.slice('/skill:'.length)}` : item.name}
+              </span>
               <span className="min-w-0 flex-1 truncate text-muted-foreground">
                 {t(item.description)}
               </span>

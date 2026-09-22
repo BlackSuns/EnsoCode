@@ -52,6 +52,8 @@ export interface Preset {
   mcpServerIds: string[];
   /** 注入的指令文件（单主源）；不选则不注入 */
   instructionId?: string;
+  /** 自定义开头角色段落的外部正文 UUID 引用；缺省使用 pi 默认，工具及后续规则不变 */
+  systemPromptId?: string;
 }
 
 export const DEFAULT_PRESET_ID = 'default';

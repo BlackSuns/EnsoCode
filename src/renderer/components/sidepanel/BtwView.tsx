@@ -15,6 +15,7 @@ import { AskBar } from '@/components/chat/AskBar';
 import { ChatSessionTimeline } from '@/components/chat/ChatSessionTimeline';
 import { Composer } from '@/components/chat/Composer';
 import { insertComposerText, requestFocusComposer } from '@/components/chat/composerMentionBridge';
+import { MarkdownLinkContext } from '@/components/chat/Markdown';
 import { MessageQueue } from '@/components/chat/MessageQueue';
 import { CHAT_COL, type MessageTimelineHandle } from '@/components/chat/MessageTimeline';
 import { ModelPicker } from '@/components/chat/ModelPicker';
@@ -215,12 +216,24 @@ export function BtwView({
               onCancel={() => void window.electronAPI.agent.abortRetry(sessionId)}
             />
           ) : null}
-          <TaskBar
-            key={sessionId}
-            sessionId={sessionId}
-            tasks={conversation?.backgroundTasks ?? []}
-            subagents={conversation?.subagents ?? []}
-          />
+          <MarkdownLinkContext.Provider
+            value={
+              projectId
+                ? {
+                    conversationId: sessionId,
+                    projectId,
+                    ...(project?.path ? { cwd: project.path } : {}),
+                  }
+                : null
+            }
+          >
+            <TaskBar
+              key={sessionId}
+              sessionId={sessionId}
+              tasks={conversation?.backgroundTasks ?? []}
+              subagents={conversation?.subagents ?? []}
+            />
+          </MarkdownLinkContext.Provider>
           <ApprovalBar
             approvals={conversation?.pendingApprovals ?? []}
             allowSession

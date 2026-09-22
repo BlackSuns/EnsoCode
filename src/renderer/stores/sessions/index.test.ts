@@ -2850,6 +2850,76 @@ describe('parent history tail hydrate', () => {
     expect((message.content[0] as { text: string }).text).toBe('后半');
   });
 
+  it('连续切 coworker 时，已过 TTL 的正文马上清掉，不等下一次满 TTL', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const template = sessionsModule.useSessionsStore.getState().conversations.parent;
+    const body = (text: string) => [{ role: 'assistant' as const, content: [{ type: 'text' as const, text }] }];
+    sessionsModule.useSessionsStore.setState({
+      conversations: {
+        parent: {
+          ...template,
+          id: 'parent',
+          parentId: undefined,
+          activeTabId: undefined,
+          coworkerIds: ['cw-a', 'cw-b'],
+          messages: body('parent-body'),
+        },
+        'cw-a': {
+          ...template,
+          id: 'cw-a',
+          parentId: 'parent',
+          activeTabId: undefined,
+          messages: body('a-body'),
+        },
+        'cw-b': {
+          ...template,
+          id: 'cw-b',
+          parentId: 'parent',
+          activeTabId: undefined,
+          messages: body('b-body'),
+        },
+      },
+      order: ['parent'],
+      activeId: 'parent',
+    });
+    const store = sessionsModule.useSessionsStore.getState();
+    // 先钉住当前视图再写正文，避免沿用上一个测试留下的过期盖章。
+    try {
+      store.selectTab('parent', undefined);
+      sessionsModule.useSessionsStore.setState((state) => ({
+        conversations: {
+          ...state.conversations,
+          parent: {
+            ...state.conversations.parent,
+            activeTabId: undefined,
+            messages: body('parent-body'),
+          },
+          'cw-a': { ...state.conversations['cw-a'], messages: body('a-body') },
+          'cw-b': { ...state.conversations['cw-b'], messages: body('b-body') },
+        },
+      }));
+      store.selectTab('parent', 'cw-a');
+      // 若 cw-b 还带着过期盖章，上面这次切换会清掉它；补回后再离开，才算仍在 TTL 内。
+      sessionsModule.useSessionsStore.setState((state) => ({
+        conversations: {
+          ...state.conversations,
+          'cw-b': { ...state.conversations['cw-b'], messages: body('b-body') },
+        },
+      }));
+      store.selectTab('parent', 'cw-b');
+      vi.setSystemTime(10_000 + MESSAGE_CACHE_TTL_MS);
+      store.selectTab('parent', undefined);
+
+      const conversations = sessionsModule.useSessionsStore.getState().conversations;
+      expect(conversations['cw-a'].messages).toEqual([]);
+      expect(conversations['cw-b'].messages).toEqual(body('b-body'));
+      expect(conversations.parent.messages).toEqual(body('parent-body'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('冷会话的可见输出仍续 lastOutputAt（节流），正文不落地，用户消息不算', () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);

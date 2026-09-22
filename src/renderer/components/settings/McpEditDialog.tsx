@@ -1,3 +1,6 @@
+import { Editor, type EditorOptions } from '@pierre/diffs/edit';
+import { EditProvider, File, Virtualizer } from '@pierre/diffs/react';
+import { type DiscoveredMcpServer, parseMcpImportJson } from '@shared/mcpConfig';
 import {
   DEFAULT_MCP_CALL_TIMEOUT_MS,
   DEFAULT_MCP_CONNECT_TIMEOUT_MS,
@@ -8,6 +11,7 @@ import {
 import type { McpServerEntry, McpTransport } from '@shared/types';
 import { MCP_TRANSPORTS } from '@shared/types';
 import * as React from 'react';
+import { CODE_THEME, ensureHighlighter } from '@/components/chat/codeHighlighter';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -26,7 +30,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { useCodeHighlightOptions } from '@/hooks/useColorScheme';
 import { useI18n } from '@/i18n';
 import { Z_INDEX } from '@/lib/z-index';
 import { useSettingsStore } from '@/stores/settings';
@@ -35,6 +41,78 @@ interface McpEditDialogProps {
   /** 'new' 表示手动新建 */
   server: McpServerEntry | 'new' | null;
   onClose: () => void;
+}
+
+type EditorMode = 'form' | 'json';
+
+const JSON_FILE_OPTIONS = {
+  theme: CODE_THEME,
+  disableFileHeader: true,
+  overflow: 'scroll',
+  preferredHighlighter: 'shiki-js',
+} as const;
+
+function createEditor<A>(options: EditorOptions<A>) {
+  return new Editor(options);
+}
+
+function JsonCodeEditor({
+  value,
+  epoch,
+  onChange,
+}: {
+  value: string;
+  epoch: number;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  const [ready, setReady] = React.useState(false);
+  const options = useCodeHighlightOptions(JSON_FILE_OPTIONS);
+  const onChangeRef = React.useRef(onChange);
+  onChangeRef.current = onChange;
+  const editOptions = React.useMemo<EditorOptions<undefined>>(
+    () => ({
+      onChange(file) {
+        onChangeRef.current(file.contents);
+      },
+    }),
+    []
+  );
+
+  React.useEffect(() => {
+    let alive = true;
+    void ensureHighlighter().then(() => {
+      if (alive) setReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (!ready) {
+    return (
+      <div className="flex h-60 w-full items-center justify-center rounded-lg border border-input text-muted-foreground text-xs">
+        {t('Loading...')}
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-60 w-full overflow-hidden rounded-lg border border-input">
+      <EditProvider createEditor={createEditor}>
+        <Virtualizer style={{ height: '100%', overflow: 'auto' }}>
+          <File
+            key={epoch}
+            file={{ name: 'mcp.json', contents: value }}
+            disableWorkerPool
+            edit
+            editorOptions={editOptions}
+            options={options}
+          />
+        </Virtualizer>
+      </EditProvider>
+    </div>
+  );
 }
 
 const parseLines = (text: string): string[] | undefined => {
@@ -64,12 +142,22 @@ const formatEnv = (env?: Record<string, string>): string =>
         .join('\n')
     : '';
 
+const specFromDiscovered = (entry: DiscoveredMcpServer): Record<string, unknown> => {
+  const spec: Record<string, unknown> = { type: entry.transport };
+  if (entry.command) spec.command = entry.command;
+  if (entry.args && entry.args.length > 0) spec.args = entry.args;
+  if (entry.env && Object.keys(entry.env).length > 0) spec.env = entry.env;
+  if (entry.url) spec.url = entry.url;
+  return spec;
+};
+
 export function McpEditDialog({ server, onClose }: McpEditDialogProps) {
   const { t } = useI18n();
   const addMcpServers = useSettingsStore((state) => state.addMcpServers);
   const updateMcpServer = useSettingsStore((state) => state.updateMcpServer);
   const creating = server === 'new';
 
+  const [mode, setMode] = React.useState<EditorMode>('form');
   const [name, setName] = React.useState('');
   const [transport, setTransport] = React.useState<McpTransport>('stdio');
   const [command, setCommand] = React.useState('');
@@ -78,11 +166,67 @@ export function McpEditDialog({ server, onClose }: McpEditDialogProps) {
   const [url, setUrl] = React.useState('');
   const [connectTimeout, setConnectTimeout] = React.useState('');
   const [callTimeout, setCallTimeout] = React.useState('');
+  const [jsonText, setJsonText] = React.useState('');
+  const [jsonEpoch, setJsonEpoch] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
+
+  const timeouts = () => ({
+    connectTimeoutSec: parseMcpTimeoutSec(connectTimeout, MAX_MCP_CONNECT_TIMEOUT_SEC),
+    callTimeoutSec: parseMcpTimeoutSec(callTimeout, MAX_MCP_CALL_TIMEOUT_SEC),
+  });
+
+  const applyDiscovered = (entry: DiscoveredMcpServer) => {
+    setName(entry.name);
+    setTransport(entry.transport);
+    setCommand(entry.command ?? '');
+    setArgsText((entry.args ?? []).join('\n'));
+    setEnvText(formatEnv(entry.env && Object.keys(entry.env).length > 0 ? entry.env : undefined));
+    setUrl(entry.url ?? '');
+  };
+
+  const formToJson = (): string => {
+    const spec: Record<string, unknown> = { type: transport };
+    if (transport === 'stdio') {
+      spec.command = command.trim();
+      const args = parseLines(argsText);
+      if (args) spec.args = args;
+      const env = parseEnv(envText);
+      if (env) spec.env = env;
+    } else {
+      spec.url = url.trim();
+    }
+    return JSON.stringify(spec, null, 2);
+  };
+
+  const toPayload = (entry: DiscoveredMcpServer, nameOverride?: string) => {
+    const nextName = (nameOverride ?? entry.name).trim();
+    const env = entry.env && Object.keys(entry.env).length > 0 ? entry.env : undefined;
+    const args = entry.args && entry.args.length > 0 ? entry.args : undefined;
+    return entry.transport === 'stdio'
+      ? {
+          name: nextName,
+          transport: entry.transport,
+          command: (entry.command ?? '').trim(),
+          args,
+          env,
+          url: undefined,
+          ...timeouts(),
+        }
+      : {
+          name: nextName,
+          transport: entry.transport,
+          url: (entry.url ?? '').trim(),
+          command: undefined,
+          args: undefined,
+          env: undefined,
+          ...timeouts(),
+        };
+  };
 
   React.useEffect(() => {
     if (!server) return;
     const base = server === 'new' ? null : server;
+    setMode('form');
     setName(base?.name ?? '');
     setTransport(base?.transport ?? 'stdio');
     setCommand(base?.command ?? '');
@@ -91,18 +235,112 @@ export function McpEditDialog({ server, onClose }: McpEditDialogProps) {
     setUrl(base?.url ?? '');
     setConnectTimeout(base?.connectTimeoutSec?.toString() ?? '');
     setCallTimeout(base?.callTimeoutSec?.toString() ?? '');
+    setJsonText('');
+    setJsonEpoch((n) => n + 1);
     setError(null);
   }, [server]);
 
-  const canSave =
+  const importError = (kind: 'invalid-json' | 'empty') =>
+    kind === 'invalid-json' ? t('Invalid JSON') : t('No MCP servers found in JSON');
+
+  const switchMode = (next: EditorMode) => {
+    if (next === mode) return;
+    if (next === 'json') {
+      setJsonText(formToJson());
+      setJsonEpoch((n) => n + 1);
+      setError(null);
+      setMode('json');
+      return;
+    }
+    const parsed = parseMcpImportJson(jsonText);
+    if (!parsed.ok) {
+      if (parsed.error === 'invalid-json' && jsonText.trim()) {
+        setError(importError(parsed.error));
+        return;
+      }
+      setError(null);
+      setMode('form');
+      return;
+    }
+    if (parsed.servers.length !== 1) {
+      setError(t('JSON must describe a single MCP server to switch to the form'));
+      return;
+    }
+    const entry = parsed.servers[0];
+    applyDiscovered({ ...entry, name: name.trim() || entry.name });
+    setError(null);
+    setMode('form');
+  };
+
+  const formatJson = () => {
+    const parsed = parseMcpImportJson(jsonText);
+    if (!parsed.ok) {
+      setError(importError(parsed.error));
+      return;
+    }
+    if (parsed.servers.length === 1) {
+      const [entry] = parsed.servers;
+      setJsonText(JSON.stringify(specFromDiscovered(entry), null, 2));
+      setJsonEpoch((n) => n + 1);
+      if (!name.trim()) setName(entry.name);
+    } else {
+      setJsonText(
+        JSON.stringify(
+          {
+            mcpServers: Object.fromEntries(
+              parsed.servers.map((entry) => [entry.name, specFromDiscovered(entry)])
+            ),
+          },
+          null,
+          2
+        )
+      );
+      setJsonEpoch((n) => n + 1);
+    }
+    setError(null);
+  };
+
+  const formCanSave =
     Boolean(name.trim()) && (transport === 'stdio' ? Boolean(command.trim()) : Boolean(url.trim()));
+  const canSave = mode === 'json' ? Boolean(jsonText.trim()) : formCanSave;
 
   const handleSave = () => {
     if (!server || !canSave) return;
-    const timeouts = {
-      connectTimeoutSec: parseMcpTimeoutSec(connectTimeout, MAX_MCP_CONNECT_TIMEOUT_SEC),
-      callTimeoutSec: parseMcpTimeoutSec(callTimeout, MAX_MCP_CALL_TIMEOUT_SEC),
-    };
+
+    if (mode === 'json') {
+      const parsed = parseMcpImportJson(jsonText);
+      if (!parsed.ok) {
+        setError(importError(parsed.error));
+        return;
+      }
+      if (!creating && parsed.servers.length !== 1) {
+        setError(t('JSON must describe a single MCP server'));
+        return;
+      }
+      if (creating) {
+        const single = parsed.servers.length === 1;
+        const added = addMcpServers(
+          parsed.servers.map((entry) => ({
+            ...toPayload(entry, single && name.trim() ? name : entry.name),
+            id: crypto.randomUUID(),
+            source: 'Manual',
+            enabled: true,
+          }))
+        );
+        if (added === 0) {
+          setError(t('This MCP server already exists'));
+          return;
+        }
+      } else {
+        updateMcpServer(
+          server.id,
+          toPayload(parsed.servers[0], name.trim() || parsed.servers[0].name)
+        );
+      }
+      onClose();
+      return;
+    }
+
     const data =
       transport === 'stdio'
         ? {
@@ -112,7 +350,7 @@ export function McpEditDialog({ server, onClose }: McpEditDialogProps) {
             args: parseLines(argsText),
             env: parseEnv(envText),
             url: undefined,
-            ...timeouts,
+            ...timeouts(),
           }
         : {
             name: name.trim(),
@@ -121,7 +359,7 @@ export function McpEditDialog({ server, onClose }: McpEditDialogProps) {
             command: undefined,
             args: undefined,
             env: undefined,
-            ...timeouts,
+            ...timeouts(),
           };
 
     if (creating) {
@@ -146,91 +384,115 @@ export function McpEditDialog({ server, onClose }: McpEditDialogProps) {
         </DialogHeader>
 
         <DialogPanel className="space-y-4">
+          <Tabs value={mode} onValueChange={(value) => switchMode(value as EditorMode)}>
+            <TabsList>
+              <TabsTab value="form">{t('Form')}</TabsTab>
+              <TabsTab value="json">{t('JSON')}</TabsTab>
+            </TabsList>
+          </Tabs>
+
           <Field>
             <FieldLabel>{t('Name')}</FieldLabel>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
 
-          <Field>
-            <FieldLabel>{t('Transport')}</FieldLabel>
-            <Select
-              items={MCP_TRANSPORTS.map((kind) => ({ value: kind, label: kind }))}
-              value={transport}
-              onValueChange={(v) => setTransport(v as McpTransport)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
-                {MCP_TRANSPORTS.map((kind) => (
-                  <SelectItem key={kind} value={kind}>
-                    {kind}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          </Field>
-
-          {transport === 'stdio' ? (
+          {mode === 'json' ? (
+            <Field>
+              <div className="flex w-full items-center justify-between">
+                <FieldLabel>{t('JSON configuration')}</FieldLabel>
+                <Button variant="ghost" size="sm" className="h-7 px-2" onClick={formatJson}>
+                  {t('Format')}
+                </Button>
+              </div>
+              <JsonCodeEditor value={jsonText} epoch={jsonEpoch} onChange={setJsonText} />
+              <p className="text-muted-foreground text-xs">
+                {t('Paste a server object or mcpServers JSON from Cursor / Claude Desktop')}
+              </p>
+            </Field>
+          ) : (
             <>
               <Field>
-                <FieldLabel>{t('Command')}</FieldLabel>
+                <FieldLabel>{t('Transport')}</FieldLabel>
+                <Select
+                  items={MCP_TRANSPORTS.map((kind) => ({ value: kind, label: kind }))}
+                  value={transport}
+                  onValueChange={(v) => setTransport(v as McpTransport)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectPopup zIndex={Z_INDEX.DROPDOWN_IN_MODAL}>
+                    {MCP_TRANSPORTS.map((kind) => (
+                      <SelectItem key={kind} value={kind}>
+                        {kind}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </Field>
+
+              {transport === 'stdio' ? (
+                <>
+                  <Field>
+                    <FieldLabel>{t('Command')}</FieldLabel>
+                    <Input
+                      value={command}
+                      onChange={(e) => setCommand(e.target.value)}
+                      placeholder="npx"
+                      className="font-mono text-xs"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>{t('Arguments (one per line)')}</FieldLabel>
+                    <Textarea
+                      value={argsText}
+                      onChange={(e) => setArgsText(e.target.value)}
+                      rows={3}
+                      className="font-mono text-xs"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>{t('Environment variables (KEY=VALUE, one per line)')}</FieldLabel>
+                    <Textarea
+                      value={envText}
+                      onChange={(e) => setEnvText(e.target.value)}
+                      rows={3}
+                      className="font-mono text-xs"
+                    />
+                  </Field>
+                </>
+              ) : (
+                <Field>
+                  <FieldLabel>{t('URL')}</FieldLabel>
+                  <Input
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://..."
+                    className="font-mono text-xs"
+                  />
+                </Field>
+              )}
+
+              <Field>
+                <FieldLabel>{t('Connection timeout (seconds)')}</FieldLabel>
                 <Input
-                  value={command}
-                  onChange={(e) => setCommand(e.target.value)}
-                  placeholder="npx"
-                  className="font-mono text-xs"
+                  inputMode="numeric"
+                  value={connectTimeout}
+                  onChange={(e) => setConnectTimeout(e.target.value)}
+                  placeholder={String(DEFAULT_MCP_CONNECT_TIMEOUT_MS / 1000)}
                 />
               </Field>
               <Field>
-                <FieldLabel>{t('Arguments (one per line)')}</FieldLabel>
-                <Textarea
-                  value={argsText}
-                  onChange={(e) => setArgsText(e.target.value)}
-                  rows={3}
-                  className="font-mono text-xs"
-                />
-              </Field>
-              <Field>
-                <FieldLabel>{t('Environment variables (KEY=VALUE, one per line)')}</FieldLabel>
-                <Textarea
-                  value={envText}
-                  onChange={(e) => setEnvText(e.target.value)}
-                  rows={3}
-                  className="font-mono text-xs"
+                <FieldLabel>{t('Tool call timeout (seconds)')}</FieldLabel>
+                <Input
+                  inputMode="numeric"
+                  value={callTimeout}
+                  onChange={(e) => setCallTimeout(e.target.value)}
+                  placeholder={String(DEFAULT_MCP_CALL_TIMEOUT_MS / 1000)}
                 />
               </Field>
             </>
-          ) : (
-            <Field>
-              <FieldLabel>{t('URL')}</FieldLabel>
-              <Input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://..."
-                className="font-mono text-xs"
-              />
-            </Field>
           )}
-
-          <Field>
-            <FieldLabel>{t('Connection timeout (seconds)')}</FieldLabel>
-            <Input
-              inputMode="numeric"
-              value={connectTimeout}
-              onChange={(e) => setConnectTimeout(e.target.value)}
-              placeholder={String(DEFAULT_MCP_CONNECT_TIMEOUT_MS / 1000)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel>{t('Tool call timeout (seconds)')}</FieldLabel>
-            <Input
-              inputMode="numeric"
-              value={callTimeout}
-              onChange={(e) => setCallTimeout(e.target.value)}
-              placeholder={String(DEFAULT_MCP_CALL_TIMEOUT_MS / 1000)}
-            />
-          </Field>
 
           {error && (
             <p key={error} className="t-shake-in text-destructive text-xs">

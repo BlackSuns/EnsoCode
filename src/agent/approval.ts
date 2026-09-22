@@ -49,7 +49,8 @@ export class ApprovalGate {
     kind: ApprovalKind,
     summary: string,
     signal: AbortSignal | undefined,
-    toolCallId?: string
+    toolCallId?: string,
+    filePaths?: string[]
   ): Promise<'allow' | 'deny' | 'block' | 'cancel'> {
     const requestId = `apr-${++this.counter}-${Date.now()}`;
     const info: ApprovalRequestInfo = {
@@ -57,6 +58,7 @@ export class ApprovalGate {
       tool,
       kind,
       summary,
+      ...(filePaths?.length ? { filePaths: [...filePaths] } : {}),
       ...(toolCallId ? { toolCallId } : {}),
     };
     return new Promise((resolve) => {
@@ -146,12 +148,17 @@ export function withApproval(
     ...definition,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       if (gate.needsApproval(kind, definition.name)) {
+        const filePaths =
+          kind === 'file-edit' || kind === 'file-write'
+            ? extractWriteTargetPaths(definition.name, params)
+            : undefined;
         const result = await gate.ask(
           definition.name,
           kind,
           summarizeApproval(kind, params, definition.name),
           signal,
-          toolCallId
+          toolCallId,
+          filePaths
         );
         if (result === 'block') throw new Error('Assistant approval blocked this operation');
         if (result === 'deny') throw new Error('User denied this operation');

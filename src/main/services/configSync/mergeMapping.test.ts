@@ -42,6 +42,32 @@ const current = (state: Record<string, unknown> = {}): Record<string, unknown> =
 });
 
 describe('config sync merge identity and reference mapping', () => {
+  it.each(['merge', 'replace'] as const)(
+    '%s 导入未带 systemPromptId 的匹配预设时显式恢复默认提示词',
+    (mode) => {
+      const result = planImport(
+        current({
+          presets: [
+            {
+              id: 'same-preset',
+              name: 'Preset',
+              skillIds: [],
+              mcpServerIds: [],
+              systemPromptId: '11111111-1111-4111-8111-111111111111',
+            },
+          ],
+        }),
+        bundle({
+          presets: [{ id: 'same-preset', name: 'Preset', skillIds: [], mcpServerIds: [] }],
+        }),
+        mode
+      );
+      expect(result.state.presets).toEqual([
+        { id: 'same-preset', name: 'Preset', skillIds: [], mcpServerIds: [] },
+      ]);
+    }
+  );
+
   it('按唯一规范化名称匹配并保留本机 ID，同时重映射预设引用', () => {
     const result = planImport(
       current({

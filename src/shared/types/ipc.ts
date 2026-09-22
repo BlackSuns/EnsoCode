@@ -79,6 +79,7 @@ export const IPC_CHANNELS = {
   OAUTH_LOGIN_CANCEL: 'oauth-providers:login-cancel',
   OAUTH_LOGIN_REOPEN: 'oauth-providers:login-reopen',
   OAUTH_LOGOUT: 'oauth-providers:logout',
+  OAUTH_IMPORT_CODEX: 'oauth-providers:import-codex',
   OAUTH_LOGIN_EVENT: 'oauth-providers:login-event',
   OAUTH_ACCOUNT_INFO: 'oauth-providers:account-info',
   OAUTH_CREDENTIAL_KEYS_LIST: 'oauth:credential-keys-list',
@@ -105,6 +106,10 @@ export const IPC_CHANNELS = {
   INSTRUCTIONS_WRITE: 'instructions:write',
   INSTRUCTIONS_WRITE_SOURCE: 'instructions:write-source',
   INSTRUCTIONS_DELETE: 'instructions:delete',
+
+  // Preset custom system prompt content (UUID-backed external files)
+  PRESETS_SYSTEM_PROMPT_READ: 'presets:system-prompt-read',
+  PRESETS_SYSTEM_PROMPT_WRITE: 'presets:system-prompt-write',
 
   // Agent sessions (Renderer → Main → utilityProcess)
   AGENT_SPAWN: 'agent:spawn',
@@ -185,7 +190,7 @@ export const IPC_CHANNELS = {
 
   // Recent projects from local apps
   PROJECTS_GET_RECENT: 'projects:get-recent',
-  /** 在系统文件管理器里打开项目根目录（仅本地项目） */
+  /** 在系统文件管理器里打开项目根目录或会话 worktree（仅本地项目） */
   PROJECTS_REVEAL: 'projects:reveal',
 
   // SSH connection profiles (settings + add-project picker)

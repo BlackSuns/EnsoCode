@@ -60,6 +60,17 @@ export interface OauthAccountUsage {
   error?: string;
 }
 
+/** 从 Codex Desktop / CLI 本地登录态导入 openai-codex 账号的结果 */
+export type OauthCodexImportResult =
+  | { status: 'imported'; account: OauthAccount }
+  /** `~/.codex/auth.json` 不存在 */
+  | { status: 'not-found' }
+  /** 文件存在但没有 ChatGPT 登录态（API key 模式） */
+  | { status: 'not-logged-in' }
+  /** 同一 ChatGPT 账号已在本应用登录 */
+  | { status: 'duplicate'; accountKey: string }
+  | { status: 'failed'; message: string };
+
 /** 登录流程中需要用户输入的 prompt（Main → Renderer，经 respond 回传） */
 export interface OauthLoginPrompt {
   requestId: string;

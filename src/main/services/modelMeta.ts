@@ -4,9 +4,18 @@ import {
   positiveFiniteNumber,
 } from '@shared/modelCatalog';
 import { supportedProjectThinkingLevels } from '@shared/modelThinking';
+import { expandOauthCatalog, mergeFetchedOauthModels } from '@shared/oauthCatalog';
 import { ensureAccountProvider } from '@shared/piAccounts';
-import type { ModelMeta, ModelMetaQuery, ModelMetaResult } from '@shared/types';
+import {
+  type ModelMeta,
+  type ModelMetaQuery,
+  type ModelMetaResult,
+  providerIdOfAccountKey,
+} from '@shared/types';
 import { ensureProviderModelsRefreshed, getRuntime, hasStoredAccount } from './oauthProviders';
+import { fetchXaiSubscriptionModels } from './xaiModels';
+
+const XAI_PROVIDER_ID = 'xai';
 
 function attachWindow(meta: ModelMeta, model: CatalogModelEntry): void {
   const contextWindow = positiveFiniteNumber(model.contextWindow);
@@ -49,6 +58,19 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function oauthAccessToken(
+  runtime: Awaited<ReturnType<typeof getRuntime>>,
+  accountKey: string
+): Promise<string | undefined> {
+  try {
+    const auth = await runtime.getAuth(accountKey);
+    const token = auth?.auth.apiKey;
+    return typeof token === 'string' && token.trim() ? token.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** 按订阅账号或裸 model id 反查 pi catalog，产出 UI 用的模型元数据 */
 export async function queryModelMeta(query: ModelMetaQuery): Promise<ModelMetaResult> {
   try {
@@ -63,7 +85,24 @@ export async function queryModelMeta(query: ModelMetaQuery): Promise<ModelMetaRe
       // getRuntime 在后台预热扩展 catalog；这里 await 同一份 promise，保证冷启动首查
       // 不会抢先把 unknown 写进 renderer 的无 TTL 缓存。
       await ensureProviderModelsRefreshed(runtime, query.oauthAccountKey);
-      const catalog = runtime.getModels(query.oauthAccountKey) as readonly CatalogModelEntry[];
+      const providerId = providerIdOfAccountKey(query.oauthAccountKey);
+      let catalog = expandOauthCatalog(
+        providerId,
+        runtime.getModels(query.oauthAccountKey) as readonly CatalogModelEntry[]
+      );
+      if (providerId === XAI_PROVIDER_ID && query.modelIds.length === 0) {
+        const token = await oauthAccessToken(runtime, query.oauthAccountKey);
+        if (token) {
+          try {
+            catalog = mergeFetchedOauthModels(
+              catalog,
+              (await fetchXaiSubscriptionModels(token)).map((model) => model.id)
+            );
+          } catch {
+            // 上游失败仍用 pi catalog + overlay，不让设置页拉取整条失败
+          }
+        }
+      }
       const wanted = query.modelIds.length === 0 ? null : new Set(query.modelIds);
       const models: ModelMeta[] = [];
       const seen = new Set<string>();

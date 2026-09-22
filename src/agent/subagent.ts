@@ -1,54 +1,196 @@
 import type { AgentSession, ToolDefinition } from '@earendil-works/pi-coding-agent';
-import { positiveContextWindow } from '@shared/modelCatalog';
 import type {
+  AgentControlToolRequest,
+  AgentControlToolResponse,
   AgentTypeSpawnConfig,
-  SpawnModelConfig,
-  SubagentInfo,
   SubagentModelOption,
 } from '@shared/types/agent';
-import {
-  CHILD_THINKING_LEVELS,
-  type ChildThinkingLevel,
-  resolveChildThinkingInput,
-} from './childReasoning';
-import { runFooter } from './runFooter';
-import { collectStructuredYield, type JsonSchema } from './structuredYield';
-import {
-  finishToolActivity,
-  settleSubagentActivities,
-  startToolActivity,
-  updateAssistantActivity,
-  updateToolActivity,
-} from './subagentActivity';
+import { parseAgentControlToolRequest } from '@shared/types/agent';
+import { CHILD_THINKING_LEVELS, resolveChildThinkingInput } from './childReasoning';
 
-/** 进度事件节流 */
-const UPDATE_INTERVAL_MS = 500;
-/** 异步完成通知里的报告上限 */
-const NOTIFY_LIMIT = 1500;
-
-export interface SubagentDeps {
-  /** 创建子会话（supervisor 闭包：复用父的 runtime/model/工具组装,不含 task/todo） */
-  createSubSession(
-    agentType?: AgentTypeSpawnConfig,
-    modelOverride?: SpawnModelConfig,
-    thinking?: ChildThinkingLevel
-  ): Promise<AgentSession>;
-  /** 父会话模型 id（general 类型展示用） */
-  modelId: string;
-  /** 自定义 agent 类型表（空 = 仅 general） */
+export interface UnifiedSubagentDeps {
   agentTypes: AgentTypeSpawnConfig[];
-  /** 模型中心勾选的子代理可选模型（空 = 不暴露 model 参数） */
   models: SubagentModelOption[];
-  /** 进度/状态上报（覆盖式,按 id 幂等） */
-  emitUpdate(agent: SubagentInfo): void;
-  /** gate 验收:在会话 cwd 跑命令,返回 PASSED/FAILED 文本 */
-  runGate(gate: string): Promise<string>;
-  /** 异步模式完成时回传报告(running 搭车/轮末冲刷/idle 唤醒由 notifier 决定) */
-  notify(text: string, urgent?: boolean): void;
-  /** 结构化 yield 登记，供父会话 read agent://id */
-  storeYield?(id: string, value: unknown): void;
-  /** 登记/清除按 id 中止；UI 停按钮与父 abort（wait:true）都走这里 */
-  registerAbort?(id: string, abort: (() => void) | null): void;
+  invoke(request: AgentControlToolRequest, signal?: AbortSignal): Promise<AgentControlToolResponse>;
+}
+
+export function createUnifiedSubagentTool(deps: UnifiedSubagentDeps): ToolDefinition {
+  const modelNames = deps.models.map((model) => model.name);
+  const typeNames = deps.agentTypes.map((agentType) => agentType.name);
+  const normalize = (params: Record<string, unknown>): AgentControlToolRequest | null => {
+    const operation = params.operation;
+    if (operation === 'spawn') {
+      const agentTypeName = typeof params.agent_type === 'string' ? params.agent_type : undefined;
+      const agentType = agentTypeName
+        ? deps.agentTypes.find((candidate) => candidate.name === agentTypeName)
+        : undefined;
+      if (agentTypeName && !agentType) {
+        throw new Error(
+          `unknown agent_type "${agentTypeName}". Available: [${typeNames.join(', ')}]`
+        );
+      }
+      const modelInput = typeof params.model === 'string' ? params.model : undefined;
+      const { modelName, thinking } = resolveChildThinkingInput(
+        modelInput,
+        typeof params.thinking === 'string' ? params.thinking : undefined
+      );
+      if (modelName && !deps.models.some((model) => model.name === modelName)) {
+        throw new Error(`unknown model "${modelName}". Available: [${modelNames.join(', ')}]`);
+      }
+      if (agentType && agentType.allowModelOverride === false && modelName) {
+        throw new Error(`agent_type "${agentType.name}" does not allow custom model selection.`);
+      }
+      if (agentType?.allowModelOverride && !modelName) {
+        throw new Error(
+          `agent_type "${agentType.name}" requires a model. Available: [${modelNames.join(', ')}]`
+        );
+      }
+      const candidate = {
+        operation,
+        mode: params.mode ?? 'task',
+        ...(typeof params.name === 'string' ? { name: params.name } : {}),
+        description: params.description,
+        prompt: params.prompt,
+        ...(agentTypeName ? { agentType: agentTypeName } : {}),
+        ...(modelName ? { model: modelName } : {}),
+        ...(thinking ? { thinking } : {}),
+        wait: params.wait ?? false,
+        ...(params.schema !== undefined ? { schema: params.schema } : {}),
+        ...(params.gate !== undefined ? { gate: params.gate } : {}),
+      };
+      return parseAgentControlToolRequest(candidate);
+    }
+    if (operation === 'send') {
+      return parseAgentControlToolRequest({
+        operation,
+        agentId: params.agentId,
+        message: params.message,
+        delivery: params.delivery ?? 'auto',
+        ...(params.expectedRunId !== undefined ? { expectedRunId: params.expectedRunId } : {}),
+        wait: params.wait ?? false,
+        ...(params.schema !== undefined ? { schema: params.schema } : {}),
+        ...(params.gate !== undefined ? { gate: params.gate } : {}),
+      });
+    }
+    if (operation === 'wait') {
+      const runIds = Array.isArray(params.runIds)
+        ? params.runIds
+        : params.runId !== undefined
+          ? [params.runId]
+          : [];
+      return parseAgentControlToolRequest({
+        operation,
+        runIds,
+        until: params.until ?? 'all',
+        ...(params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : {}),
+      });
+    }
+    if (operation === 'report' || operation === 'stop') {
+      return parseAgentControlToolRequest({ operation, runId: params.runId });
+    }
+    if (operation === 'dismiss') {
+      return parseAgentControlToolRequest({ operation, agentId: params.agentId });
+    }
+    if (operation === 'list') {
+      return parseAgentControlToolRequest({
+        operation,
+        ...(params.status !== undefined ? { status: params.status } : {}),
+        ...(params.cursor !== undefined ? { cursor: params.cursor } : {}),
+        limit: params.limit ?? 20,
+      });
+    }
+    if (operation === 'message') {
+      return parseAgentControlToolRequest({ operation, to: params.to, text: params.text });
+    }
+    return null;
+  };
+  return {
+    name: 'subagent',
+    label: 'Subagent',
+    description:
+      'Create and control delegated agents. mode=task is one-shot; mode=coworker preserves context for multiple Runs. ' +
+      'All operations are Main-authorized. Spawning and sending are asynchronous unless wait:true.',
+    promptSnippet:
+      'subagent: spawn task/coworker agents, list owned agents, send Runs or bound messages, wait/report/stop a Run, or dismiss an Agent. Default spawn mode=task and wait=false.',
+    promptGuidelines: [
+      'Agent and Run are different identities: use runId for wait/report/stop and agentId for send/dismiss.',
+      'wait timeout or interruption never stops execution; use stop or dismiss explicitly.',
+      'Use send delivery=auto to steer a running Run or start an idle coworker Run; delivery=next queues a new coworker Run.',
+      'gate.commandRef is a Main-authorized command id, not shell text or argv.',
+      'Unknown gate ids fail the run and nothing is executed.',
+    ],
+    parameters: {
+      type: 'object',
+      properties: {
+        operation: {
+          type: 'string',
+          enum: ['spawn', 'send', 'wait', 'report', 'list', 'message', 'stop', 'dismiss'],
+        },
+        mode: { type: 'string', enum: ['task', 'coworker'] },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        prompt: { type: 'string' },
+        ...(deps.agentTypes.length > 0
+          ? {
+              agent_type: {
+                type: 'string',
+                description: `Agent type: ${deps.agentTypes
+                  .map((type) => `${type.name} (${type.description || 'custom'})`)
+                  .join('; ')}`,
+              },
+            }
+          : {}),
+        ...(deps.models.length > 0
+          ? {
+              model: {
+                type: 'string',
+                description: `Model override: ${deps.models.map((model) => model.name).join(', ')}`,
+              },
+            }
+          : {}),
+        thinking: { type: 'string', enum: [...CHILD_THINKING_LEVELS] },
+        wait: { type: 'boolean', description: 'Default false. Only wait for this tool call.' },
+        schema: { type: 'object' },
+        gate: {
+          type: 'object',
+          description: 'Main command id, not a shell command. Unknown ids are rejected.',
+          properties: { commandRef: { type: 'string' } },
+          required: ['commandRef'],
+          additionalProperties: false,
+        },
+        agentId: { type: 'string' },
+        runId: { type: 'string' },
+        runIds: { type: 'array', items: { type: 'string' }, minItems: 1, uniqueItems: true },
+        message: { type: 'string' },
+        delivery: { type: 'string', enum: ['auto', 'steer', 'next'] },
+        expectedRunId: { type: 'string' },
+        until: { type: 'string', enum: ['all', 'any'] },
+        timeoutMs: { type: 'integer', minimum: 0, maximum: 86_400_000 },
+        status: { type: 'string', enum: ['creating', 'ready', 'active', 'parked', 'closed'] },
+        cursor: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        to: { type: 'string' },
+        text: { type: 'string' },
+      },
+      required: ['operation'],
+      additionalProperties: false,
+    } as unknown as ToolDefinition['parameters'],
+    async execute(_toolCallId, params, signal) {
+      const request = normalize(params as Record<string, unknown>);
+      if (!request) throw new Error('invalid subagent operation parameters');
+      // spawn/send 已经可能在 Main 创建 Agent/Run；不能因单次工具调用 abort 丢失权威 receipt。
+      const response = await deps.invoke(
+        request,
+        request.operation === 'spawn' || request.operation === 'send' ? undefined : signal
+      );
+      if (!response.ok) throw new Error(`${response.code}: ${response.error}`);
+      const serialized = JSON.stringify(response.value, null, 2);
+      return {
+        content: [{ type: 'text', text: serialized ?? 'null' }],
+        details: response.value,
+      };
+    },
+  };
 }
 
 /** 从 pi 会话消息取最后一条 assistant 文本 */
@@ -67,502 +209,4 @@ export function lastAssistantText(session: AgentSession): string {
     }
   }
   return '';
-}
-
-function asJsonSchema(value: unknown): JsonSchema | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  return value as JsonSchema;
-}
-
-let counter = 0;
-
-const ABORTED = 'Subagent aborted';
-
-function abortedError(): Error {
-  return new Error(ABORTED);
-}
-
-function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(abortedError());
-  return new Promise((resolve, reject) => {
-    const onAbort = () => reject(abortedError());
-    signal.addEventListener('abort', onAbort, { once: true });
-    promise.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort);
-        if (signal.aborted) reject(abortedError());
-        else resolve(value);
-      },
-      (error) => {
-        signal.removeEventListener('abort', onAbort);
-        reject(signal.aborted ? abortedError() : error);
-      }
-    );
-  });
-}
-
-/** create 挂起时也能被 abort 解开；迟到的会话随即 dispose，避免泄漏 */
-async function createSessionOrAbort(
-  created: Promise<AgentSession>,
-  signal: AbortSignal
-): Promise<AgentSession> {
-  const disposeLate = () => {
-    void created
-      .then((session) => {
-        try {
-          session.dispose();
-        } catch {}
-      })
-      .catch(() => {});
-  };
-  if (signal.aborted) {
-    disposeLate();
-    throw abortedError();
-  }
-  signal.addEventListener('abort', disposeLate, { once: true });
-  try {
-    const session = await abortable(created, signal);
-    signal.removeEventListener('abort', disposeLate);
-    if (signal.aborted) {
-      try {
-        session.dispose();
-      } catch {}
-      throw abortedError();
-    }
-    return session;
-  } catch (error) {
-    if (!signal.aborted) signal.removeEventListener('abort', disposeLate);
-    throw error;
-  }
-}
-
-/**
- * task 工具：把独立子任务委派给同 worker 内的子会话（隔离上下文,可并行）。
- * 父会话 abort 经 signal 传播终止子会话。
- */
-export function createSubagentTool(deps: SubagentDeps): ToolDefinition {
-  const typeList = deps.agentTypes
-    .map(
-      (type) =>
-        `"${type.name}" — ${type.description || 'custom agent'}` +
-        `${type.allowModelOverride ? ' [custom model required]' : type.model ? ` (model: ${type.model.modelId})` : ' (follows conversation model)'}` +
-        `${type.tools === 'readonly' ? ' [read-only tools]' : ''}`
-    )
-    .join('; ');
-  const modelNames = deps.models.map((option) => option.name);
-  const modelList = deps.models
-    .map((option) => option.name + (option.description ? ` (${option.description})` : ''))
-    .join('; ');
-  const thinkingParam = {
-    thinking: {
-      type: 'string',
-      enum: [...CHILD_THINKING_LEVELS],
-      description:
-        'Thinking effort for this run, same as /thinking ' +
-        `(${CHILD_THINKING_LEVELS.join('/')}). ` +
-        'Omit to use the selected model preset or inherit the conversation. ' +
-        'You can also append a suffix on model, e.g. OpenAI/gpt-cheap:high.',
-    },
-  };
-  const modelParam =
-    deps.models.length > 0
-      ? {
-          model: {
-            type: 'string',
-            description:
-              `Model override for this subagent: ${modelList}. ` +
-              'Pick the cheapest model that fits the subtask. ' +
-              'Required for agent_type marked [custom model required]; omit only when the type follows the conversation or uses a fixed model. ' +
-              'Append :off/:minimal/:low/:medium/:high/:xhigh/:max to set thinking for this run.',
-          },
-        }
-      : {};
-  const typeParam =
-    deps.agentTypes.length > 0
-      ? {
-          agent_type: {
-            type: 'string',
-            description: `Agent type to use. Available: ${typeList}. Omit for a general agent using the session model.`,
-          },
-        }
-      : {};
-  const builtinRoleHints: Record<string, string> = {
-    scout: 'scout for recon/reading',
-    worker: 'worker for an isolated code change',
-    reviewer: 'reviewer after a sizeable change',
-  };
-  const roleHints = deps.agentTypes
-    .map((type) => builtinRoleHints[type.name])
-    .filter((hint): hint is string => hint !== undefined);
-  const requiredPickTypes = deps.agentTypes
-    .filter((type) => type.allowModelOverride)
-    .map((type) => type.name);
-  return {
-    name: 'subagent',
-    label: 'Subagent',
-    description:
-      'Dispatch self-contained one-shot work (including a single review) in an isolated context with its own tools ' +
-      '(read/bash/edit/write/MCP); returns the final report as the tool result. ' +
-      'Multiple subagent calls in one message run in parallel — when the user names N independent repos, directories, or questions that each need isolated judgment, dispatch N subagents in the same message instead of searching them yourself. ' +
-      'Handle short tasks directly when their context is already known. ' +
-      'Delegate only when the user explicitly requests it, or when parallel execution, isolated context, or independent review offers a clear benefit. ' +
-      'Use coworker if available only for sustained collaboration and context reuse: the same role across rounds. Spawn once, then send. Do not start a new subagent each round to re-paste background. ' +
-      'Tool availability does not itself justify delegation. ' +
-      'The subagent cannot ask you questions — include all needed context in the prompt. ' +
-      'Pass wait:false for long tasks to keep working — the final report is delivered to you ' +
-      'automatically when it finishes (and the parent abort no longer kills it). ' +
-      (deps.agentTypes.length > 0 ? ` Available agent types: ${typeList}.` : ''),
-    promptSnippet:
-      'subagent: self-contained one-shot work including a single review. ' +
-      'N independent repos/dirs/questions that each need isolated judgment → N subagent calls in the same message (do not serial-search them yourself). ' +
-      'Do not spawn subagents for 3+ similar read/grep/find that only need a reduced result — use exec. ' +
-      'Handle short tasks directly when their context is already known. ' +
-      'Delegate only on user request or a clear parallel, context-isolation, or independent-review benefit. ' +
-      'Use coworker if available only for sustained collaboration and context reuse (same role across rounds: spawn once, then send). Do not start a new subagent each round to re-paste background. ' +
-      'Tool availability does not itself justify delegation. Give the subagent a complete prompt and get a final report back; ' +
-      'multiple subagent calls in one message run in parallel' +
-      (deps.agentTypes.length > 0
-        ? `; agent_type options: ${deps.agentTypes
-            .map((type) => `${type.name} (${type.description || 'custom'})`)
-            .join(', ')} — pick the cheapest type that fits the subtask`
-        : '') +
-      (deps.models.length > 0
-        ? '; a model parameter lets you pick a cheaper/stronger model per subtask — required for [custom model required] types, otherwise omit to inherit'
-        : ''),
-    promptGuidelines: [
-      'When the user names independent repos, directories, or questions that each need isolated judgment, dispatch one subagent per item in the same message; do not serial-search them in the parent. ' +
-        'Do not spawn subagents for 3+ similar read/grep/find that only need a reduced result — use exec. ' +
-        'Handle short tasks directly when their context is already known. ' +
-        'Delegate only when the user requests delegation or parallel execution, isolated context, or independent review offers a clear benefit. ' +
-        'Select subagent for one-shot work including a single review and coworker, if available, only for sustained collaboration and context reuse. ' +
-        'Independent one-shot judgment tasks go as parallel subagent calls in the same message.',
-      ...(roleHints.length > 0 ? [`Pick agent_type by role: ${roleHints.join('; ')}`] : []),
-      ...(requiredPickTypes.length > 0 && modelNames.length > 0
-        ? [
-            `When using agent_type marked [custom model required] (${requiredPickTypes.join(', ')}), always pass model on the first call — omitting it fails, do not retry without model. Available: ${modelNames.join(', ')}`,
-          ]
-        : []),
-    ],
-    parameters: {
-      type: 'object',
-      properties: {
-        ...typeParam,
-        ...modelParam,
-        ...thinkingParam,
-        description: {
-          type: 'string',
-          description: 'Short (3-8 words) label of the subtask, shown in the UI',
-        },
-        prompt: {
-          type: 'string',
-          description: 'Full task instructions for the subagent, self-contained',
-        },
-        gate: {
-          type: 'string',
-          description:
-            'Shell command to verify the work after the subagent finishes ' +
-            '(run in the workspace; exit code decides pass/fail), e.g. "pnpm test"',
-        },
-        wait: {
-          type: 'boolean',
-          description:
-            'Default true: block until the report is ready. Pass false to dispatch and keep ' +
-            'working — the report is delivered to you when done',
-        },
-        schema: {
-          type: 'object',
-          description:
-            'Optional JSON Schema. The subagent final reply must be JSON matching this schema; ' +
-            'read it later via agent://<id> or agent://<id>?q=/pointer',
-        },
-      },
-      required: ['description', 'prompt'],
-    } as unknown as ToolDefinition['parameters'],
-    async execute(_toolCallId, params, signal) {
-      const {
-        description = '',
-        prompt = '',
-        agent_type: agentTypeName,
-        model: modelName,
-        thinking: thinkingRaw,
-        gate,
-        wait = true,
-        schema: schemaRaw,
-      } = params as {
-        description?: string;
-        prompt?: string;
-        agent_type?: string;
-        model?: string;
-        thinking?: string;
-        gate?: string;
-        wait?: boolean;
-        schema?: unknown;
-      };
-      const schema = asJsonSchema(schemaRaw);
-      if (!prompt.trim()) throw new Error('task prompt is required');
-      const agentType = agentTypeName
-        ? deps.agentTypes.find((type) => type.name === agentTypeName)
-        : undefined;
-      if (agentTypeName && !agentType) {
-        throw new Error(
-          `unknown agent_type "${agentTypeName}". Available: [${deps.agentTypes.map((t) => t.name).join(', ')}] or omit for general.`
-        );
-      }
-      const { modelName: resolvedModelName, thinking } = resolveChildThinkingInput(
-        modelName,
-        thinkingRaw
-      );
-      const modelOption = resolvedModelName
-        ? deps.models.find((option) => option.name === resolvedModelName)
-        : undefined;
-      if (resolvedModelName && !modelOption) {
-        throw new Error(
-          `unknown model "${resolvedModelName}". Available: [${modelNames.join(', ')}].`
-        );
-      }
-      if (agentType && agentType.allowModelOverride === false && resolvedModelName) {
-        throw new Error(
-          `agent_type "${agentType.name}" does not allow custom model selection (it is locked to ${agentType.model ? agentType.model.modelId : 'conversation model'}).`
-        );
-      }
-      if (agentType?.allowModelOverride && !resolvedModelName) {
-        throw new Error(
-          `agent_type "${agentType.name}" requires a model. Available: [${modelNames.join(', ')}]`
-        );
-      }
-      const id = `agent-${++counter}-${Date.now().toString(36)}`;
-      const info: SubagentInfo = {
-        id,
-        description: description || prompt.slice(0, 40),
-        status: 'running',
-        steps: 0,
-        currentActivity: 'starting…',
-        activities: [],
-        modelId: modelOption?.config.modelId ?? agentType?.model?.modelId ?? deps.modelId,
-        ...(agentType ? { agentType: agentType.name } : {}),
-        startedAt: Date.now(),
-      };
-      deps.emitUpdate({ ...info });
-
-      const controller = new AbortController();
-      const abortNow = () => controller.abort();
-      deps.registerAbort?.(id, abortNow);
-      if (wait) {
-        if (signal?.aborted) abortNow();
-        else signal?.addEventListener('abort', abortNow, { once: true });
-      }
-
-      let session: AgentSession;
-      try {
-        session = await createSessionOrAbort(
-          deps.createSubSession(agentType, modelOption?.config, thinking),
-          controller.signal
-        );
-      } catch (error) {
-        info.status = 'failed';
-        info.currentActivity = '';
-        info.resultText = error instanceof Error ? error.message : String(error);
-        deps.emitUpdate({ ...info });
-        deps.registerAbort?.(id, null);
-        throw error;
-      }
-      let dirty = false;
-      const timer = setInterval(() => {
-        if (!dirty) return;
-        dirty = false;
-        deps.emitUpdate({ ...info });
-      }, UPDATE_INTERVAL_MS);
-      let assistantSequence = 0;
-      let activeAssistantId: string | null = null;
-      const unsubscribe = session.subscribe((event) => {
-        if (event.type === 'message_start') {
-          const role = (event.message as { role?: string }).role;
-          if (role === 'assistant') {
-            info.steps += 1;
-            activeAssistantId = `assistant-${++assistantSequence}`;
-            info.currentActivity = 'responding…';
-            dirty = true;
-          }
-        } else if (event.type === 'message_update') {
-          const role = (event.message as { role?: string }).role;
-          if (role === 'assistant') {
-            activeAssistantId ??= `assistant-${++assistantSequence}`;
-            const next = updateAssistantActivity(
-              info.activities ?? [],
-              activeAssistantId,
-              event.message
-            );
-            if (next !== info.activities) {
-              info.activities = next;
-              info.currentActivity = 'writing…';
-              dirty = true;
-            }
-          }
-        } else if (event.type === 'message_end') {
-          const message = event.message as {
-            role?: string;
-            usage?: { output?: number };
-            content?: unknown;
-          };
-          if (typeof message.usage?.output === 'number') {
-            info.outputTokens = (info.outputTokens ?? 0) + message.usage.output;
-            dirty = true;
-          }
-          if (message.role === 'assistant') {
-            activeAssistantId ??= `assistant-${++assistantSequence}`;
-            const next = updateAssistantActivity(
-              info.activities ?? [],
-              activeAssistantId,
-              message,
-              false
-            );
-            if (next !== info.activities) {
-              info.activities = next;
-              dirty = true;
-            }
-            activeAssistantId = null;
-          }
-        } else if (event.type === 'tool_execution_start') {
-          const args = event.args as Record<string, unknown> | undefined;
-          const summary =
-            typeof args?.command === 'string'
-              ? args.command
-              : typeof args?.path === 'string'
-                ? args.path
-                : '';
-          info.currentActivity = `${event.toolName} ${summary}`.trim().slice(0, 80);
-          info.activities = startToolActivity(
-            info.activities ?? [],
-            event.toolCallId,
-            event.toolName,
-            event.args
-          );
-          dirty = true;
-        } else if (event.type === 'tool_execution_update') {
-          const next = updateToolActivity(
-            info.activities ?? [],
-            event.toolCallId,
-            event.partialResult
-          );
-          if (next !== info.activities) {
-            info.activities = next;
-            dirty = true;
-          }
-        } else if (event.type === 'tool_execution_end') {
-          info.activities = finishToolActivity(
-            info.activities ?? [],
-            event.toolCallId,
-            event.result,
-            event.isError
-          );
-          info.currentActivity = 'working…';
-          dirty = true;
-        }
-      });
-      const onAbort = () => void session.abort();
-      if (controller.signal.aborted) onAbort();
-      else controller.signal.addEventListener('abort', onAbort, { once: true });
-
-      let footer = '';
-      const run = async (): Promise<string> => {
-        const rolePrefix = agentType?.systemPrompt
-          ? `<role>\n${agentType.systemPrompt}\n</role>\n\n`
-          : '';
-        const schemaSuffix = schema
-          ? `\n\nReturn your final answer as JSON only, matching this schema:\n${JSON.stringify(schema)}`
-          : '';
-        const fullPrompt = `${rolePrefix}${prompt}${schemaSuffix}`;
-        try {
-          await abortable(session.prompt(fullPrompt), controller.signal);
-          if (schema) {
-            const collected = await collectStructuredYield({
-              text: lastAssistantText(session),
-              schema,
-              prompt: (nudge) => session.prompt(nudge),
-              reread: () => lastAssistantText(session),
-            });
-            deps.storeYield?.(id, collected.value);
-          }
-          let result = lastAssistantText(session) || '(subagent produced no output)';
-          // 脚注先于 gate:工具分布/耗时是子代理自身的事实,gate 是父的验收
-          footer = runFooter({
-            messages: session.messages,
-            label: agentType?.name ?? 'general',
-            modelId: info.modelId ?? deps.modelId,
-            elapsedMs: Date.now() - info.startedAt,
-            contextWindow: positiveContextWindow(session.model),
-          });
-          result += `\n\n${footer}`;
-          // gate 验收:退出码说了算,不信子代理自称完成
-          if (gate && !controller.signal.aborted) {
-            result += `\n\n${await deps.runGate(gate)}`;
-          }
-          const aborted = controller.signal.aborted;
-          info.status = aborted ? 'failed' : 'done';
-          info.activities = settleSubagentActivities(
-            info.activities ?? [],
-            aborted ? 'aborted' : 'done'
-          );
-          info.resultText = result;
-          info.currentActivity = '';
-          deps.emitUpdate({ ...info });
-          if (aborted) throw abortedError();
-          return result;
-        } catch (error) {
-          info.status = 'failed';
-          info.activities = settleSubagentActivities(
-            info.activities ?? [],
-            controller.signal.aborted ? 'aborted' : 'failed'
-          );
-          info.currentActivity = '';
-          info.resultText ??= error instanceof Error ? error.message : String(error);
-          deps.emitUpdate({ ...info });
-          throw error;
-        } finally {
-          clearInterval(timer);
-          unsubscribe();
-          if (wait) signal?.removeEventListener('abort', abortNow);
-          controller.signal.removeEventListener('abort', onAbort);
-          deps.registerAbort?.(id, null);
-          session.dispose();
-        }
-      };
-
-      if (!wait) {
-        // 派发即返回;完成后报告经通知回传(失败立即,成功合并投递)
-        void run()
-          .then((result) => {
-            // 截断也要保住脚注:它是主 agent 判断该不该信这份报告的依据
-            const brief =
-              result.length > NOTIFY_LIMIT
-                ? `${result.slice(0, NOTIFY_LIMIT)}\n…(truncated)\n${footer}`
-                : result;
-            deps.notify(`Subagent "${info.description}" finished:\n${brief}`, false);
-          })
-          .catch((error) => {
-            deps.notify(
-              `Subagent "${info.description}" FAILED: ${error instanceof Error ? error.message : String(error)}`,
-              true
-            );
-          });
-        return {
-          content: [
-            {
-              type: 'text',
-              text:
-                `(dispatched subagent "${info.description}" [${id}] — the report will be delivered ` +
-                'to you when it finishes; keep working or return to the user meanwhile)',
-            },
-          ],
-          details: { modelId: info.modelId },
-        };
-      }
-
-      const result = await run();
-      return {
-        content: [{ type: 'text', text: result }],
-        details: { modelId: info.modelId, outputTokens: info.outputTokens, steps: info.steps },
-      };
-    },
-  };
 }

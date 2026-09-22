@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import path from 'node:path';
 import { resolveSshTarget } from '@shared/ssh';
 import { IPC_CHANNELS } from '@shared/types';
@@ -13,6 +14,30 @@ import { getSshConnectionStore } from '../services/sshConnectionStore';
 import { sshProbeDirectory } from '../services/sshProbe';
 import { isMainWebContents } from '../windows/MainWindow';
 import { getSourceAuthorityRegistry } from './agent';
+import { sessionWorktree } from './worktree';
+
+function parseRevealRequest(
+  request: unknown
+): { projectId: string; conversationId?: string } | null {
+  if (!request || typeof request !== 'object' || Array.isArray(request)) return null;
+  const projectId = (request as { projectId?: unknown }).projectId;
+  const conversationId = (request as { conversationId?: unknown }).conversationId;
+  if (typeof projectId !== 'string' || projectId.length === 0) return null;
+  if (
+    conversationId !== undefined &&
+    (typeof conversationId !== 'string' || conversationId.length === 0)
+  )
+    return null;
+  return { projectId, ...(typeof conversationId === 'string' ? { conversationId } : {}) };
+}
+
+function isDirectory(value: string): boolean {
+  try {
+    return statSync(value).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 export function registerProjectHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.PROJECTS_GET_RECENT, async () => {
@@ -24,22 +49,52 @@ export function registerProjectHandlers(): void {
     }
   });
 
-  // 渲染层只传 projectId，磁盘路径由 Main 从权威记录推导，不接受任意路径
+  // 渲染层只传标识符，磁盘路径由 Main 从权威记录推导，不接受任意路径
   ipcMain.handle(
     IPC_CHANNELS.PROJECTS_REVEAL,
     async (event, request: unknown): Promise<{ ok: boolean; error?: string }> => {
       if (!isMainWebContents(event.sender.id)) return { ok: false, error: 'unavailable' };
-      if (!request || typeof request !== 'object') return { ok: false, error: 'invalid' };
-      const projectId = (request as { projectId?: unknown }).projectId;
-      if (typeof projectId !== 'string' || projectId.length === 0) {
-        return { ok: false, error: 'invalid' };
-      }
-      const project = getSourceAuthorityRegistry()?.project(projectId);
+      const parsed = parseRevealRequest(request);
+      if (!parsed) return { ok: false, error: 'invalid' };
+      const registry = getSourceAuthorityRegistry();
+      const project = registry?.project(parsed.projectId);
       if (project?.state !== 'active') return { ok: false, error: 'unavailable' };
       // ssh 项目的路径在远端，本机打不开
       if (project.kind === 'ssh') return { ok: false, error: 'unsupported' };
-      const failure = await shell.openPath(project.canonicalPath);
-      return failure ? { ok: false, error: failure } : { ok: true };
+      let cwd = project.canonicalPath;
+      if (parsed.conversationId) {
+        const conversation = registry?.conversation(parsed.conversationId);
+        if (
+          conversation?.kind !== 'root' ||
+          conversation.lifecycle === 'ended' ||
+          conversation.projectId !== parsed.projectId
+        ) {
+          return { ok: false, error: 'unavailable' };
+        }
+        const worktree = sessionWorktree(parsed.conversationId);
+        if (worktree) {
+          if (
+            worktree.conversationId !== parsed.conversationId ||
+            worktree.projectId !== parsed.projectId ||
+            worktree.repoPath !== project.canonicalPath ||
+            typeof worktree.path !== 'string' ||
+            worktree.path.length === 0
+          ) {
+            return { ok: false, error: 'unavailable' };
+          }
+          cwd = worktree.path;
+        }
+      }
+      if (!isDirectory(cwd)) return { ok: false, error: 'unavailable' };
+      try {
+        const failure = await shell.openPath(cwd);
+        return failure ? { ok: false, error: failure } : { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : 'unavailable',
+        };
+      }
     }
   );
 

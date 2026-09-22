@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   conversation: { projectId: 'project', lifecycle: 'active' },
   exec: vi.fn(),
   writeText: vi.fn(),
+  showItemInFolder: vi.fn(),
+  openPath: vi.fn(),
   busy: vi.fn(() => false),
   search: vi.fn(async () => ({ ok: true as const, mode: 'names' as const, hits: [] })),
 }));
@@ -29,7 +31,7 @@ vi.mock('node:path', async (importOriginal) => {
 vi.mock('electron', () => ({
   app: { getPath: () => '/tmp' },
   clipboard: { writeText: mocks.writeText },
-  shell: {},
+  shell: { showItemInFolder: mocks.showItemInFolder, openPath: mocks.openPath },
   ipcMain: { handle: (key: string, fn: never) => mocks.handlers.set(key, fn) },
 }));
 vi.mock('./worktree', () => ({ sessionWorktreeBusy: mocks.busy }));
@@ -60,6 +62,8 @@ beforeEach(() => {
   mocks.exec.mockReset();
   mocks.busy.mockReturnValue(false);
   mocks.writeText.mockReset();
+  mocks.showItemInFolder.mockReset();
+  mocks.openPath.mockReset().mockResolvedValue('');
   mocks.search.mockReset();
   mocks.search.mockResolvedValue({ ok: true, mode: 'names', hits: [] });
   registerFilesWorkspaceHandlers();
@@ -116,6 +120,55 @@ it('拒绝工作区内部绝对路径', async () => {
     ok: false,
     error: 'invalid-path',
   });
+});
+it('本地文件链接定位并选中文件，不执行 exe', async () => {
+  const exe = path.join(root, 'EnsoCode-Setup-0.1.32.exe');
+  writeFileSync(exe, 'not an executable in test');
+  expect(await invoke(IPC_CHANNELS.FILES_REVEAL, { rel: 'EnsoCode-Setup-0.1.32.exe' })).toEqual({
+    ok: true,
+  });
+  expect(mocks.showItemInFolder).toHaveBeenCalledWith(exe);
+  expect(mocks.openPath).not.toHaveBeenCalled();
+});
+it('本地目录链接打开目录', async () => {
+  const dir = path.join(root, '中文 空格');
+  mkdirSync(dir);
+  expect(await invoke(IPC_CHANNELS.FILES_REVEAL, { rel: '中文 空格' })).toEqual({ ok: true });
+  expect(mocks.openPath).toHaveBeenCalledWith(dir);
+  expect(mocks.showItemInFolder).not.toHaveBeenCalled();
+});
+it('本地文件链接目标不存在时明确失败', async () => {
+  expect(await invoke(IPC_CHANNELS.FILES_REVEAL, { rel: 'missing.md' })).toEqual({
+    ok: false,
+    error: 'unavailable',
+  });
+  expect(mocks.showItemInFolder).not.toHaveBeenCalled();
+  expect(mocks.openPath).not.toHaveBeenCalled();
+});
+it('本地文件链接越出工作区时拒绝', async () => {
+  expect(await invoke(IPC_CHANNELS.FILES_REVEAL, { rel: '../outside.md' })).toEqual({
+    ok: false,
+    error: 'invalid-path',
+  });
+  expect(mocks.showItemInFolder).not.toHaveBeenCalled();
+  expect(mocks.openPath).not.toHaveBeenCalled();
+});
+it('目录打开失败时返回系统错误', async () => {
+  mkdirSync(path.join(root, 'broken-open'));
+  mocks.openPath.mockResolvedValue('Explorer failed');
+  expect(await invoke(IPC_CHANNELS.FILES_REVEAL, { rel: 'broken-open' })).toEqual({
+    ok: false,
+    error: 'Explorer failed',
+  });
+});
+it('SSH 工作区不误开本机路径', async () => {
+  remote();
+  expect(await invoke(IPC_CHANNELS.FILES_REVEAL, { rel: 'remote/file.md' })).toEqual({
+    ok: false,
+    error: 'unsupported',
+  });
+  expect(mocks.showItemInFolder).not.toHaveBeenCalled();
+  expect(mocks.openPath).not.toHaveBeenCalled();
 });
 it('拒绝软链接指向工作区外的新建路径', async () => {
   symlinkSync(os.tmpdir(), path.join(root, 'escape'));

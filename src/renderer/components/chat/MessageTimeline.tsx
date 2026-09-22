@@ -11,7 +11,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
+import { type ListProps, Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -26,6 +26,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { ChatSearchHighlightContext } from './highlightQuery';
 import { NavRail } from './NavRail';
 import { isCompactRow, RetryTurnButton, TimelineRow } from './TimelineRow';
+import { nextTimelineReveal } from './timelineReveal';
 
 /** 消息列/输入区共用的列：阶梯 max-w + 水平 padding。padding 必须在列上而不是 @container 上，否则两侧查询宽度差 2rem，会在断点附近上下错位。默认到 4xl 保持原阅读宽度，更宽再逐级加档。 */
 export const CHAT_COL =
@@ -43,6 +44,25 @@ function EmptyReveal({ className, children }: { className?: string; children: Re
 
 /** 贴底判定阈值（px）：与旧实现一致，离底 40px 内视为贴底 */
 const AT_BOTTOM_THRESHOLD = 40;
+
+// 稳定引用。库每次渲染都重发 props；按引用去重的输入不能每次都是新对象。
+const INITIAL_TOP_MOST_ITEM_INDEX = { index: 'LAST', align: 'end' } as const;
+const VIEWPORT_OVERSCAN = { top: 600, bottom: 600 };
+const followChatOutput = (isAtBottom: boolean) => (isAtBottom ? 'auto' : false);
+
+function TimelineList({ style, ...props }: ListProps) {
+  const hidden = style?.visibility === 'hidden';
+  const [reveal, setReveal] = useState(false);
+  const hiddenSince = useRef<number | null>(null);
+  useEffect(() => {
+    const next = nextTimelineReveal(Date.now(), hiddenSince.current, hidden, reveal);
+    hiddenSince.current = next.hiddenSince;
+    if (next.delayMs === null) return;
+    const timer = window.setTimeout(() => setReveal(true), next.delayMs);
+    return () => window.clearTimeout(timer);
+  }, [hidden, reveal]);
+  return <div {...props} style={hidden && reveal ? { ...style, visibility: 'visible' } : style} />;
+}
 
 export interface MessageTimelineHandle {
   /** 滚到底并恢复跟随（发送消息 / 点回到底部按钮） */
@@ -157,11 +177,25 @@ export function MessageTimeline({
       return next;
     });
   }, []);
+  // 轮次折叠态：用户显式展开/收起过的轮次（会话内记忆），未记录的轮次按 autoCollapseTurns 默认值
+  const [turnOverrides, setTurnOverrides] = useState<ReadonlyMap<string, boolean>>(new Map());
+  const autoCollapseTurns = useSettingsStore((s) => s.autoCollapseTurns);
   const compact = useSettingsStore((s) => s.compactReadOnlyTools);
   const folded = useMemo(
-    () => foldTimeline(items, running, expandedGroups, { compact }),
-    [items, running, expandedGroups, compact]
+    () =>
+      foldTimeline(items, running, expandedGroups, {
+        compact,
+        autoCollapseCompletedTurns: autoCollapseTurns,
+        turnOverrides,
+      }),
+    [items, running, expandedGroups, compact, autoCollapseTurns, turnOverrides]
   );
+  // 引用必须稳定：TimelineRow 的 memo 比较不含回调
+  const setTurnCollapsed = useCallback((key: string, collapsed: boolean) => {
+    setTurnOverrides((prev) =>
+      prev.get(key) === collapsed ? prev : new Map(prev).set(key, collapsed)
+    );
+  }, []);
 
   // 导航条数据：每条 user 轮次 + 其后首个回答摘要
   const navItems = useMemo(() => {
@@ -289,20 +323,48 @@ export function MessageTimeline({
     [pinToBottom, scrollToBottom]
   );
   useEffect(() => () => observerRef.current?.disconnect(), []);
-  const jumpTo = (key: string) => {
+  const foldedIndexOf = (key: string): number =>
+    folded.findIndex(
+      (item) => item.key === key || (item.kind === 'tool-group' && groupContainsKey(item, key))
+    );
+  const scrollToFoldedKey = (key: string): void => {
     if (!virtualize) {
       scrollerRef.current
         ?.querySelector(`[data-nav-key="${CSS.escape(key)}"]`)
         ?.scrollIntoView({ block: 'center' });
       return;
     }
-    const index = folded.findIndex(
-      (item) => item.key === key || (item.kind === 'tool-group' && groupContainsKey(item, key))
-    );
-    if (index >= 0) {
-      virtuosoRef.current?.scrollToIndex({ index, align: 'center' });
-    }
+    const index = foldedIndexOf(key);
+    if (index >= 0) virtuosoRef.current?.scrollToIndex({ index, align: 'center' });
   };
+  /** 目标藏在折叠轮次里：先展开，等 folded 重算后再滚动（同步滚动拿到的是旧 folded / 旧 DOM） */
+  const pendingJumpRef = useRef<string | null>(null);
+  const jumpTo = (key: string) => {
+    if (foldedIndexOf(key) >= 0) {
+      pendingJumpRef.current = null;
+      scrollToFoldedKey(key);
+      return;
+    }
+    let ownerTurnKey: string | null = null;
+    let found = false;
+    for (const item of items) {
+      if (item.kind === 'user') ownerTurnKey = item.key;
+      if (item.key === key) {
+        found = true;
+        break;
+      }
+    }
+    if (!found || !ownerTurnKey) return;
+    pendingJumpRef.current = key;
+    setTurnCollapsed(ownerTurnKey, false);
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在 folded 重算后消费待跳转 key
+  useLayoutEffect(() => {
+    const key = pendingJumpRef.current;
+    if (!key || foldedIndexOf(key) < 0) return;
+    pendingJumpRef.current = null;
+    scrollToFoldedKey(key);
+  }, [folded]);
 
   useImperativeHandle(ref, () => ({
     scrollToBottom,
@@ -348,7 +410,7 @@ export function MessageTimeline({
         className={cn(CHAT_COL, rowGap(item, index), '[overflow-wrap:anywhere]')}
       >
         <RowErrorBoundary itemKey={item.key}>
-          <TimelineRow item={item} onToggleGroup={toggleGroup} />
+          <TimelineRow item={item} onToggleGroup={toggleGroup} onToggleTurn={setTurnCollapsed} />
         </RowErrorBoundary>
       </div>
     );
@@ -533,14 +595,14 @@ export function MessageTimeline({
               onStartReached();
             }}
             // 贴底时新内容自动跟随（含流式增高）；非贴底不抢滚
-            followOutput={(isAtBottom) => (isAtBottom ? 'auto' : false)}
+            followOutput={followChatOutput}
             atBottomThreshold={AT_BOTTOM_THRESHOLD}
             atBottomStateChange={(value) => {
               setAtBottom(value);
               atBottomRef.current = value;
             }}
-            increaseViewportBy={{ top: 600, bottom: 600 }}
-            initialTopMostItemIndex={{ index: 'LAST', align: 'end' }}
+            increaseViewportBy={VIEWPORT_OVERSCAN}
+            initialTopMostItemIndex={INITIAL_TOP_MOST_ITEM_INDEX}
             // 可视范围起点附近的 user 轮次作为导航条高亮
             rangeChanged={({ startIndex }) => {
               if (startIndex > firstItemIndex + 4) startReachedLatch.current = false;
@@ -557,6 +619,7 @@ export function MessageTimeline({
             }}
             className="h-full select-text"
             components={{
+              List: TimelineList,
               Header: renderHeader,
               Footer: renderFooter,
             }}

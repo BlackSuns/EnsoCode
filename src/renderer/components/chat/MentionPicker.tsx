@@ -271,7 +271,10 @@ function MentionOption({
           )}
         </span>
         <span
-          className="block truncate text-muted-foreground"
+          className={cn(
+            'block text-muted-foreground',
+            candidate.kind === 'file' ? 'whitespace-normal break-all' : 'truncate'
+          )}
           title={candidate.kind === 'file' ? candidate.relativePath : undefined}
         >
           {candidate.kind === 'agent-type'

@@ -10,14 +10,24 @@ const state = vi.hoisted(() => {
   return {
     catalog,
     getModels: vi.fn(() => catalog),
+    getAuth: vi.fn(async () => ({ auth: { apiKey: 'xai-token' } })),
     ensureProviderModelsRefreshed: vi.fn<() => Promise<void>>(),
   };
 });
 
 vi.mock('./oauthProviders', () => ({
-  getRuntime: vi.fn(async () => ({ getModels: state.getModels })),
+  getRuntime: vi.fn(async () => ({
+    getModels: state.getModels,
+    getAuth: state.getAuth,
+  })),
   ensureProviderModelsRefreshed: state.ensureProviderModelsRefreshed,
   hasStoredAccount: vi.fn(async () => true),
+}));
+
+const fetchXai = vi.hoisted(() => vi.fn(async () => [] as Array<{ id: string }>));
+
+vi.mock('./xaiModels', () => ({
+  fetchXaiSubscriptionModels: fetchXai,
 }));
 
 import { queryModelMeta } from './modelMeta';
@@ -26,7 +36,10 @@ describe('queryModelMeta extension catalog refresh', () => {
   beforeEach(() => {
     state.catalog.splice(0);
     state.getModels.mockClear();
+    state.getAuth.mockClear();
     state.ensureProviderModelsRefreshed.mockReset();
+    fetchXai.mockReset();
+    fetchXai.mockResolvedValue([]);
   });
 
   it('waits for the first online refresh before reading a subscription catalog', async () => {
@@ -63,5 +76,41 @@ describe('queryModelMeta extension catalog refresh', () => {
         },
       ],
     });
+  });
+
+  it('xAI 拉取空清单时打上游，把新 id 并进 catalog', async () => {
+    state.catalog.push({
+      id: 'grok-4.6',
+      contextWindow: 500_000,
+      maxTokens: 500_000,
+      reasoning: true,
+    });
+    fetchXai.mockResolvedValue([{ id: 'grok-4.7' }, { id: 'grok-build-0.1' }]);
+
+    const result = await queryModelMeta({ oauthAccountKey: 'xai', modelIds: [] });
+    expect(fetchXai).toHaveBeenCalledWith('xai-token');
+    expect(result.ok).toBe(true);
+    expect(result.models.map((model) => model.modelId)).toEqual([
+      'grok-4.6',
+      'grok-4.7',
+      'grok-build-0.1',
+    ]);
+  });
+
+  it('xAI 上游失败时仍返回 overlay 的 grok-4.7，指定 id 查询不打上游', async () => {
+    state.catalog.push({
+      id: 'grok-4.6',
+      contextWindow: 500_000,
+      maxTokens: 500_000,
+      reasoning: true,
+    });
+    fetchXai.mockRejectedValue(new Error('offline'));
+
+    const listed = await queryModelMeta({ oauthAccountKey: 'xai', modelIds: [] });
+    expect(listed.models.map((model) => model.modelId)).toEqual(['grok-4.6', 'grok-4.7']);
+
+    fetchXai.mockClear();
+    await queryModelMeta({ oauthAccountKey: 'xai', modelIds: ['grok-4.6'] });
+    expect(fetchXai).not.toHaveBeenCalled();
   });
 });
