@@ -66,6 +66,7 @@ import {
   requestSnapshot,
   resolveAgentTypeSpawnConfig,
   resolveModelSelection,
+  resolveSubagentModelSelection,
   respondApproval,
   respondAsk,
   resumeCoworkerSession,
@@ -766,6 +767,7 @@ export function registerAgentHandlers(): void {
               }
             : undefined
         ),
+      resolveSubagentModel: resolveSubagentModelSelection,
       spawnParent: spawnBoundSession,
       spawnChild: spawnChildSession,
       promptChild: promptChildSession,

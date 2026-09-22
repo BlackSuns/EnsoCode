@@ -2,6 +2,7 @@ import { IPC_CHANNELS } from '@shared/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  dispatchHost: { resolveSubagentModel: undefined as unknown },
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   spawnSession: vi.fn(),
   summarizeConversationTitle: vi.fn(() => ({ ok: true })),
@@ -90,6 +91,20 @@ vi.mock('../services/agentHost', () => ({
   stopBackgroundTask: vi.fn(),
   summarizeConversationTitle: mocks.summarizeConversationTitle,
 }));
+vi.mock('../services/agentDispatchService', async () => {
+  const actual = await vi.importActual<typeof import('../services/agentDispatchService')>(
+    '../services/agentDispatchService'
+  );
+  return {
+    ...actual,
+    AgentDispatchService: class extends actual.AgentDispatchService {
+      constructor(options: ConstructorParameters<typeof actual.AgentDispatchService>[0]) {
+        mocks.dispatchHost.resolveSubagentModel = options.host.resolveSubagentModel;
+        super(options);
+      }
+    },
+  };
+});
 vi.mock('../services/notifications', () => ({ maybeNotify: vi.fn() }));
 vi.mock('../services/pairHost', () => ({
   forwardAgentEvent: vi.fn(),
@@ -139,6 +154,7 @@ vi.mock('./worktree', () => ({
   removeRegisteredWorktree: mocks.removeRegisteredWorktree,
 }));
 
+import { resolveSubagentModelSelection } from '../services/agentHost';
 import { getSourceAuthorityRegistry, registerAgentHandlers } from './agent';
 
 const sender = {
@@ -149,6 +165,7 @@ const event = { sender };
 
 describe('agent IPC Main identity boundary', () => {
   beforeEach(() => {
+    mocks.dispatchHost.resolveSubagentModel = undefined;
     mocks.handlers.clear();
     mocks.spawnSession.mockReset();
     mocks.restoreJournal.mockClear();
@@ -167,6 +184,10 @@ describe('agent IPC Main identity boundary', () => {
     mocks.sessionWorktree.mockReset();
     mocks.sessionWorktreeBusy.mockReset().mockReturnValue(false);
     registerAgentHandlers();
+  });
+
+  it('派发 host 接上子代理模型解析，模型覆盖才不会被当成档案禁止', () => {
+    expect(mocks.dispatchHost.resolveSubagentModel).toBe(resolveSubagentModelSelection);
   });
 
   it.each(['busy', 'ended', 'rebound'])(
