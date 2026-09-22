@@ -91,6 +91,7 @@ export interface ConfigSyncState {
   subagentModelsEnabled?: boolean;
   disabledBuiltinAgentTypes?: string[];
   disabledBuiltinTools?: string[];
+  subagentAllowedModes?: ('task' | 'coworker')[];
   theme?: 'light' | 'dark' | 'system' | 'sync-terminal';
   language?: Locale;
   terminalTheme?: string;

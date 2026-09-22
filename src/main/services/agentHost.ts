@@ -102,6 +102,7 @@ export type AgentTypeResolution =
       config: ResolvedAgentTypeSpawnConfig;
       expectedModel: ModelRef;
       expectedToolIds: readonly string[];
+      allowsModelOverride?: boolean;
     }
   | { ok: false; error: string };
 
@@ -356,16 +357,34 @@ export function resolveModelSelection(
   };
 }
 
-export function expectedAgentTypeToolIds(
-  tools: AgentTypeEntry['tools'],
-  options?: ChildProfileToolOptions
-): readonly string[] {
-  return childProfileToolIds(tools, options);
-}
+const parentToolProfiles = new Map<string, ChildProfileToolOptions>();
 
 export interface AgentTypeProfileContext {
+  parentSessionId?: string;
   projectId?: string;
   remote?: boolean;
+}
+
+/** 记下父会话 spawn 时下发给 worker 的工具档。事后改设置不能拿来做 proof。 */
+export function rememberParentToolProfile(
+  sessionId: string,
+  profile: ChildProfileToolOptions
+): void {
+  parentToolProfiles.set(sessionId, profile);
+}
+
+export function forgetParentToolProfile(sessionId: string): void {
+  parentToolProfiles.delete(sessionId);
+}
+
+export function expectedAgentTypeToolIds(
+  tools: AgentTypeEntry['tools'],
+  options?: ChildProfileToolOptions & AgentTypeProfileContext
+): readonly string[] {
+  const remembered = options?.parentSessionId
+    ? parentToolProfiles.get(options.parentSessionId)
+    : undefined;
+  return childProfileToolIds(tools, remembered ?? options);
 }
 
 export function resolveAgentTypeSpawnConfig(
@@ -398,6 +417,7 @@ export function resolveAgentTypeSpawnConfig(
       },
       expectedModel: parentModel.ref,
       expectedToolIds: ENSO_LOCKED_PROFILE.toolIds,
+      allowsModelOverride: false,
     };
   }
 
@@ -435,6 +455,20 @@ export function resolveAgentTypeSpawnConfig(
   const disabledTools = resolveDisabledBuiltinTools(state?.disabledBuiltinTools, {
     disabledBuiltinTools: projectDisabledBuiltinTools(state?.projects, context?.projectId),
   });
+  const liveProfile: ChildProfileToolOptions = {
+    editMode: resolveEditMode(state?.editMode, state?.hashlineEditEnabled),
+    shell: childProfileShell({
+      platform: process.platform,
+      remote: context?.remote === true,
+      preference: state?.windowsLocalShell,
+    }),
+    exploreFold: state?.exploreFoldEnabled === true,
+    isolatedSandbox: !disabledTools.includes('isolated_sandbox'),
+  };
+  const expectedToolIds = expectedAgentTypeToolIds(definition.tools, {
+    ...liveProfile,
+    ...(context?.parentSessionId ? { parentSessionId: context.parentSessionId } : {}),
+  });
   return {
     ok: true,
     config: {
@@ -445,6 +479,7 @@ export function resolveAgentTypeSpawnConfig(
       systemPrompt: definition.systemPrompt,
       model: selectedModel.config,
       tools: definition.tools,
+      allowedToolIds: expectedToolIds,
       skillPaths: resources.skillPaths,
       skillBindingIds: resources.skillPaths.map(() => randomUUID()),
       mcpServers: resources.mcpServers,
@@ -452,16 +487,15 @@ export function resolveAgentTypeSpawnConfig(
       systemPromptHash: createHash('sha256').update(definition.systemPrompt).digest('hex'),
     },
     expectedModel: selectedModel.ref,
-    expectedToolIds: expectedAgentTypeToolIds(definition.tools, {
-      editMode: resolveEditMode(state?.editMode, state?.hashlineEditEnabled),
-      shell: childProfileShell({
-        platform: process.platform,
-        remote: context?.remote === true,
-        preference: state?.windowsLocalShell,
-      }),
-      exploreFold: state?.exploreFoldEnabled === true,
-      isolatedSandbox: !disabledTools.includes('isolated_sandbox'),
-    }),
+    expectedToolIds,
+    allowsModelOverride:
+      (definition.modelMode ??
+        (definition.providerId && definition.modelId
+          ? 'fixed'
+          : typeKey.startsWith('builtin:')
+            ? 'agent_pick'
+            : 'follow')) === 'agent_pick' &&
+      configuredSubagentModels(authenticatedAccountKeys).length > 0,
   };
 }
 
@@ -545,7 +579,7 @@ export function spawnSession(
   const memoryLanguage = typeof state?.memoryLanguage === 'string' ? state.memoryLanguage : 'en';
   // worker 崩溃/退出后不自动拉起的话，所有会话都只能靠重启 app 恢复；在 spawn 入口按需重建
   if (!worker && workerExited) startAgentWorker();
-  return sendAgentCommand({
+  const sent = sendAgentCommand({
     type: 'spawn-parent',
     identity,
     cwd: request.cwd,
@@ -576,6 +610,19 @@ export function spawnSession(
     ...(options?.rolePrompt ? { rolePrompt: options.rolePrompt } : {}),
     ...(systemPrompt.content ? { systemPrompt: systemPrompt.content } : {}),
   });
+  if (sent.ok) {
+    rememberParentToolProfile(identity.sessionId, {
+      editMode,
+      shell: childProfileShell({
+        platform: process.platform,
+        remote: remote !== undefined,
+        preference: windowsLocalShell,
+      }),
+      exploreFold: exploreFoldEnabled,
+      isolatedSandbox: !disabledTools.includes('isolated_sandbox'),
+    });
+  }
+  return sent;
 }
 
 export function resolvePresetSystemPrompt(
@@ -1113,6 +1160,30 @@ function configuredSubagentModels(
     }
   }
   return options;
+}
+
+export function resolveSubagentModelSelection(
+  name: string,
+  authenticatedAccountKeys: ReadonlySet<string>
+): { ok: true; selection: ResolvedModelSelection } | { ok: false; error: string } {
+  const selected = configuredSubagentModels(authenticatedAccountKeys).find(
+    (entry) => entry.name === name
+  );
+  if (!selected) return { ok: false, error: `Subagent model is unavailable: ${name}` };
+  return {
+    ok: true,
+    selection: {
+      ref: {
+        providerId: selected.config.settingsProviderId,
+        modelId: selected.config.modelId,
+      },
+      runtimeRef: {
+        providerId: selected.config.oauthAccountKey ?? selected.config.settingsProviderId,
+        modelId: selected.config.modelId,
+      },
+      config: selected.config,
+    },
+  };
 }
 
 function isSubagentModelEntry(value: unknown): value is SubagentModelEntry {

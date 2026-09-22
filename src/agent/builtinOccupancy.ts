@@ -3,13 +3,11 @@ import { BUILTIN_AGENT_TYPES } from '@shared/types';
 import type { AgentTypeSpawnConfig, SubagentModelOption } from '@shared/types/agent';
 import { AskManager, createAskTool } from './ask';
 import { createTaskTools } from './backgroundTasks';
-import { createCoworkerTool } from './coworker';
 import { createIsolatedSandboxTool } from './isolatedSandbox';
-import { createSubagentTool } from './subagent';
+import { createUnifiedSubagentTool } from './subagent';
 import { createTodoTool } from './todo';
 import { BrowserInvoker, createBrowserTools } from './tools/browser';
 import { createMemoryTools, MemoryInvoker } from './tools/memory';
-
 function fields(tool: { name: string; description?: string; parameters?: unknown }): OccupancyTool {
   return {
     name: tool.name,
@@ -44,33 +42,10 @@ export function snapshotBuiltinOccupancyTools(input?: {
   return {
     subagent: [
       fields(
-        createSubagentTool({
-          createSubSession: async () => {
-            throw new Error('occupancy snapshot');
-          },
-          modelId: '',
+        createUnifiedSubagentTool({
           agentTypes,
           models,
-          emitUpdate: () => {},
-          runGate: async () => '',
-          notify: () => {},
-        })
-      ),
-    ],
-    coworker: [
-      fields(
-        createCoworkerTool({
-          agentTypes,
-          models,
-          spawn: async () => {
-            throw new Error('occupancy snapshot');
-          },
-          send: async () => '',
-          list: () => [],
-          dismiss: async () => {},
-          wait: async () => '',
-          report: () => '',
-          message: async () => '',
+          invoke: async () => ({ ok: false, code: 'runtime-unavailable', error: 'snapshot' }),
         })
       ),
     ],

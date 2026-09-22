@@ -153,7 +153,12 @@ interface SidebarProps {
   onOpenSearch?: () => void;
 }
 
-export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: SidebarProps) {
+export function Sidebar({
+  width,
+  collapsed,
+  onToggleCollapse,
+  onOpenSearch,
+}: SidebarProps) {
   const { t, locale } = useI18n();
   const projects = useSettingsStore((state) => state.projects);
   const projectGroups = useSettingsStore((state) => state.projectGroups);
@@ -2569,7 +2574,7 @@ function ConversationDot({
     status: string;
     spawning: boolean;
     unread?: boolean;
-    pendingAsks?: { requestId: string }[];
+    pendingAsks?: readonly { requestId: string }[];
     hasRunningChild?: boolean;
   };
 }) {

@@ -17,6 +17,7 @@ import type {
   McpWorkerEvent,
   ModelRef,
   NodeStatus,
+  ResolvedChildProfileProof,
   WorkspaceLockEvent,
 } from '@shared/types/agent';
 import { type AgentTypeEntry, BUILTIN_AGENT_TYPES } from '@shared/types/assets';
@@ -31,6 +32,7 @@ interface IndexedSession {
   status: NodeStatus;
   lastSeq: number;
   model?: ModelRef;
+  proof?: ResolvedChildProfileProof;
   sessionFile?: string;
   coworkers: Map<string, CoworkerInfo>;
 }
@@ -220,6 +222,17 @@ export class AgentSessionIndex {
     return Boolean(current?.ready && current.alive && isSameGeneration(current.identity, identity));
   }
 
+  childProof(identity: ChildSessionIdentity): ResolvedChildProfileProof | undefined {
+    const current = this.sessions.get(identity.sessionId);
+    return current && isSameGeneration(current.identity, identity) ? current.proof : undefined;
+  }
+
+  childMetadata(identity: ChildSessionIdentity): ChildConversationMetadata | undefined {
+    const current = this.sessions.get(identity.sessionId);
+    if (!current || !isSameGeneration(current.identity, identity)) return undefined;
+    return this.sessions.get(identity.parent.sessionId)?.coworkers.get(identity.sessionId)?.child;
+  }
+
   sessionFile(identity: SessionIdentity): string | undefined {
     const current = this.sessions.get(identity.sessionId);
     return current && isSameGeneration(current.identity, identity)
@@ -237,7 +250,9 @@ export class AgentSessionIndex {
     typeKey: AgentTypeKey,
     displayName: string,
     requestId: string,
-    profileId?: ChildSessionIdentity['profileId']
+    profileId?: ChildSessionIdentity['profileId'],
+    dispatchOrigin: ChildConversationMetadata['dispatchOrigin'] = 'typed-mention',
+    mode: ChildConversationMetadata['mode'] = 'coworker'
   ): ChildReservationResult {
     const session = this.sessions.get(parent.sessionId);
     if (!session || !isSameGeneration(session.identity, parent)) {
@@ -278,7 +293,8 @@ export class AgentSessionIndex {
         agentTypeKey: child.typeKey,
         agentInstanceId: child.instanceId,
         agentInstanceName: child.instanceName,
-        dispatchOrigin: 'typed-mention',
+        dispatchOrigin,
+        mode,
         ...(profileId ? { lockedProfileId: profileId } : {}),
       },
     };
@@ -467,6 +483,7 @@ export class AgentSessionIndex {
         status: 'idle',
         lastSeq: event.seq,
         model: event.proof.model,
+        proof: event.proof,
         sessionFile: event.sessionFile,
         coworkers: new Map(),
       });

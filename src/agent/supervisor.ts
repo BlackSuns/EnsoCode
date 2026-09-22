@@ -102,7 +102,7 @@ import {
   cancelContinuousMemory,
   continuousMemoryInlineExtension,
 } from './continuousMemory/extension';
-import { createCoworkerTool } from './coworker';
+import { AgentControlInvoker } from './agentControl';
 import { CURSOR_PROVIDER_ID, loadCursorProvider } from './cursor/loadProvider';
 import { attachCursorBridgeToSession, isCursorModel } from './cursor/sessionBridge';
 import { resolveCustomModelCompat, selectCatalogEntryForCompat } from './customModelCompat';
@@ -155,7 +155,7 @@ import {
   validateAgainstSchema,
   withAgentRead,
 } from './structuredYield';
-import { createSubagentTool, lastAssistantText } from './subagent';
+import { createUnifiedSubagentTool, lastAssistantText } from './subagent';
 import { pruneCompletedSubagentDetails } from './subagentRetention';
 import { SystemReminderRegistry } from './systemReminder';
 import {
@@ -236,6 +236,7 @@ interface ManagedSession {
   ensoApp?: EnsoAppInvoker;
   browser?: BrowserInvoker;
   memory?: MemoryInvoker;
+  agentControl?: AgentControlInvoker;
   adaptiveDowngraded: boolean;
   /** 最近一次 auto_retry_start 携带的原始错误（取消重试时的终态错误文案） */
   lastRetryError?: string;
@@ -667,6 +668,7 @@ export class SessionSupervisor {
         (managed.ensoApp?.pendingCount ?? 0) > 0 ||
         (managed.browser?.pendingCount ?? 0) > 0 ||
         (managed.memory?.pendingCount ?? 0) > 0 ||
+        (managed.agentControl?.pendingCount ?? 0) > 0 ||
         managed.pendingTaskReminders.length > 0 ||
         this.bgTasks.snapshot(id).some((task) => task.status === 'running'),
       hasChildren:
@@ -726,6 +728,7 @@ export class SessionSupervisor {
     managed.ensoApp?.cancelAll('Session released');
     managed.browser?.cancelAll('Session released');
     managed.memory?.cancelAll('Session released');
+      managed.agentControl?.close('Session released');
     try {
       await managed.session.abort();
     } catch {}
@@ -768,6 +771,7 @@ export class SessionSupervisor {
                 managed.asks.snapshot().length > 0 ||
                 (managed.ensoApp?.pendingCount ?? 0) > 0 ||
                 (managed.browser?.pendingCount ?? 0) > 0 ||
+                (managed.agentControl?.pendingCount ?? 0) > 0 ||
                 [...managed.subagents.values()].some((s) => s.status === 'running') ||
                 this.bgTasks
                   .snapshot(managed.identity.sessionId)
@@ -1099,6 +1103,13 @@ export class SessionSupervisor {
         });
         return;
       }
+      case 'agent-control-result': {
+        const managed = this.must(command.identity);
+        if (!managed.agentControl?.resolve(command.requestId, command.response)) {
+          console.warn(`[agent-control] dropped result for unknown request ${command.requestId}`);
+        }
+        return;
+      }
       case 'set-thinking':
         this.must(command.identity).session.setThinkingLevel(command.level);
         return;
@@ -1293,8 +1304,8 @@ export class SessionSupervisor {
         if (!result.cancelled) persistRewindLeaf(managed.session);
         const fallbackEditorText = Array.isArray(target.message.content)
           ? target.message.content
-              .filter((part) => part.type === 'text' && part.text)
-              .map((part) => part.text)
+              .filter((part) => part.type === 'text' && 'text' in part && part.text)
+              .map((part) => (part.type === 'text' ? part.text : ''))
               .join('')
           : '';
         const editorImages = Array.isArray(target.message.content)
@@ -1841,109 +1852,15 @@ export class SessionSupervisor {
     };
     // 子代理：同 worker 子会话，复用 runtime/model/审批门/MCP 连接；不含 subagent/coworker（防递归）。
     // 隔离沙箱 / 探后折叠跟父会话同一开关，catalog 用子自己的工具集。
-    const taskTool = createSubagentTool({
-      modelId: model.modelId,
-      agentTypes,
-      models: subagentModels,
-      createSubSession: async (agentType, modelOverride, thinking) =>
-        (
-          await factory.createChildSession({
-            agentType,
-            modelOverride,
-            thinkingOverride: thinking,
-            gate,
-          })
-        ).session,
-      runGate: (gateCommand) => runGateCommand(cwd, gateCommand, sshExecutor),
-      notify: (text, urgent) => this.notifier.notify(sessionId, text, { urgent }),
-      storeYield: (id, value) => {
-        structuredById.set(id, value);
-      },
-      emitUpdate: (agent) => {
-        const managed = managedRef ?? this.sessions.get(sessionId);
-        if (!managed) return;
-        managed.subagents.set(agent.id, agent);
-        const changed = new Set<string>();
-        if (agent.status !== 'running') {
-          const retained = pruneCompletedSubagentDetails([...managed.subagents.values()]);
-          for (const item of retained.agents) managed.subagents.set(item.id, item);
-          for (const id of retained.prunedIds) changed.add(id);
-        }
-        changed.add(agent.id);
-        for (const id of changed) {
-          const current = managed.subagents.get(id);
-          if (!current) continue;
-          this.options.emit({
-            type: 'subagent-update',
-            identity: managed.identity,
-            seq: ++managed.seq,
-            agent: current,
-          });
-        }
-      },
-      registerAbort: (id, abort) => {
-        const managed = managedRef ?? this.sessions.get(sessionId);
-        if (!managed) return;
-        if (abort) managed.subagentAborts.set(id, abort);
-        else managed.subagentAborts.delete(id);
-      },
+    const agentControl = new AgentControlInvoker(identity, (event) => this.options.emit(event), randomUUID, () => {
+      const managed = managedRef ?? this.sessions.get(sessionId);
+      if (!managed) throw new Error('Agent control session is not ready.');
+      return ++managed.seq;
     });
-    // 模型常把 spawn 与 send/wait 放进同一批并行工具调用:后者按名字等 spawn 落地再解析。
-    // 无 pending 时同步解析,避免多一跳微任务(parentWaiting 等状态位要在调用当刻立起)
-    const pendingSpawns = new Map<string, Promise<CoworkerInfo>>();
-    const withCoworker = <T>(
-      name: string,
-      fn: (info: CoworkerInfo) => T | Promise<T>
-    ): Promise<T> => {
-      const pending = pendingSpawns.get(name);
-      if (!pending) return Promise.resolve(fn(this.mustCoworker(identity, name)));
-      return pending.catch(() => {}).then(() => fn(this.mustCoworker(identity, name)));
-    };
-    const coworkerTool = createCoworkerTool({
+    const unifiedSubagentTool = createUnifiedSubagentTool({
       agentTypes,
       models: subagentModels,
-      spawn: (name, agentTypeName, modelName, thinking) => {
-        const spawning = this.spawnCoworker(
-          sessionId,
-          `${sessionId}::cw-${slugify(name)}`,
-          name,
-          agentTypeName,
-          modelName,
-          undefined,
-          thinking
-        );
-        pendingSpawns.set(name, spawning);
-        void spawning.finally(() => pendingSpawns.delete(name)).catch(() => {});
-        return spawning;
-      },
-      send: (name, message, opts) =>
-        withCoworker(name, (info) => this.coworkerSend(info.id, message, opts)),
-      message: (from, to, text) =>
-        withCoworker(from, () => {
-          const target = this.mustCoworker(identity, to);
-          this.notifier.notify(target.id, `Message from coworker "${from}":\n${text}`);
-          return `(delivered to coworker "${to}" — async; any reply arrives later, continue your own work)`;
-        }),
-      list: () => {
-        const parent = this.must(identity);
-        return [...parent.coworkers.values()].map((info) => ({
-          ...info,
-          status: this.sessions.get(info.id)?.status ?? info.status,
-        }));
-      },
-      dismiss: (name) =>
-        withCoworker(name, async (info) => {
-          await this.dismissCoworker(sessionId, info.id);
-        }),
-      wait: (name, opts) => withCoworker(name, (info) => this.coworkerWait(info.id, opts)),
-      report: (name) =>
-        withCoworker(name, (info) => {
-          const managed = this.sessions.get(info.id);
-          const base = managed?.lastRoundSummary ?? '(no round completed yet)';
-          return managed?.status === 'running' || managed?.roundPending
-            ? `${base}\n\n(a round is in progress — use coworker wait to get its result)`
-            : base;
-        }),
+      invoke: (request, signal) => agentControl.invoke(request, signal),
     });
     const askManager = this.createAskManager(identity);
     // 内嵌浏览器：页面活在 Main，worker 只发 browser-invoke 事件。每个父会话一张挂起表。
@@ -1986,8 +1903,7 @@ export class SessionSupervisor {
       ...(memory ? createMemoryTools(memory, { language: memoryLanguage }) : []),
       ...(toolEnabled('todo') ? [createTodoTool()] : []),
       ...(toolEnabled('ask_user') ? [createAskTool(askManager)] : []),
-      ...(toolEnabled('subagent') ? [taskTool] : []),
-      ...(toolEnabled('coworker') ? [coworkerTool] : []),
+      ...(toolEnabled('subagent') ? [unifiedSubagentTool] : []),
       ...(exploreFold ? createExploreFoldTools(exploreFold) : []),
       ...(toolEnabled('background_tasks') ? createTaskTools(this.bgTasks) : []),
       ...(toolEnabled('goal')
@@ -2048,6 +1964,7 @@ export class SessionSupervisor {
       checkpoints,
       runawayGuard: runaway,
     });
+    managedRef.agentControl = agentControl;
     if (rolePrompt && !resumeFile) managedRef.pendingRole = rolePrompt;
     managedRef.browser = browser;
     managedRef.memory = memory;
@@ -3472,6 +3389,7 @@ export class SessionSupervisor {
       managed.ensoApp?.cancelAll('Enso worker shutdown');
       managed.browser?.cancelAll('Enso worker shutdown');
       managed.memory?.cancelAll('Enso worker shutdown');
+      managed.agentControl?.close('Enso worker shutdown');
       managed.currentTurnId = undefined;
     }
     return this.mcp.closeAll();

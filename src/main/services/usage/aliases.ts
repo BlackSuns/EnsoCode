@@ -2,7 +2,7 @@ import path from 'node:path';
 import { type PricingTable, parseUsageModelPricing } from '@shared/usage/pricing';
 import { app } from 'electron';
 import { readSettings } from '../../ipc/settings';
-import { WorktreeRegistry } from '../worktree/registry';
+import { getSharedWorktreeRegistry } from '../worktree/registry';
 import {
   buildUsageProjectAliases,
   type UsageProjectAliases,
@@ -37,7 +37,9 @@ function readSettingsProjects(): UsageProjectRef[] {
 export function loadUsageProjectAliases(): UsageProjectAliases {
   return buildUsageProjectAliases({
     projects: readSettingsProjects(),
-    worktrees: new WorktreeRegistry(path.join(app.getPath('userData'), 'worktrees.json')).list(),
+    worktrees: getSharedWorktreeRegistry(
+      path.join(app.getPath('userData'), 'worktrees.json')
+    ).usageRecords(),
   });
 }
 

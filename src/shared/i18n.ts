@@ -1591,6 +1591,18 @@ export const zhTranslations: Record<string, string> = {
   'Ask a side question without sending it to the main agent.': '旁路提问，不会发给主 agent。',
   'New Btw tab': '新建旁路标签',
   'Open a Btw tab in the side panel': '在右侧栏打开旁路对话',
+  'Unified agents: delegate one-shot tasks or keep persistent coworkers under Main control':
+    '统一 Agent：委派一次性任务，或在 Main 控制下保留持久 coworker',
+  'Unified agent modes': '统一 Agent 模式',
+  'Choose which Agent modes the unified subagent tool may create in new sessions.':
+    '选择统一 subagent 工具可在新会话中创建哪些 Agent 模式。',
+  'One-shot task agents': '一次性任务 Agent',
+  'Persistent coworkers': '持久 coworker',
+  'The unified subagent tool is off. Re-enabling it keeps this mode selection.':
+    '统一 subagent 工具已关闭。重新开启时会保留此模式选择。',
+  'Follow global unified agent modes': '跟随全局统一 Agent 模式',
+  'When off, this project uses its own explicit Agent mode permission mask.':
+    '关闭后，此项目使用自己明确配置的 Agent 模式权限掩码。',
 };
 
 export function normalizeLocale(input?: string): Locale {

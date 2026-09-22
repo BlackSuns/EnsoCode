@@ -45,7 +45,7 @@ describe('createIsolatedSandboxTool', () => {
     let received: unknown;
     const patch = mockTool('apply_patch', async (_id, params) => {
       received = params;
-      return { content: [{ type: 'text', text: 'ok' }] };
+      return { content: [{ type: 'text', text: 'ok' }], details: {} };
     });
     const payload = '*** Begin Patch\n*** Add File: a.txt\n+a\n*** End Patch';
     const result = await run(`return await apply_patch(${JSON.stringify(payload)});`, [patch]);

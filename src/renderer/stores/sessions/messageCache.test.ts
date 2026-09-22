@@ -203,7 +203,7 @@ describe('needsWorkerSnapshot', () => {
         started: true,
         sessionFile: '/tmp/s.jsonl',
         status: 'failed',
-        messages: [{ role: 'assistant' }],
+        messages: [{ optimistic: false }],
       })
     ).toBe(false);
   });

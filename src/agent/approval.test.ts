@@ -1,6 +1,6 @@
 import type { ApprovalRequestInfo } from '@shared/types/agent';
 import { describe, expect, it, vi } from 'vitest';
-import { ApprovalGate, summarizeApproval } from './approval';
+import { ApprovalGate, summarizeApproval, withApproval } from './approval';
 
 // 契约（design.md 运行时数据流）：ApprovalGate 构造函数新增可选第 4 参 options，
 // options.review?: (info: ApprovalRequestInfo, signal: AbortSignal | undefined) =>
@@ -33,6 +33,45 @@ describe('summarizeApproval', () => {
 });
 
 describe('ApprovalGate', () => {
+  it('file approval carries every parser-derived target path, not only display summary', async () => {
+    const infos: ApprovalRequestInfo[] = [];
+    const gate = new ApprovalGate(
+      'supervised',
+      (info) => {
+        infos.push(info);
+        gate.respond(info.requestId, 'deny');
+      },
+      () => undefined
+    );
+    const tool = withApproval(gate, 'file-edit', {
+      name: 'apply_patch',
+      label: 'Apply patch',
+      description: '',
+      parameters: {} as never,
+      execute: vi.fn(),
+    });
+    await expect(
+      tool.execute(
+        'call-1',
+        {
+          input: [
+            '*** Begin Patch',
+            '*** Update File: src/a.ts',
+            '-a',
+            '+b',
+            '*** Add File: src/b.ts',
+            '+b',
+            '*** End Patch',
+          ].join('\n'),
+        },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/denied/i);
+    expect(infos[0]?.filePaths).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
   it('三档 needsApproval:full 全免,auto-edits 免 file-*,supervised 全审', () => {
     expect(makeGate('full').gate.needsApproval('command', 'bash')).toBe(false);
     const auto = makeGate('auto-edits').gate;

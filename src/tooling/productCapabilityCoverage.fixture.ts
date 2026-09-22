@@ -12,7 +12,6 @@ const surfaces = (
 ): CoverageDisposition => ({ kind: 'surface', surfaceIds });
 
 const excluded = (reason: string): CoverageDisposition => ({ kind: 'excluded', reason });
-
 type SettingsActionKey = {
   [Key in keyof SettingsState]-?: SettingsState[Key] extends (...args: never[]) => unknown
     ? Key
@@ -101,6 +100,7 @@ export const SETTINGS_DATA_COVERAGE = {
   subagentModels: surfaces('providers.subagent-models'),
   disabledBuiltinAgentTypes: surfaces('agent-types.toggle-builtin'),
   disabledBuiltinTools: surfaces('tools.toggle-builtin'),
+  subagentAllowedModes: surfaces('tools.toggle-builtin'),
   onboarded: surfaces('onboarding.complete'),
   keybindings: surfaces('general.keybindings.list'),
   projects: surfaces('projects.list'),
@@ -243,6 +243,7 @@ export const SETTINGS_ACTION_COVERAGE = {
   removeAgentType: surfaces('agent-types.delete'),
   toggleBuiltinAgentType: surfaces('agent-types.toggle-builtin'),
   toggleBuiltinTool: surfaces('tools.toggle-builtin'),
+  setSubagentAllowedModes: surfaces('tools.toggle-builtin'),
   setOnboarded: surfaces('onboarding.complete'),
   setKeybinding: surfaces('general.keybindings.set'),
   resetKeybinding: surfaces('general.keybindings.reset'),
@@ -255,6 +256,7 @@ export const SETTINGS_ACTION_COVERAGE = {
   setProjectAlias: surfaces('projects.list'),
   setProjectDefaultModel: surfaces('projects.list'),
   setProjectDisabledBuiltinTools: surfaces('projects.list'),
+  setProjectSubagentAllowedModes: surfaces('projects.list'),
   removeProject: surfaces('projects.remove'),
   setUsageModelPricing: excluded(
     'Local usage cost override for Settings → Usage; desktop-only estimate, not an Enso capability.'
@@ -281,7 +283,6 @@ export const SETTINGS_ACTION_COVERAGE = {
 
 export const BUILTIN_TOOL_COVERAGE: Readonly<Record<string, CoverageDisposition>> = {
   subagent: surfaces('coding-tools.subagent'),
-  coworker: surfaces('coding-tools.coworker', 'team.list-coworkers'),
   todo: surfaces('coding-tools.todo'),
   ask_user: surfaces('coding-tools.ask-user'),
   background_tasks: surfaces('coding-tools.background-task'),
