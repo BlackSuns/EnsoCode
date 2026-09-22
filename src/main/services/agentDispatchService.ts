@@ -3,6 +3,7 @@ import { readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import {
   type AgentTypeKey,
+  type AgentTypeCandidate,
   type AgentTypeRegistrySnapshot,
   type ChildSessionIdentity,
   ENSO_LOCKED_PROFILE_ID,
@@ -41,6 +42,24 @@ interface ModelSelection {
   ref: ModelRef;
   runtimeRef: ModelRef;
   config: SpawnModelConfig;
+}
+
+/** 雇人时解析类型。未传类型则默认 worker；同名自定义类型会换掉 builtin:worker。 */
+export function selectHiredAgentType(
+  candidates: readonly AgentTypeCandidate[],
+  agentType?: string
+): AgentTypeCandidate | undefined {
+  const normalized = agentType?.trim().toLocaleLowerCase('en-US');
+  return (
+    candidates.find(
+      (entry) =>
+        entry.typeKey === agentType || entry.displayName.toLocaleLowerCase('en-US') === normalized
+    ) ??
+    (!agentType
+      ? (candidates.find((entry) => entry.typeKey === 'builtin:worker') ??
+        candidates.find((entry) => entry.displayName.toLocaleLowerCase('en-US') === 'worker'))
+      : undefined)
+  );
 }
 
 interface ModelResolution {
@@ -244,15 +263,7 @@ export class AgentDispatchService {
       };
     }
     const snapshot = this.options.host.registrySnapshot();
-    const normalized = agentType?.trim().toLocaleLowerCase('en-US');
-    const candidate =
-      snapshot.candidates.find(
-        (entry) =>
-          entry.typeKey === agentType || entry.displayName.toLocaleLowerCase('en-US') === normalized
-      ) ??
-      (!agentType
-        ? snapshot.candidates.find((entry) => entry.typeKey === 'builtin:worker')
-        : undefined);
+    const candidate = selectHiredAgentType(snapshot.candidates, agentType);
     if (!candidate) {
       return {
         ok: false,

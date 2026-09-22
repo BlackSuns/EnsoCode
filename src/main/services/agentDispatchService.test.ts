@@ -9,7 +9,7 @@ import type {
 } from '@shared/types/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ActiveConversationRegistry } from './activeConversationRegistry';
-import { AgentDispatchService } from './agentDispatchService';
+import { AgentDispatchService, selectHiredAgentType } from './agentDispatchService';
 import { AgentSessionIndex } from './agentSessionIndex';
 import { SourceAuthorityRegistry } from './sourceAuthorityRegistry';
 
@@ -25,6 +25,43 @@ afterEach(() => {
   worktrees.clear();
   busyWorktrees.clear();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+describe('selectHiredAgentType', () => {
+  const builtinWorker = {
+    typeKey: 'builtin:worker' as const,
+    displayName: 'worker',
+    description: 'builtin',
+    source: 'builtin' as const,
+    locked: false,
+    canDisable: true,
+    canEdit: false,
+  };
+  const customWorker = {
+    typeKey: 'custom:14478e0b-5089-4801-967e-0adeadfb4813' as const,
+    displayName: 'worker',
+    description: 'custom',
+    source: 'custom' as const,
+    locked: false,
+    canDisable: false,
+    canEdit: true,
+  };
+
+  it('未指定类型时选内置 worker', () => {
+    expect(selectHiredAgentType([builtinWorker])?.typeKey).toBe('builtin:worker');
+  });
+
+  it('同名自定义类型换掉 builtin:worker 后，未指定类型仍选到 worker', () => {
+    expect(selectHiredAgentType([customWorker])?.typeKey).toBe(customWorker.typeKey);
+  });
+
+  it('内置仍在时不改用同名自定义类型', () => {
+    expect(selectHiredAgentType([customWorker, builtinWorker])?.typeKey).toBe('builtin:worker');
+  });
+
+  it('显式未知类型不回退到 worker', () => {
+    expect(selectHiredAgentType([customWorker], 'reviewer')).toBeUndefined();
+  });
 });
 
 interface SetupOptions {
