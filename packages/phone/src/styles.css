@@ -192,6 +192,24 @@
   }
 }
 
+/* coworker tab 滑动底：必须脱离文档流，否则会占住当前 tab 的宽度把后面的 tab 挤偏 */
+.t-tabs-pill {
+  transition:
+    transform var(--tabs-dur) var(--tabs-ease),
+    width var(--tabs-dur) var(--tabs-ease),
+    height var(--tabs-dur) var(--tabs-ease);
+}
+.t-tab {
+  position: relative;
+  z-index: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-tabs-pill,
+  .t-tab {
+    transition: none !important;
+  }
+}
+
 /* 安全区（刘海屏 / 底部 home 条）；底部留一点最小间距，不贴死屏幕边缘 */
 @utility pt-safe {
   padding-top: env(safe-area-inset-top);

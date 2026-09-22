@@ -259,9 +259,13 @@ export function ChatScreen(props: Props) {
           <div
             ref={tabsRef}
             role="tablist"
-            className="t-tabs flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1"
+            className="t-tabs relative flex shrink-0 items-center justify-start gap-1 overflow-x-auto border-b px-2 py-1"
           >
-            <span ref={pillRef} aria-hidden="true" className="t-tabs-pill" />
+            <span
+              ref={pillRef}
+              aria-hidden="true"
+              className="t-tabs-pill pointer-events-none absolute top-0 left-0 z-0 rounded-md bg-muted"
+            />
             <button
               type="button"
               role="tab"
