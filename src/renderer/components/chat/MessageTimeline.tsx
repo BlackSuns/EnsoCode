@@ -26,6 +26,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { ChatSearchHighlightContext } from './highlightQuery';
 import { NavRail } from './NavRail';
 import { isCompactRow, RetryTurnButton, TimelineRow } from './TimelineRow';
+import { nextTimelineReveal } from './timelineReveal';
 
 /** 消息列/输入区共用的列：阶梯 max-w + 水平 padding。padding 必须在列上而不是 @container 上，否则两侧查询宽度差 2rem，会在断点附近上下错位。默认到 4xl 保持原阅读宽度，更宽再逐级加档。 */
 export const CHAT_COL =
@@ -44,15 +45,22 @@ function EmptyReveal({ className, children }: { className?: string; children: Re
 /** 贴底判定阈值（px）：与旧实现一致，离底 40px 内视为贴底 */
 const AT_BOTTOM_THRESHOLD = 40;
 
+// 稳定引用。库每次渲染都重发 props；按引用去重的输入不能每次都是新对象。
+const INITIAL_TOP_MOST_ITEM_INDEX = { index: 'LAST', align: 'end' } as const;
+const VIEWPORT_OVERSCAN = { top: 600, bottom: 600 };
+const followChatOutput = (isAtBottom: boolean) => (isAtBottom ? 'auto' : false);
+
 function TimelineList({ style, ...props }: ListProps) {
   const hidden = style?.visibility === 'hidden';
   const [reveal, setReveal] = useState(false);
+  const hiddenSince = useRef<number | null>(null);
   useEffect(() => {
-    if (!hidden) return;
-    // 初始 LAST 定位等待行高稳定；持续测高时不能无限隐藏正文（Footer 不受此门控）。
-    const timer = window.setTimeout(() => setReveal(true), 1000);
+    const next = nextTimelineReveal(Date.now(), hiddenSince.current, hidden, reveal);
+    hiddenSince.current = next.hiddenSince;
+    if (next.delayMs === null) return;
+    const timer = window.setTimeout(() => setReveal(true), next.delayMs);
     return () => window.clearTimeout(timer);
-  }, [hidden]);
+  }, [hidden, reveal]);
   return <div {...props} style={hidden && reveal ? { ...style, visibility: 'visible' } : style} />;
 }
 
@@ -587,14 +595,14 @@ export function MessageTimeline({
               onStartReached();
             }}
             // 贴底时新内容自动跟随（含流式增高）；非贴底不抢滚
-            followOutput={(isAtBottom) => (isAtBottom ? 'auto' : false)}
+            followOutput={followChatOutput}
             atBottomThreshold={AT_BOTTOM_THRESHOLD}
             atBottomStateChange={(value) => {
               setAtBottom(value);
               atBottomRef.current = value;
             }}
-            increaseViewportBy={{ top: 600, bottom: 600 }}
-            initialTopMostItemIndex={{ index: 'LAST', align: 'end' }}
+            increaseViewportBy={VIEWPORT_OVERSCAN}
+            initialTopMostItemIndex={INITIAL_TOP_MOST_ITEM_INDEX}
             // 可视范围起点附近的 user 轮次作为导航条高亮
             rangeChanged={({ startIndex }) => {
               if (startIndex > firstItemIndex + 4) startReachedLatch.current = false;
