@@ -44,7 +44,7 @@ export function mergeSettingsState<T extends { editMode: EditMode }>(
  * v9 → v10：文件编辑模式改为互斥枚举；旧 hashline 开关迁移后删除。
  * v10 → v11：移除 Hashline 与 bash 拦截；hashline 回落 replace。
  * v11 → v12：默认编辑模式改为 apply_patch，已有 replace 一并切过去。
- * v12 → v13：subagent/coworker 合并；旧开关迁为 mode 掩码，旧开关迁为 mode 掩码。
+ * v12 → v13：subagent/coworker 合并；旧开关迁为 mode 掩码。
  */
 export function migrateSettings(persisted: unknown, version: number): unknown {
   if (version >= SETTINGS_VERSION) return persisted;

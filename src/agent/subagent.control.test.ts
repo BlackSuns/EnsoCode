@@ -106,7 +106,7 @@ describe('unified subagent tool', () => {
         message: 'next task',
         delivery: 'next',
         schema,
-        gate: { argv: ['pnpm', 'test'] },
+        gate: { commandRef: 'tests' },
       },
       undefined,
       undefined,
@@ -118,7 +118,7 @@ describe('unified subagent tool', () => {
         delivery: 'next',
         wait: false,
         schema,
-        gate: { argv: ['pnpm', 'test'] },
+        gate: { commandRef: 'tests' },
       }),
       undefined
     );
@@ -143,6 +143,20 @@ describe('unified subagent tool', () => {
           description: 'x',
           prompt: 'x',
           gate: 'pnpm test',
+        },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/invalid/i);
+    await expect(
+      tool.execute(
+        'call-argv',
+        {
+          operation: 'spawn',
+          description: 'x',
+          prompt: 'x',
+          gate: { argv: ['pnpm', 'test'] },
         },
         undefined,
         undefined,

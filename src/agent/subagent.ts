@@ -116,6 +116,8 @@ export function createUnifiedSubagentTool(deps: UnifiedSubagentDeps): ToolDefini
       'Agent and Run are different identities: use runId for wait/report/stop and agentId for send/dismiss.',
       'wait timeout or interruption never stops execution; use stop or dismiss explicitly.',
       'Use send delivery=auto to steer a running Run or start an idle coworker Run; delivery=next queues a new coworker Run.',
+      'gate.commandRef is a Main-authorized command id, not shell text or argv.',
+      'Unknown gate ids fail the run and nothing is executed.',
     ],
     parameters: {
       type: 'object',
@@ -150,20 +152,11 @@ export function createUnifiedSubagentTool(deps: UnifiedSubagentDeps): ToolDefini
         wait: { type: 'boolean', description: 'Default false. Only wait for this tool call.' },
         schema: { type: 'object' },
         gate: {
-          oneOf: [
-            {
-              type: 'object',
-              properties: { argv: { type: 'array', items: { type: 'string' }, minItems: 1 } },
-              required: ['argv'],
-              additionalProperties: false,
-            },
-            {
-              type: 'object',
-              properties: { commandRef: { type: 'string' } },
-              required: ['commandRef'],
-              additionalProperties: false,
-            },
-          ],
+          type: 'object',
+          description: 'Main command id, not a shell command. Unknown ids are rejected.',
+          properties: { commandRef: { type: 'string' } },
+          required: ['commandRef'],
+          additionalProperties: false,
         },
         agentId: { type: 'string' },
         runId: { type: 'string' },

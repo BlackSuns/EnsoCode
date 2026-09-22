@@ -68,7 +68,8 @@ interface DispatchHost {
   resolveAgentType(
     typeKey: AgentTypeKey,
     parentModel: ModelSelection,
-    authenticatedAccountKeys: ReadonlySet<string>
+    authenticatedAccountKeys: ReadonlySet<string>,
+    scope?: { parentSessionId: string; projectId?: string }
   ): AgentTypeResolution;
   resolveSubagentModel?(
     name: string,
@@ -263,7 +264,8 @@ export class AgentDispatchService {
     const resolved = this.options.host.resolveAgentType(
       candidate.typeKey,
       parentModel.selection,
-      credentialKeys
+      credentialKeys,
+      { parentSessionId: source.parentConversationId, projectId: source.parentProjectId }
     );
     if (!resolved.ok || !resolved.config || !resolved.expectedModel) {
       return {
@@ -650,7 +652,11 @@ export class AgentDispatchService {
     const agentType = this.options.host.resolveAgentType(
       request.typeKey,
       parentModel.selection,
-      credentialKeys
+      credentialKeys,
+      {
+        parentSessionId: binding.parentConversationId,
+        projectId: binding.parentProjectId,
+      }
     );
     if (!agentType.ok || !agentType.config || !agentType.expectedModel) {
       return this.rejected(
@@ -820,7 +826,8 @@ export class AgentDispatchService {
         const resolved = this.options.host.resolveAgentType(
           metadata.agentTypeKey,
           model.selection,
-          credentialKeys
+          credentialKeys,
+          { parentSessionId: parent.sessionId, projectId: source.parentProjectId }
         );
         if (!resolved.ok || !resolved.config) continue;
         const reservation = this.options.sessionIndex.reserveChildResume(

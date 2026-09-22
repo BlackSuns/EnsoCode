@@ -55,6 +55,7 @@ import {
   completeText,
   dismissChildSession,
   dismissCoworkerSession,
+  forgetParentToolProfile,
   forkSession,
   isAgentWorkerReady,
   promptChildSession,
@@ -904,6 +905,7 @@ export function registerAgentHandlers(): void {
       void browserHost.closeForSession(workerEvent.identity.sessionId);
     }
     if (workerEvent.type === 'parent-ended') {
+      forgetParentToolProfile(workerEvent.identity.sessionId);
       void browserHost.closeForSession(workerEvent.identity.sessionId, { force: true });
       // 会话结束 / 闲置回收：从权威 jsonl 异步蒸馏长期记忆（开关、幂等、失败全部在 memoryHost 内收口）
       const sessionFile = agentSessionIndex.sessionFile(workerEvent.identity);

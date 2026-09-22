@@ -135,6 +135,47 @@ describe('AgentService lifecycle', () => {
     expect(runtime.prompt).toHaveBeenCalledWith(expect.objectContaining({ identity: restored }));
   });
 
+  it('child-ended closes an adopted coworker that never started a run', async () => {
+    const { service } = setup();
+    const restored = {
+      sessionId: 'parent::cw-persisted-agent',
+      generation: '99999999-9999-4999-8999-999999999999',
+      parent: context.actor.kind === 'agent' ? context.actor.identity : ({} as never),
+      instanceId: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000099',
+      instanceName: 'reviewer',
+      typeKey: 'builtin:worker' as const,
+    };
+    expect(service.adoptCoworker(context, restored)).toBe(true);
+    service.observe({
+      type: 'child-ended',
+      identity: restored,
+      seq: 1,
+      reason: 'dismissed',
+    });
+    await expect(
+      service.list({ context, requestId: 'list-ended', limit: 20 })
+    ).resolves.toMatchObject({
+      ok: true,
+      value: { agents: [{ agentId: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000099', status: 'closed' }] },
+    });
+  });
+
+  it('schema is included in the child prompt', async () => {
+    const { service, runtime } = setup();
+    const schema = { type: 'object', required: ['ok'] };
+    await service.spawn(spawnRequest({ schema }));
+    expect(runtime.prompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: [
+          'do the work',
+          '',
+          'Return exactly one JSON value matching this schema:',
+          JSON.stringify(schema),
+        ].join('\n'),
+      })
+    );
+  });
+
   it('rechecks terminal state after awaited steer delivery', async () => {
     const { service, runtime, children } = setup();
     const spawned = await service.spawn(spawnRequest({ mode: 'coworker' }));
@@ -226,7 +267,7 @@ describe('AgentService lifecycle', () => {
     const deferred = Promise.withResolvers<{ ok: true; value: unknown }>();
     vi.mocked(runtime.validate!).mockReturnValueOnce(deferred.promise);
     const spawned = await service.spawn(
-      spawnRequest({ mode: 'coworker', gate: { argv: ['test'] } })
+      spawnRequest({ mode: 'coworker', gate: { commandRef: 'tests' } })
     );
     if (!spawned.ok) throw new Error(spawned.error);
     service.observe({

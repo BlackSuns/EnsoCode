@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import { parseJsonFromAssistant, validateAgainstSchema } from '../../agent/structuredYield';
 import type { AgentRunGate } from '../../shared/types/agent';
 
@@ -17,24 +16,14 @@ export async function validateAgentRun(input: {
     if (!checked.ok) return { ok: false, error: checked.error ?? 'Schema validation failed.' };
   }
   if (input.gate) {
-    if ('commandRef' in input.gate) {
-      return { ok: false, error: `Unknown Main-authorized gate command: ${input.gate.commandRef}` };
-    }
-    const [file, ...args] = input.gate.argv;
-    const gated = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
-      execFile(
-        file,
-        args,
-        { cwd: input.cwd, shell: false, timeout: 120_000, signal: input.signal },
-        (error, _stdout, stderr) =>
-          resolve(
-            error
-              ? { ok: false, error: stderr.trim() || `Run gate failed: ${error.message}` }
-              : { ok: true }
-          )
-      );
-    });
-    if (!gated.ok) return gated;
+    const commandRef =
+      input.gate && 'commandRef' in input.gate ? input.gate.commandRef : undefined;
+    return {
+      ok: false,
+      error: commandRef
+        ? `Unknown Main-authorized gate command: ${commandRef}`
+        : 'Run gates cannot execute arbitrary commands.',
+    };
   }
   return { ok: true, ...(value !== undefined ? { value } : {}) };
 }

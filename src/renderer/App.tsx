@@ -79,10 +79,6 @@ export default function App() {
   const { t } = useI18n();
   const chatWide = useSettingsStore((s) => s.chatWide);
   const activeConversationId = useSessionsStore((s) => s.activeId);
-  const activeProjectId = useSessionsStore((s) =>
-    s.activeId ? s.conversations[s.activeId]?.projectId : undefined
-  );
-  const projects = useSettingsStore((s) => s.projects);
   const sideOpen = useSidePanelStore((s) =>
     activeConversationId ? Boolean(s.uiByConversation[activeConversationId]?.open) : false
   );
@@ -319,15 +315,13 @@ export default function App() {
               ref={workspaceRef}
               className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
             >
-              <>
-                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <ChatView />
-                  </div>
-                  {sideOpen && !sideFullscreen && (
-                    <ResizeHandle onResize={handleSideResize} onResizingChange={setSideResizing} />
-                  )}
-                  <SidePanel width={sideWidth} resizing={sideResizing} />
-                </>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <ChatView />
+              </div>
+              {sideOpen && !sideFullscreen && (
+                <ResizeHandle onResize={handleSideResize} onResizingChange={setSideResizing} />
+              )}
+              <SidePanel width={sideWidth} resizing={sideResizing} />
             </div>
           </DndContext>
         )}

@@ -84,7 +84,7 @@ describe('agent control tool protocol', () => {
         description: 'review',
         prompt: 'review it',
         wait: false,
-        gate: { argv: ['pnpm', 'test'] },
+        gate: { commandRef: 'tests' },
       })
     ).not.toBeNull();
     expect(
@@ -144,6 +144,14 @@ describe('agent control tool protocol', () => {
         prompt: 'x',
         wait: false,
         gate: { argv: [''] },
+      },
+      {
+        operation: 'spawn',
+        mode: 'task',
+        description: 'x',
+        prompt: 'x',
+        wait: false,
+        gate: { argv: ['pnpm', 'test'] },
       },
     ]) {
       expect(parseAgentControlToolRequest(request)).toBeNull();

@@ -12,7 +12,7 @@ import {
   type SessionIdentity,
 } from '@shared/builtinAgents';
 import type { CapabilityExecutionEnvelope } from '@shared/capabilities/types';
-import { childProfileToolIds } from '@shared/childProfileTools';
+import { type ChildProfileToolInput, childProfileToolIds } from '@shared/childProfileTools';
 import { resolveCompactStrategy } from '@shared/compactStrategy';
 import {
   type DefaultModelRef,
@@ -353,10 +353,36 @@ export function resolveModelSelection(
   };
 }
 
-/** 与 worker 构建子代理工具用同一份推导；硬编码列表会随 editMode / 内置工具开关漂移。 */
-export function expectedAgentTypeToolIds(tools: AgentTypeEntry['tools']): readonly string[] {
+type ParentToolProfile = Omit<ChildProfileToolInput, 'tools'>;
+
+const parentToolProfiles = new Map<string, ParentToolProfile>();
+
+export interface AgentTypeToolScope {
+  parentSessionId?: string;
+  projectId?: string;
+}
+
+/** 记下父会话 spawn 时下发给 worker 的工具档。事后改设置不能拿来做 proof。 */
+export function rememberParentToolProfile(sessionId: string, profile: ParentToolProfile): void {
+  parentToolProfiles.set(sessionId, profile);
+}
+
+export function forgetParentToolProfile(sessionId: string): void {
+  parentToolProfiles.delete(sessionId);
+}
+
+export function expectedAgentTypeToolIds(
+  tools: AgentTypeEntry['tools'],
+  scope?: AgentTypeToolScope
+): readonly string[] {
+  const remembered = scope?.parentSessionId
+    ? parentToolProfiles.get(scope.parentSessionId)
+    : undefined;
+  if (remembered) return childProfileToolIds({ tools, ...remembered });
   const state = readSettingsState();
-  const disabled = resolveDisabledBuiltinTools(state?.disabledBuiltinTools);
+  const disabled = resolveDisabledBuiltinTools(state?.disabledBuiltinTools, {
+    disabledBuiltinTools: projectDisabledBuiltinTools(state?.projects, scope?.projectId),
+  });
   return childProfileToolIds({
     tools,
     editMode: resolveEditMode(state?.editMode, state?.hashlineEditEnabled),
@@ -368,7 +394,8 @@ export function expectedAgentTypeToolIds(tools: AgentTypeEntry['tools']): readon
 export function resolveAgentTypeSpawnConfig(
   typeKey: AgentTypeKey,
   parentModel: ResolvedModelSelection,
-  authenticatedAccountKeys: ReadonlySet<string>
+  authenticatedAccountKeys: ReadonlySet<string>,
+  scope?: AgentTypeToolScope
 ): AgentTypeResolution {
   const snapshot = agentTypeRegistrySnapshot();
   const candidate = snapshot.candidates.find((entry) => entry.typeKey === typeKey);
@@ -429,6 +456,7 @@ export function resolveAgentTypeSpawnConfig(
 
   const resources = resolveAgentTypeResources(definition);
   if (!resources.ok) return resources;
+  const expectedToolIds = expectedAgentTypeToolIds(definition.tools, scope);
   return {
     ok: true,
     config: {
@@ -439,6 +467,7 @@ export function resolveAgentTypeSpawnConfig(
       systemPrompt: definition.systemPrompt,
       model: selectedModel.config,
       tools: definition.tools,
+      allowedToolIds: expectedToolIds,
       skillPaths: resources.skillPaths,
       skillBindingIds: resources.skillPaths.map(() => randomUUID()),
       mcpServers: resources.mcpServers,
@@ -446,7 +475,7 @@ export function resolveAgentTypeSpawnConfig(
       systemPromptHash: createHash('sha256').update(definition.systemPrompt).digest('hex'),
     },
     expectedModel: selectedModel.ref,
-    expectedToolIds: expectedAgentTypeToolIds(definition.tools),
+    expectedToolIds,
     allowsModelOverride:
       (definition.modelMode ??
         (definition.providerId && definition.modelId
@@ -538,7 +567,7 @@ export function spawnSession(
   const memoryLanguage = typeof state?.memoryLanguage === 'string' ? state.memoryLanguage : 'en';
   // worker 崩溃/退出后不自动拉起的话，所有会话都只能靠重启 app 恢复；在 spawn 入口按需重建
   if (!worker && workerExited) startAgentWorker();
-  return sendAgentCommand({
+  const sent = sendAgentCommand({
     type: 'spawn-parent',
     identity,
     cwd: request.cwd,
@@ -569,6 +598,14 @@ export function spawnSession(
     ...(options?.rolePrompt ? { rolePrompt: options.rolePrompt } : {}),
     ...(systemPrompt.content ? { systemPrompt: systemPrompt.content } : {}),
   });
+  if (sent.ok) {
+    rememberParentToolProfile(identity.sessionId, {
+      editMode,
+      isolatedSandboxEnabled: !disabledTools.includes('isolated_sandbox'),
+      exploreFoldEnabled,
+    });
+  }
+  return sent;
 }
 
 export function resolvePresetSystemPrompt(

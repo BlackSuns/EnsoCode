@@ -12,23 +12,24 @@ describe('validateAgentRun', () => {
     ).resolves.toEqual({ ok: true, value: { ok: true } });
   });
 
-  it('executes argv gates without a shell and reports failure', async () => {
+  it('rejects unknown command refs without executing a process', async () => {
     await expect(
       validateAgentRun({
         cwd: process.cwd(),
-        gate: { argv: [process.execPath, '-e', 'process.exit(3)'] },
+        gate: { commandRef: 'pnpm test' },
       })
-    ).resolves.toMatchObject({ ok: false, error: expect.stringMatching(/gate/i) });
+    ).resolves.toEqual({
+      ok: false,
+      error: 'Unknown Main-authorized gate command: pnpm test',
+    });
   });
 
-  it('aborts a running argv gate', async () => {
-    const controller = new AbortController();
-    const pending = validateAgentRun({
-      cwd: process.cwd(),
-      gate: { argv: [process.execPath, '-e', 'setTimeout(() => {}, 10000)'] },
-      signal: controller.signal,
-    });
-    controller.abort();
-    await expect(pending).resolves.toMatchObject({ ok: false });
+  it('rejects a gate that is not a command ref', async () => {
+    await expect(
+      validateAgentRun({
+        cwd: process.cwd(),
+        gate: { argv: [process.execPath, '-e', 'process.exit(3)'] } as never,
+      })
+    ).resolves.toEqual({ ok: false, error: 'Run gates cannot execute arbitrary commands.' });
   });
 });

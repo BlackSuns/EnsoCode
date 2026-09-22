@@ -653,12 +653,3 @@ export function registerWorktreeHandlers(): void {
     }
   );
 }
-ath) return { ok: false, error: 'unknown or inactive project' };
-      try {
-        return { ok: true, value: await repoIsClean(repoPath) };
-      } catch (error) {
-        return fail(error);
-      }
-    }
-  );
-}

@@ -299,7 +299,8 @@ export interface AgentControlContext {
   owner: AgentOwnerIdentity;
 }
 
-export type AgentRunGate = { argv: string[] } | { commandRef: string };
+/** Main 授权的验收命令 id。模型不能提交 argv；未知 id 在 Main 拒绝，不会执行。 */
+export type AgentRunGate = { commandRef: string };
 
 export interface AgentControlSpawnRequest {
   context: AgentControlContext;
@@ -475,13 +476,6 @@ export function parseAgentControlToolRequest(value: unknown): AgentControlToolRe
   const schemaValid = value.schema === undefined || isRecord(value.schema);
   const gateValid = (gate: unknown): gate is AgentRunGate => {
     if (!isRecord(gate)) return false;
-    if (hasExactKeys(gate, ['argv'])) {
-      return (
-        Array.isArray(gate.argv) &&
-        gate.argv.length > 0 &&
-        gate.argv.every((part) => nonEmpty(part))
-      );
-    }
     return hasExactKeys(gate, ['commandRef']) && nonEmpty(gate.commandRef);
   };
   const optionalGate = value.gate === undefined || gateValid(value.gate);

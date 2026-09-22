@@ -156,6 +156,13 @@ function projectedText(message: unknown): string | undefined {
   return text || undefined;
 }
 
+function promptForRun(run: RunRecord): string {
+  if (run.schema === undefined) return run.prompt;
+  return `${run.prompt}\n\nReturn exactly one JSON value matching this schema:\n${JSON.stringify(
+    run.schema
+  )}`;
+}
+
 export class AgentService implements AgentServiceContract {
   private readonly agents = new Map<string, AgentRecord>();
   private readonly runs = new Map<string, RunRecord>();
@@ -348,7 +355,7 @@ export class AgentService implements AgentServiceContract {
       if (agent.activeRunId === run.value.runId) {
         agent.activeRunId = undefined;
         agent.status = 'ready';
-        void this.startNext(agent);
+        await this.startNext(agent);
       }
       return { ok: true, value: this.snapshot(run.value) };
     });
@@ -549,12 +556,17 @@ export class AgentService implements AgentServiceContract {
       }
       return;
     }
-    if ((event.type === 'child-ended' || event.type === 'child-rejected') && active) {
-      this.finishRun(
-        active,
-        event.type === 'child-rejected' ? 'failed' : 'interrupted',
-        event.reason
-      );
+    if (event.type === 'child-ended' || event.type === 'child-rejected') {
+      const terminal = event.type === 'child-rejected' ? 'failed' : 'interrupted';
+      if (active) {
+        active.validationAbort?.abort();
+        this.finishRun(active, terminal, event.reason);
+      }
+      for (const runId of agent.queuedRunIds) {
+        const queued = this.runs.get(runId);
+        if (queued) this.finishRun(queued, terminal, event.reason);
+      }
+      agent.queuedRunIds = [];
       agent.activeRunId = undefined;
       agent.status = 'closed';
     }
@@ -655,7 +667,7 @@ export class AgentService implements AgentServiceContract {
       identity: agent.identity,
       agentId: agent.agentId,
       runId: run.runId,
-      prompt: run.prompt,
+      prompt: promptForRun(run),
       ...(run.schema !== undefined ? { schema: run.schema } : {}),
       ...(run.gate !== undefined ? { gate: run.gate } : {}),
     });
@@ -729,7 +741,7 @@ export class AgentService implements AgentServiceContract {
         agentId: agent.agentId,
       });
     } else {
-      void this.startNext(agent);
+      void this.serial(agent.context.owner.ownerId, () => this.startNext(agent));
     }
   }
 
