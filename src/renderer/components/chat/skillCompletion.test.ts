@@ -1,6 +1,6 @@
 import type { SlashCommand } from '@shared/types/agent';
 import { describe, expect, it } from 'vitest';
-import { extractSkillQuery, filterComposerCommands } from './skillCompletion';
+import { dedupeSlashCommands, extractSkillQuery, filterComposerCommands } from './skillCompletion';
 
 describe('extractSkillQuery', () => {
   it.each([
@@ -64,5 +64,32 @@ describe('filterComposerCommands', () => {
     expect(filterComposerCommands([...commands.slice(0, 2), ...skills], null, '')).toEqual(
       skills.slice(0, 10)
     );
+  });
+
+  it('keeps the first command when the same skill is registered more than once', () => {
+    const ida = { name: '/skill:IDA-Skill', description: 'from settings' };
+    const surge = { name: '/skill:Surge', description: 'from settings' };
+    const merged = dedupeSlashCommands([
+      ida,
+      { name: '/skill:IDA-Skill', description: 'from project' },
+      { name: '/skill:ida-skill', description: 'from session' },
+      surge,
+      { name: '/skill:Surge', description: 'from project' },
+      { name: '/skill:android-reverse-engineering', description: 'android' },
+    ]);
+    expect(merged).toEqual([
+      ida,
+      surge,
+      { name: '/skill:android-reverse-engineering', description: 'android' },
+    ]);
+  });
+
+  it('does not let duplicate skills fill the suggestion window', () => {
+    const ida = { name: '/skill:IDA-Skill', description: 'IDA' };
+    const copies = Array.from({ length: 12 }, () => ida);
+    expect(
+      filterComposerCommands([...copies, { name: '/skill:Surge', description: 'Surge' }], '', null)
+    ).toEqual([ida, { name: '/skill:Surge', description: 'Surge' }]);
+    expect(filterComposerCommands(copies, 'ida', null)).toEqual([ida]);
   });
 });
