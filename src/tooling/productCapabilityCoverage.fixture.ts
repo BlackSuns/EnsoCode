@@ -66,6 +66,9 @@ export const SETTINGS_DATA_COVERAGE = {
   openChangesOnFileEdit: excluded('Renderer side-panel preference; not an Enso capability.'),
   compactReadOnlyTools: excluded('Renderer timeline density preference; not an Enso capability.'),
   expandLiveEdits: excluded('Renderer timeline expansion preference; not an Enso capability.'),
+  expandLiveReasoning: excluded(
+    'Renderer timeline reasoning expansion preference; not an Enso capability.'
+  ),
   autoCollapseTurns: excluded('Renderer timeline collapse preference; not an Enso capability.'),
   chatWide: excluded('Renderer chat column width preference; not an Enso capability.'),
   notifyMainAgentOnly: excluded(
@@ -175,6 +178,9 @@ export const SETTINGS_ACTION_COVERAGE = {
     'Renderer timeline density preference; not an Enso capability.'
   ),
   setExpandLiveEdits: excluded('Renderer timeline expansion preference; not an Enso capability.'),
+  setExpandLiveReasoning: excluded(
+    'Renderer timeline reasoning expansion preference; not an Enso capability.'
+  ),
   setAutoCollapseTurns: excluded('Renderer timeline collapse preference; not an Enso capability.'),
   setChatWide: excluded('Renderer chat column width preference; not an Enso capability.'),
   setNotifyMainAgentOnly: excluded(

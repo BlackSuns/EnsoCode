@@ -140,6 +140,16 @@ export function shouldAutoExpandAppliedFileChanges(
   );
 }
 
+/** 推理行是否展开：手动点击优先；否则仅在开启自动展开且仍在流式时展开 */
+export function thinkingRowExpanded(
+  userToggled: boolean | null,
+  streaming: boolean,
+  expandLiveReasoning: boolean
+): boolean {
+  if (userToggled !== null) return userToggled;
+  return expandLiveReasoning && streaming;
+}
+
 export function shouldShowToolOutputAfterFileChanges(item: TimelineItem): boolean {
   return (
     item.kind === 'tool' &&

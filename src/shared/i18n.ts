@@ -166,6 +166,9 @@ export const zhTranslations: Record<string, string> = {
   'Expand file edits while running': '运行中自动展开文件改动',
   'Automatically unfold diffs or written content from file modification tools while the agent is still running':
     'agent 运行中，文件修改工具的 diff 或写入内容自动展开',
+  'Expand reasoning while streaming': '流式推理时自动展开',
+  'Automatically unfold the thinking block while the model is still reasoning. It collapses again when reasoning ends.':
+    '模型思考时自动展开推理内容；思考结束后仍自动收起',
   'Context compaction strategy': '上下文压缩策略',
   'Standard uses default compact. Smart compaction uses Enso verified summary at compact time. Continuous memory records observations in the background so compact keeps more context; both fall back to default compact on failure and take effect on the next session.':
     '标准使用默认压缩。智能压缩在压缩时用 Enso 验证式摘要。持续记忆在后台持续记录观察，压缩时保留更多上下文；两者失败都回退默认压缩，下一个会话生效。',

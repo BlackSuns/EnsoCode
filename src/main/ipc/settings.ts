@@ -61,6 +61,7 @@ export const SETTINGS_STATE_FIELDS = [
   'openChangesOnFileEdit',
   'compactReadOnlyTools',
   'expandLiveEdits',
+  'expandLiveReasoning',
   'autoCollapseTurns',
   'chatWide',
   'notifyMainAgentOnly',

@@ -154,6 +154,8 @@ export interface SettingsState {
   compactReadOnlyTools: boolean;
   /** agent 运行中 edit/write 的行到位时自动展开 diff/内容；缺省 true */
   expandLiveEdits: boolean;
+  /** 推理流式输出时自动展开思考块，结束后仍收起；缺省 true，与改前行为一致 */
+  expandLiveReasoning: boolean;
   /** 发送新消息后自动折叠历史轮次，只留最后一轮展开；缺省 false */
   autoCollapseTurns: boolean;
   /** 聊天列铺满：去掉两侧阶梯 max-w；缺省 false（居中阅读宽度） */
@@ -298,6 +300,7 @@ export interface SettingsState {
   setOpenChangesOnFileEdit: (value: boolean) => void;
   setCompactReadOnlyTools: (value: boolean) => void;
   setExpandLiveEdits: (value: boolean) => void;
+  setExpandLiveReasoning: (value: boolean) => void;
   setAutoCollapseTurns: (value: boolean) => void;
   setChatWide: (value: boolean) => void;
   setNotifyMainAgentOnly: (value: boolean) => void;

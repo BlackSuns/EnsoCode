@@ -11,6 +11,7 @@ import {
   shouldAutoExpandAppliedFileChanges,
   shouldPrefetchOlderHistory,
   shouldShowToolOutputAfterFileChanges,
+  thinkingRowExpanded,
   type TimelineItem,
   terminalErrorText,
 } from './timeline';
@@ -2422,3 +2423,21 @@ const userByText = (items: TimelineItem[], text: string): UserItem => {
   if (!found) throw new Error(`user item not found: ${text}`);
   return found;
 };
+
+describe('thinkingRowExpanded', () => {
+  it('关闭自动展开时，流式中也保持收起，结束后仍收起', () => {
+    expect(thinkingRowExpanded(null, true, false)).toBe(false);
+    expect(thinkingRowExpanded(null, false, false)).toBe(false);
+  });
+
+  it('开启后只在流式中展开，结束后自动收起', () => {
+    expect(thinkingRowExpanded(null, true, true)).toBe(true);
+    expect(thinkingRowExpanded(null, false, true)).toBe(false);
+  });
+
+  it('手动点击覆盖自动展开', () => {
+    expect(thinkingRowExpanded(true, true, false)).toBe(true);
+    expect(thinkingRowExpanded(false, true, true)).toBe(false);
+    expect(thinkingRowExpanded(true, false, true)).toBe(true);
+  });
+});

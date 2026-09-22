@@ -147,6 +147,11 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
     title: 'Expand file edits while running',
   },
   {
+    id: 'general.expandLiveReasoning',
+    category: 'general',
+    title: 'Expand reasoning while streaming',
+  },
+  {
     id: 'general.autoCollapseTurns',
     category: 'general',
     title: 'Auto-collapse previous turns',

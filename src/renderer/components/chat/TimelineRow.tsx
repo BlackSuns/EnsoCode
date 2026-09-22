@@ -50,6 +50,7 @@ import {
   parseSandboxOutput,
   shouldAutoExpandAppliedFileChanges,
   shouldShowToolOutputAfterFileChanges,
+  thinkingRowExpanded,
   type TimelineItem,
 } from '@/stores/sessions/timeline';
 import { useSettingsStore } from '@/stores/settings';
@@ -1008,7 +1009,7 @@ function formatPerf(perf: TurnPerf, t: TFunction, hasTurnDuration = false): stri
   return parts.join(' · ');
 }
 
-/** deepseek-harness 的 Think 行：流式中自动展开跟看，结束自动收起；手动点击覆盖默认 */
+/** Think 行：仅在 expandLiveReasoning 时流式展开、结束收起；手动点击覆盖默认 */
 function ThinkingRow({
   itemKey,
   text,
@@ -1023,8 +1024,9 @@ function ThinkingRow({
   startedAt?: number;
 }) {
   const { t } = useI18n();
+  const expandLiveReasoning = useSettingsStore((s) => s.expandLiveReasoning);
   const [userToggled, setUserToggled] = useState<boolean | null>(null);
-  const expanded = userToggled ?? streaming;
+  const expanded = thinkingRowExpanded(userToggled, streaming, expandLiveReasoning);
   return (
     <div>
       <button

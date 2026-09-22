@@ -101,6 +101,8 @@ function SidePanelSection() {
   const setCompactReadOnlyTools = useSettingsStore((s) => s.setCompactReadOnlyTools);
   const expandLiveEdits = useSettingsStore((s) => s.expandLiveEdits);
   const setExpandLiveEdits = useSettingsStore((s) => s.setExpandLiveEdits);
+  const expandLiveReasoning = useSettingsStore((s) => s.expandLiveReasoning);
+  const setExpandLiveReasoning = useSettingsStore((s) => s.setExpandLiveReasoning);
   const autoCollapseTurns = useSettingsStore((s) => s.autoCollapseTurns);
   const setAutoCollapseTurns = useSettingsStore((s) => s.setAutoCollapseTurns);
   const generationStallTimeoutMin = useSettingsStore((s) => s.generationStallTimeoutMin);
@@ -133,6 +135,15 @@ function SidePanelSection() {
         )}
         checked={expandLiveEdits}
         onChange={setExpandLiveEdits}
+      />
+      <SwitchRow
+        rowId="general.expandLiveReasoning"
+        title={t('Expand reasoning while streaming')}
+        description={t(
+          'Automatically unfold the thinking block while the model is still reasoning. It collapses again when reasoning ends.'
+        )}
+        checked={expandLiveReasoning}
+        onChange={setExpandLiveReasoning}
       />
       <SwitchRow
         rowId="general.autoCollapseTurns"

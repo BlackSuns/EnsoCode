@@ -97,6 +97,7 @@ export const CONFIG_SYNC_FIELD_POLICY = {
   openChangesOnFileEdit: { mode: 'portable' },
   compactReadOnlyTools: { mode: 'portable' },
   expandLiveEdits: { mode: 'portable' },
+  expandLiveReasoning: { mode: 'portable' },
   autoCollapseTurns: { mode: 'portable' },
   chatWide: { mode: 'portable' },
   notifyMainAgentOnly: { mode: 'portable' },
