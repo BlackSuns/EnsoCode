@@ -906,10 +906,11 @@ function UserMeta({
   onToggleTurn?: (key: string, collapsed: boolean) => void;
 }) {
   const { t } = useI18n();
+  const autoCollapseTurns = useSettingsStore((s) => s.autoCollapseTurns);
   return (
     <div className="flex items-center gap-2 text-[11px] text-muted-foreground/75 select-none">
       <RewindButton messageIndex={messageIndex} />
-      {canCollapse && onToggleTurn && (
+      {autoCollapseTurns && canCollapse && onToggleTurn && (
         <button
           type="button"
           onClick={() => onToggleTurn(turnKey, true)}
