@@ -37,18 +37,32 @@ describe('unified subagent tool', () => {
       'dismiss',
     ]);
     expect(`${tool.description}\n${tool.promptSnippet}`).not.toMatch(/coworker tool/i);
+    expect(`${tool.description}\n${tool.promptSnippet}`).toMatch(
+      /spawn requires non-empty description and prompt/i
+    );
     const fields = (
       tool.parameters as {
         properties: { description: { description?: string }; prompt: { description?: string } };
+        allOf?: Array<{ then?: { required?: string[] } }>;
       }
     ).properties;
+    const conditional = (
+      tool.parameters as { allOf?: Array<{ then?: { required?: string[] } }> }
+    ).allOf;
+    expect(conditional?.[0]?.then?.required).toEqual(['description', 'prompt']);
     expect(`${fields.description.description}\n${fields.prompt.description}`).toMatch(/spawn/i);
     expect(fields.description.description).toMatch(/required/i);
     expect(fields.prompt.description).toMatch(/required/i);
     expect(tool.promptGuidelines?.join('\n')).toMatch(/spawn requires non-empty description and prompt/i);
+    const model = (
+      tool.parameters as { properties: { model?: { enum?: string[]; description?: string } } }
+    ).properties.model;
+    expect(model?.enum).toEqual(['OpenAI/gpt-cheap']);
+    expect(model?.description).toMatch(/exact/i);
+    expect(tool.promptGuidelines?.join('\n')).toMatch(/model enum/i);
   });
 
-  it('spawn 缺 description 或 prompt 时点名缺哪个字段，斜杠模型名仍然合法', async () => {
+  it('spawn 漏掉 description 时用 name 或 prompt 补标签，斜杠模型名仍然合法', async () => {
     const { deps, tool } = setup({
       agentTypes: [
         {
@@ -60,22 +74,39 @@ describe('unified subagent tool', () => {
         },
       ],
     });
-    await expect(
-      tool.execute(
-        'call-missing-description',
-        {
-          operation: 'spawn',
-          agent_type: 'reviewer',
-          mode: 'task',
-          model: 'OpenAI/gpt-cheap',
-          name: 'issue98review',
-          prompt: 'review this',
-        },
-        undefined,
-        undefined,
-        {} as never
-      )
-    ).rejects.toThrow(/description/);
+    await tool.execute(
+      'call-missing-description',
+      {
+        operation: 'spawn',
+        agent_type: 'reviewer',
+        mode: 'task',
+        model: 'OpenAI/gpt-cheap',
+        name: 'issue98review',
+        prompt: 'review this',
+      },
+      undefined,
+      undefined,
+      {} as never
+    );
+    expect(deps.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: 'issue98review',
+        prompt: 'review this',
+        model: 'OpenAI/gpt-cheap',
+      }),
+      undefined
+    );
+    await tool.execute(
+      'call-label-from-prompt',
+      { operation: 'spawn', model: 'OpenAI/gpt-cheap', prompt: 'review the diff\nthen stop' },
+      undefined,
+      undefined,
+      {} as never
+    );
+    expect(deps.invoke).toHaveBeenLastCalledWith(
+      expect.objectContaining({ description: 'review the diff', prompt: 'review the diff\nthen stop' }),
+      undefined
+    );
     await expect(
       tool.execute(
         'call-missing-prompt',
@@ -90,7 +121,6 @@ describe('unified subagent tool', () => {
         {} as never
       )
     ).rejects.toThrow(/prompt/);
-    expect(deps.invoke).not.toHaveBeenCalled();
   });
 
   it('spawn 先归一化默认 task/异步，再交给 typed Main RPC', async () => {

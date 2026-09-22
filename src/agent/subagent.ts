@@ -47,15 +47,25 @@ export function createUnifiedSubagentTool(deps: UnifiedSubagentDeps): ToolDefini
       }
       const description = typeof params.description === 'string' ? params.description.trim() : '';
       const prompt = typeof params.prompt === 'string' ? params.prompt.trim() : '';
-      const missing = [description ? '' : 'description', prompt ? '' : 'prompt'].filter(Boolean);
-      if (missing.length > 0) {
+      const name = typeof params.name === 'string' ? params.name.trim() : '';
+      const label =
+        description ||
+        name ||
+        prompt
+          .split('\n')
+          .map((line) => line.trim())
+          .find(Boolean)
+          ?.slice(0, 80) ||
+        '';
+      if (!label || !prompt) {
+        const missing = [label ? '' : 'description', prompt ? '' : 'prompt'].filter(Boolean);
         throw new Error(`spawn requires non-empty ${missing.join(' and ')}`);
       }
       const candidate = {
         operation,
         mode: params.mode ?? 'task',
         ...(typeof params.name === 'string' ? { name: params.name } : {}),
-        description,
+        description: label,
         prompt,
         ...(agentTypeName ? { agentType: agentTypeName } : {}),
         ...(modelName ? { model: modelName } : {}),
@@ -114,17 +124,24 @@ export function createUnifiedSubagentTool(deps: UnifiedSubagentDeps): ToolDefini
     name: 'subagent',
     label: 'Subagent',
     description:
+      'Spawn requires non-empty description and prompt parameters; omit both for every other operation. ' +
       'Create and control delegated agents. mode=task is one-shot; mode=coworker preserves context for multiple Runs. ' +
       'All operations are Main-authorized. Spawning and sending are asynchronous unless wait:true.',
     promptSnippet:
-      'subagent: spawn task/coworker agents, list owned agents, send Runs or bound messages, wait/report/stop a Run, or dismiss an Agent. Default spawn mode=task and wait=false.',
+      'subagent: spawn requires non-empty description and prompt. Other operations omit both. ' +
+      'Spawn task/coworker agents, list owned agents, send Runs or bound messages, wait/report/stop a Run, or dismiss an Agent. Default spawn mode=task and wait=false.',
     promptGuidelines: [
+      'spawn requires non-empty description and prompt. Omit both for every other operation.',
       'Agent and Run are different identities: use runId for wait/report/stop and agentId for send/dismiss.',
       'wait timeout or interruption never stops execution; use stop or dismiss explicitly.',
       'Use send delivery=auto to steer a running Run or start an idle coworker Run; delivery=next queues a new coworker Run.',
       'gate.commandRef is a Main-authorized command id, not shell text or argv.',
       'Unknown gate ids fail the run and nothing is executed.',
-      'spawn requires non-empty description and prompt. Omit both for every other operation.',
+      ...(modelNames.length > 0
+        ? [
+            `model must be copied exactly from the model enum: ${modelNames.join(', ')}. Short names are rejected.`,
+          ]
+        : []),
     ],
     parameters: {
       type: 'object',
@@ -157,7 +174,9 @@ export function createUnifiedSubagentTool(deps: UnifiedSubagentDeps): ToolDefini
           ? {
               model: {
                 type: 'string',
-                description: `Model override: ${deps.models.map((model) => model.name).join(', ')}`,
+                enum: modelNames,
+                description:
+                  'Exact model id from the model enum. Short names and guessed ids are rejected.',
               },
             }
           : {}),
@@ -186,6 +205,15 @@ export function createUnifiedSubagentTool(deps: UnifiedSubagentDeps): ToolDefini
         text: { type: 'string' },
       },
       required: ['operation'],
+      allOf: [
+        {
+          if: {
+            properties: { operation: { const: 'spawn' } },
+            required: ['operation'],
+          },
+          then: { required: ['description', 'prompt'] },
+        },
+      ],
       additionalProperties: false,
     } as unknown as ToolDefinition['parameters'],
     async execute(_toolCallId, params, signal) {
