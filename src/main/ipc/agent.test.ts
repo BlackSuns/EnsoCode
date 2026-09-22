@@ -74,6 +74,7 @@ vi.mock('../services/agentHost', () => ({
   requestSnapshot: vi.fn(),
   resolveAgentTypeSpawnConfig: vi.fn(),
   resolveModelSelection: mocks.resolveModelSelection,
+  resolveSubagentModelSelection: vi.fn(),
   respondApproval: vi.fn(),
   respondAsk: vi.fn(),
   rewindSession: vi.fn(),

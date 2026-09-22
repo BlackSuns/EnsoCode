@@ -106,6 +106,7 @@ export const SETTINGS_STATE_FIELDS = [
   'agentTypes',
   'disabledBuiltinAgentTypes',
   'disabledBuiltinTools',
+  'subagentAllowedModes',
   'memoryEmbeddingModel',
   'memoryEmbeddingAutoDownload',
   'memoryModelIdleMinutes',

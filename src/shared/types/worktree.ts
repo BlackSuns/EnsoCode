@@ -19,6 +19,12 @@ export interface SessionWorktree {
   createdAt: number;
 }
 
+export interface WorktreeUsageRecord {
+  path: string;
+  projectId: string;
+  repoPath: string;
+}
+
 /** worktree 的轻量状态（侧边栏徽标 / 清理拦截用） */
 export interface WorktreeStatus {
   /** 目录仍存在且是有效 worktree */

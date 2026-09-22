@@ -117,40 +117,6 @@ export const capabilityGateway = new CapabilityGateway(
       await autoUpdaterService.downloadUpdate();
     },
     sessionIndex: agentSessionIndex,
-    hireCoworker: async (parentConversationId, name, agentType, guard) => {
-      // agent IPC owns the initialized dispatcher; dynamic import avoids a module-init cycle.
-      const { getAgentDispatchService } = await import('./agent');
-      const service = getAgentDispatchService();
-      if (!service) {
-        return { ok: false, code: 'unavailable', error: 'Agent dispatcher is unavailable.' };
-      }
-      const result = await service.hireCoworker(parentConversationId, name, agentType, guard);
-      return result.ok
-        ? { ok: true, data: result.data }
-        : {
-            ok: false,
-            code: 'unavailable',
-            error: result.error,
-            suggestedAction: result.suggestedAction,
-          };
-    },
-    dismissCoworker: async (parentConversationId, coworkerId, guard) => {
-      // 同上：只有 registerAgentHandlers 完成后才有生产实例。
-      const { getAgentDispatchService } = await import('./agent');
-      const service = getAgentDispatchService();
-      if (!service) {
-        return { ok: false, code: 'unavailable', error: 'Agent dispatcher is unavailable.' };
-      }
-      const result = await service.dismissCoworker(parentConversationId, coworkerId, guard);
-      return result.ok
-        ? { ok: true, data: result.data }
-        : {
-            ok: false,
-            code: 'unavailable',
-            error: result.error,
-            suggestedAction: result.suggestedAction,
-          };
-    },
     listSshConnections: () => getSshConnectionStore().list(),
     deleteSshConnection: async (id) => {
       // 与设置页同规则：仍被远程项目引用的连接不得删除（动态 import 避模块初始化环）

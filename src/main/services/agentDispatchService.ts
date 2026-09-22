@@ -54,6 +54,7 @@ interface AgentTypeResolution {
   config?: ResolvedAgentTypeSpawnConfig;
   expectedModel?: ModelRef;
   expectedToolIds?: readonly string[];
+  allowsModelOverride?: boolean;
   error?: string;
 }
 
@@ -69,6 +70,10 @@ interface DispatchHost {
     parentModel: ModelSelection,
     authenticatedAccountKeys: ReadonlySet<string>
   ): AgentTypeResolution;
+  resolveSubagentModel?(
+    name: string,
+    authenticatedAccountKeys: ReadonlySet<string>
+  ): ModelResolution;
   spawnParent(
     identity: SessionIdentity,
     request: AgentSpawnRequest,
@@ -192,7 +197,14 @@ export class AgentDispatchService {
     parentConversationId: string,
     name: string,
     agentType?: string,
-    guard?: TeamExecutionGuard
+    guard?: TeamExecutionGuard,
+    dispatchOrigin: 'manual' | 'agent-tool' = 'manual',
+    mode: 'task' | 'coworker' = 'coworker',
+    overrides?: {
+      model?: string;
+      thinking?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    },
+    controlledAgentId?: string
   ): Promise<TeamOperationResult> {
     if (!this.guardCurrent(guard)) return this.cancelledTeamOperation();
     const target = this.options.sessionIndex.resolveTeamTarget(parentConversationId);
@@ -261,13 +273,55 @@ export class AgentDispatchService {
         suggestedAction: 'Choose an available Agent type and model.',
       };
     }
+    let spawnConfig = resolved.config;
+    let expectedModel = resolved.expectedModel;
+    if (overrides?.model) {
+      if (!resolved.allowsModelOverride || !this.options.host.resolveSubagentModel) {
+        return {
+          ok: false,
+          code: 'unavailable',
+          error: 'The selected Agent profile does not allow model override.',
+          suggestedAction: 'Remove model or choose an agent_pick profile.',
+        };
+      }
+      const selected = this.options.host.resolveSubagentModel(overrides.model, credentialKeys);
+      if (!selected.ok || !selected.selection) {
+        return {
+          ok: false,
+          code: 'unavailable',
+          error: selected.error ?? 'The selected subagent model is unavailable.',
+          suggestedAction: 'Choose an enabled subagent model.',
+        };
+      }
+      expectedModel = selected.selection.ref;
+      spawnConfig = { ...spawnConfig, model: selected.selection.config };
+    } else if (dispatchOrigin === 'agent-tool' && resolved.allowsModelOverride) {
+      return {
+        ok: false,
+        code: 'unavailable',
+        error: 'This Agent profile requires an explicit model.',
+        suggestedAction: 'Pass one of the enabled subagent models.',
+      };
+    }
+    if (overrides?.thinking) {
+      spawnConfig = {
+        ...spawnConfig,
+        model: {
+          ...spawnConfig.model,
+          reasoning: overrides.thinking === 'off' ? 'off' : 'on',
+          ...(overrides.thinking === 'off' ? {} : { thinkingLevel: overrides.thinking }),
+        },
+      };
+    }
     if (!this.guardCurrent(guard)) return this.cancelledTeamOperation();
     const reserved = this.options.sessionIndex.reserveChild(
       target.identity,
       candidate.typeKey,
       name,
-      `team-${this.randomUuid()}`,
-      candidate.typeKey === 'agent:enso' ? ENSO_LOCKED_PROFILE_ID : undefined
+      controlledAgentId ?? `team-${this.randomUuid()}`,
+      candidate.typeKey === 'agent:enso' ? ENSO_LOCKED_PROFILE_ID : undefined,
+      dispatchOrigin,
+      mode
     );
     if (!reserved.ok) {
       return {
@@ -299,14 +353,14 @@ export class AgentDispatchService {
         return this.cancelledTeamOperation();
       }
       if (guard) this.teamGuards.set(child.generation, guard);
-      const spawned = this.options.host.spawnChild(child, cwd, resolved.config);
+      const spawned = this.options.host.spawnChild(child, cwd, spawnConfig);
       if (!spawned.ok) throw new Error(spawned.error ?? 'Failed to spawn coworker.');
       const ready = await this.waitForChild(child, guard?.signal);
       this.verifyChildReady(
         reserved.reservation,
         ready,
-        resolved.config,
-        resolved.expectedModel,
+        spawnConfig,
+        expectedModel,
         resolved.expectedToolIds ?? []
       );
       const listed = this.options.sessionIndex.listCoworkers(parentConversationId);
@@ -325,6 +379,36 @@ export class AgentDispatchService {
     } finally {
       this.teamGuards.delete(child.generation);
     }
+  }
+
+  async spawnControlledAgent(input: {
+    agentId: string;
+    parentConversationId: string;
+    name: string;
+    agentType?: string;
+    mode: 'task' | 'coworker';
+    model?: string;
+    thinking?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  }): Promise<ChildSessionIdentity> {
+    const hired = await this.hireCoworker(
+      input.parentConversationId,
+      input.name,
+      input.agentType,
+      undefined,
+      'agent-tool',
+      input.mode,
+      {
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.thinking ? { thinking: input.thinking } : {}),
+      },
+      input.agentId
+    );
+    if (!hired.ok) throw new Error(hired.error);
+    const identity = this.options.sessionIndex.currentIdentity(hired.data.coworker.id);
+    if (!identity || !('parent' in identity)) {
+      throw new Error('Controlled Agent ready state was not indexed.');
+    }
+    return identity;
   }
 
   async dismissCoworker(
@@ -584,7 +668,9 @@ export class AgentDispatchService {
       request.typeKey,
       candidate.displayName,
       request.requestId,
-      profileId
+      profileId,
+      'typed-mention',
+      'task'
     );
     if (!reserved.ok) {
       return this.rejected(
@@ -944,19 +1030,23 @@ export class AgentDispatchService {
     const actualMcp = [...proof.loadedMcpBindingIds].sort();
     const sameSet = (left: readonly string[], right: readonly string[]) =>
       left.length === right.length && left.every((value, index) => value === right[index]);
-    if (
-      ready.identity.typeKey !== config.typeKey ||
-      ready.identity.profileId !== config.lockedProfileId ||
-      proof.spawnSpecId !== config.spawnSpecId ||
-      proof.typeKey !== config.typeKey ||
-      proof.model.providerId !== expectedModel.providerId ||
-      proof.model.modelId !== expectedModel.modelId ||
-      proof.systemPromptHash !== config.systemPromptHash ||
-      !sameSet(actualTools, expectedTools) ||
-      !sameSet(actualSkills, expectedSkills) ||
-      !sameSet(actualMcp, expectedMcp)
-    ) {
-      throw new Error('Child exact profile proof mismatch.');
+    // 逐字段列出差异：证明失配只在 worker→Main 边界发生，没有字段名根本无从定位。
+    const mismatched = [
+      ready.identity.typeKey !== config.typeKey ? 'identity.typeKey' : '',
+      ready.identity.profileId !== config.lockedProfileId ? 'identity.profileId' : '',
+      proof.spawnSpecId !== config.spawnSpecId ? 'spawnSpecId' : '',
+      proof.typeKey !== config.typeKey ? 'typeKey' : '',
+      proof.model.providerId !== expectedModel.providerId ? 'model.providerId' : '',
+      proof.model.modelId !== expectedModel.modelId ? 'model.modelId' : '',
+      proof.systemPromptHash !== config.systemPromptHash ? 'systemPromptHash' : '',
+      sameSet(actualTools, expectedTools)
+        ? ''
+        : `toolIds(missing=[${expectedTools.filter((id) => !actualTools.includes(id)).join('|')}] unexpected=[${actualTools.filter((id) => !expectedTools.includes(id)).join('|')}])`,
+      sameSet(actualSkills, expectedSkills) ? '' : 'skillBindingIds',
+      sameSet(actualMcp, expectedMcp) ? '' : 'mcpBindingIds',
+    ].filter(Boolean);
+    if (mismatched.length > 0) {
+      throw new Error(`Child exact profile proof mismatch: ${mismatched.join(', ')}.`);
     }
     if (
       config.tools !== 'enso-locked' &&

@@ -151,6 +151,7 @@ export const CONFIG_SYNC_FIELD_POLICY = {
   agentTypes: { mode: 'portable' },
   disabledBuiltinAgentTypes: { mode: 'portable' },
   disabledBuiltinTools: { mode: 'portable' },
+  subagentAllowedModes: { mode: 'portable' },
   onboarded: { mode: 'excluded', reason: 'device onboarding state' },
   keybindings: { mode: 'portable' },
   projects: { mode: 'excluded', reason: 'device-local paths and authority records' },

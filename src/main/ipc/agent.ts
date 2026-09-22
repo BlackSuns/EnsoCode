@@ -8,6 +8,7 @@ import {
   projectDisabledBuiltinTools,
   resolveDisabledBuiltinTools,
 } from '@shared/types';
+import { effectiveSubagentAllowedModes } from '@shared/types/builtinTools';
 import type {
   AgentActionResult,
   AgentRemoteConfig,
@@ -18,6 +19,9 @@ import type {
   ConversationReloadResult,
   McpStatusPush,
   ParentHistoryTailResult,
+  AgentControlContext,
+  AgentControlToolResponse,
+  AgentWorkerEvent,
   RendererAgentEvent,
   SpawnModelConfig,
   ThinkingLevel,
@@ -40,6 +44,8 @@ import { EnsoSafeJournal } from '../../agent/ensoSafeJournal';
 import { titleSummaryTimeoutMs } from '../../agent/titleSummary';
 import { ActiveConversationRegistry } from '../services/activeConversationRegistry';
 import { AgentDispatchService } from '../services/agentDispatchService';
+import { AgentService } from '../services/agentService';
+import { validateAgentRun } from '../services/agentRunValidation';
 import {
   abortRetrySession,
   abortSession,
@@ -75,6 +81,7 @@ import {
   spawnChildSession,
   spawnSession,
   steerSession,
+  sendAgentCommand,
   stopBackgroundTask,
   stopSubagent,
   summarizeConversationTitle,
@@ -162,11 +169,17 @@ const isValidMessageInput = (sessionId: unknown, text: unknown, images: unknown)
   (text.length > 0 || (Array.isArray(images) && images.length > 0));
 
 let dispatchService: AgentDispatchService | null = null;
+let agentService: AgentService | null = null;
+const pendingAgentControl = new Map<string, AbortController>();
 let sourceBindings: ActiveConversationRegistry | null = null;
 let sourceAuthority: SourceAuthorityRegistry | null = null;
 
 export function getAgentDispatchService(): AgentDispatchService | null {
   return dispatchService;
+}
+
+export function getAgentService(): AgentService | null {
+  return agentService;
 }
 
 export function getSourceAuthorityRegistry(): SourceAuthorityRegistry | null {
@@ -572,6 +585,103 @@ function wirePairSessionHost(): void {
   });
 }
 
+
+function agentControlContext(
+  identity: SessionIdentity | ChildSessionIdentity
+): AgentControlContext | undefined {
+  const root = 'parent' in identity ? identity.parent : identity;
+  const conversation = sourceAuthority?.conversation(root.sessionId);
+  const project = conversation ? sourceAuthority?.project(conversation.projectId) : undefined;
+  if (!project || project.state !== 'active') return undefined;
+  return {
+    owner: { ownerId: root.sessionId, projectId: project.projectId, kind: 'chatSession' },
+    actor: {
+      kind: 'agent',
+      actorId: root.sessionId,
+      ownerId: root.sessionId,
+      projectId: project.projectId,
+      identity: root,
+    },
+  };
+}
+
+async function runAgentControl(
+  identity: SessionIdentity | ChildSessionIdentity,
+  requestId: string,
+  request: Extract<AgentWorkerEvent, { type: 'agent-control-invoke' }>['request'],
+  signal: AbortSignal
+): Promise<AgentControlToolResponse> {
+  const context = agentControlContext(identity);
+  if (!context || !agentService) {
+    return { ok: false, code: 'runtime-unavailable', error: 'Agent control is unavailable.' };
+  }
+  const base = { context, requestId };
+  switch (request.operation) {
+    case 'spawn': {
+      const spawned = await agentService.spawn({
+        ...base,
+        mode: request.mode,
+        ...(request.name ? { name: request.name } : {}),
+        description: request.description,
+        prompt: request.prompt,
+        ...(request.agentType ? { agentType: request.agentType } : {}),
+        ...(request.model ? { model: request.model } : {}),
+        ...(request.thinking ? { thinking: request.thinking } : {}),
+        ...(request.schema !== undefined ? { schema: request.schema } : {}),
+        ...(request.gate ? { gate: request.gate } : {}),
+      });
+      if (!spawned.ok || !request.wait) return spawned;
+      const waited = await agentService.wait(
+        { context, requestId: `${requestId}:wait`, runIds: [spawned.value.runId], until: 'all' },
+        signal
+      );
+      return waited.ok ? { ok: true, value: { ...spawned.value, report: waited.value } } : waited;
+    }
+    case 'send': {
+      const sent = await agentService.send({
+        ...base,
+        agentId: request.agentId,
+        message: request.message,
+        delivery: request.delivery,
+        ...(request.expectedRunId ? { expectedRunId: request.expectedRunId } : {}),
+        ...(request.schema !== undefined ? { schema: request.schema } : {}),
+        ...(request.gate ? { gate: request.gate } : {}),
+      });
+      if (!sent.ok || !request.wait) return sent;
+      const waited = await agentService.wait(
+        { context, requestId: `${requestId}:wait`, runIds: [sent.value.runId], until: 'all' },
+        signal
+      );
+      return waited.ok ? { ok: true, value: { ...sent.value, report: waited.value } } : waited;
+    }
+    case 'wait':
+      return agentService.wait(
+        {
+          ...base,
+          runIds: request.runIds,
+          until: request.until,
+          ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
+        },
+        signal
+      );
+    case 'report':
+      return agentService.report({ ...base, runId: request.runId });
+    case 'list':
+      return agentService.list({
+        ...base,
+        ...(request.status ? { status: request.status } : {}),
+        ...(request.cursor ? { cursor: request.cursor } : {}),
+        limit: request.limit,
+      });
+    case 'message':
+      return agentService.message({ ...base, to: request.to, text: request.text });
+    case 'stop':
+      return agentService.stop({ ...base, runId: request.runId });
+    case 'dismiss':
+      return agentService.dismiss({ ...base, agentId: request.agentId });
+  }
+}
+
 export function registerAgentHandlers(): void {
   wirePairAgentBridge();
   wirePairSessionHost();
@@ -644,6 +754,52 @@ export function registerAgentHandlers(): void {
     terminateGeneration: (child) => capabilityGateway.terminateGeneration(child),
   });
 
+  agentService = new AgentService({
+    allowedModes: (context) => {
+      const state = readSettingsState() ?? {};
+      const projects = Array.isArray(state.projects) ? state.projects : [];
+      const project = projects.find(
+        (entry) => entry && typeof entry === 'object' && (entry as { id?: unknown }).id === context.owner.projectId
+      ) as { disabledBuiltinTools?: unknown; subagentAllowedModes?: unknown } | undefined;
+      const disabled = resolveDisabledBuiltinTools(state.disabledBuiltinTools, {
+        disabledBuiltinTools: project?.disabledBuiltinTools,
+      });
+      return new Set(effectiveSubagentAllowedModes(project?.subagentAllowedModes ?? state.subagentAllowedModes, disabled));
+    },
+    runtime: {
+      spawn: (input) =>
+        dispatchService!.spawnControlledAgent({
+          agentId: input.agentId,
+          parentConversationId: input.context.owner.ownerId,
+          name: input.name ?? input.description,
+          mode: input.mode,
+          ...(input.agentType ? { agentType: input.agentType } : {}),
+          ...(input.model ? { model: input.model } : {}),
+          ...(input.thinking ? { thinking: input.thinking } : {}),
+        }),
+      prompt: async (input) =>
+        promptChildSession(input.identity, input.runId, {
+          text: input.prompt,
+          images: [],
+          fileMentions: [],
+        }),
+      steer: async (input) => steerSession(input.identity, input.prompt),
+      stop: async (input) => abortSession(input.identity),
+      dismiss: async (input) => dismissChildSession(input.identity.parent, input.identity, false),
+      validate: async (input) => {
+        const source = sourceBindings?.resolveParentSource(input.context.owner.ownerId);
+        if (!source) return { ok: false, error: 'Agent parent workspace is unavailable.' };
+        return validateAgentRun({
+          cwd: source.parentProjectPath,
+          ...(input.text !== undefined ? { text: input.text } : {}),
+          ...(input.schema !== undefined ? { schema: input.schema } : {}),
+          ...(input.gate ? { gate: input.gate } : {}),
+          ...(input.signal ? { signal: input.signal } : {}),
+        });
+      },
+    },
+  });
+
   setAgentEventListener((workerEvent) => {
     // MCP 旁路事件不属于任何会话：只转发到独立通道 / 落 token，不进 dispatch 与会话广播
     if (workerEvent.type === 'mcp-status') {
@@ -652,6 +808,8 @@ export function registerAgentHandlers(): void {
       return;
     }
     if (workerEvent.type === 'worker-exited') {
+      for (const controller of pendingAgentControl.values()) controller.abort();
+      pendingAgentControl.clear();
       for (const targetId of pendingWorktreeForks.keys()) discardForkWorktree(targetId);
       // worker 死后连接全部失效：清掉残留状态，避免设置页长期显示假 ready
       clearMcpStatuses();
@@ -671,6 +829,7 @@ export function registerAgentHandlers(): void {
     )
       return;
     dispatchService?.observe(workerEvent);
+    agentService?.observe(workerEvent);
     if (workerEvent.type === 'turn-completed' || workerEvent.type === 'turn-failed') {
       const file = agentSessionIndex.sessionFile(workerEvent.identity);
       if (file) {
@@ -796,6 +955,40 @@ export function registerAgentHandlers(): void {
           })
       );
       return;
+    }
+    if (workerEvent.type === 'agent-control-cancel') {
+      pendingAgentControl.get(workerEvent.requestId)?.abort();
+      return;
+    }
+    if (workerEvent.type === 'agent-control-invoke') {
+      const controller = new AbortController();
+      pendingAgentControl.set(workerEvent.requestId, controller);
+      const { identity, requestId, request } = workerEvent;
+      void runAgentControl(identity, requestId, request, controller.signal)
+        .then((response) =>
+          sendAgentCommand({ type: 'agent-control-result', identity, requestId, response })
+        )
+        .catch((error: unknown) =>
+          sendAgentCommand({
+            type: 'agent-control-result',
+            identity,
+            requestId,
+            response: {
+              ok: false,
+              code: 'runtime-unavailable',
+              error: error instanceof Error ? error.message : String(error),
+            },
+          })
+        )
+        .finally(() => pendingAgentControl.delete(requestId));
+      return;
+    }
+    if (workerEvent.type === 'child-ready' && agentService) {
+      const metadata = agentSessionIndex.childMetadata(workerEvent.identity);
+      const context = agentControlContext(workerEvent.identity.parent);
+      if (metadata?.dispatchOrigin === 'agent-tool' && metadata.mode === 'coworker' && context) {
+        agentService.adoptCoworker(context, workerEvent.identity);
+      }
     }
     if (workerEvent.type === 'child-ready') {
       const { proof: _proof, ...rendererEvent } = workerEvent;

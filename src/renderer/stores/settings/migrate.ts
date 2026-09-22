@@ -1,5 +1,6 @@
 import { resolveCompactStrategy } from '@shared/compactStrategy';
 import { type EditMode, resolveEditMode } from '@shared/types';
+import { effectiveSubagentAllowedModes } from '@shared/types/builtinTools';
 
 /**
  * 持久化数据的版本迁移。
@@ -13,7 +14,7 @@ import { type EditMode, resolveEditMode } from '@shared/types';
  */
 
 /** 当前持久化数据版本；改数据形状时 +1 并在 `migrateSettings` 里加一段 */
-export const SETTINGS_VERSION = 12;
+export const SETTINGS_VERSION = 13;
 
 export function mergeSettingsState<T extends { editMode: EditMode }>(
   persisted: unknown,
@@ -43,6 +44,7 @@ export function mergeSettingsState<T extends { editMode: EditMode }>(
  * v9 → v10：文件编辑模式改为互斥枚举；旧 hashline 开关迁移后删除。
  * v10 → v11：移除 Hashline 与 bash 拦截；hashline 回落 replace。
  * v11 → v12：默认编辑模式改为 apply_patch，已有 replace 一并切过去。
+ * v12 → v13：subagent/coworker 合并；旧开关迁为 mode 掩码，旧开关迁为 mode 掩码。
  */
 export function migrateSettings(persisted: unknown, version: number): unknown {
   if (version >= SETTINGS_VERSION) return persisted;
@@ -112,5 +114,33 @@ export function migrateSettings(persisted: unknown, version: number): unknown {
   if (version < 12) {
     state = { ...state, editMode: 'apply_patch' };
   }
+  if (version < 13) {
+    state = migrateAgentToolModes(state);
+  }
   return state;
+}
+
+function migrateAgentToolModes(state: Record<string, unknown>): Record<string, unknown> {
+  const migrateEntry = (entry: Record<string, unknown>): Record<string, unknown> => {
+    if (!Array.isArray(entry.disabledBuiltinTools)) return entry;
+    const legacy = entry.disabledBuiltinTools.filter((id): id is string => typeof id === 'string');
+    const modes = effectiveSubagentAllowedModes(entry.subagentAllowedModes, legacy);
+    const disabled = legacy.filter((id) => id !== 'coworker' && id !== 'subagent');
+    if (modes.length === 0) disabled.push('subagent');
+    return {
+      ...entry,
+      disabledBuiltinTools: [...new Set(disabled)],
+      subagentAllowedModes: modes,
+    };
+  };
+  const migrated = migrateEntry(state);
+  if (!Array.isArray(migrated.projects)) return migrated;
+  return {
+    ...migrated,
+    projects: migrated.projects.map((project) =>
+      project && typeof project === 'object' && !Array.isArray(project)
+        ? migrateEntry(project as Record<string, unknown>)
+        : project
+    ),
+  };
 }

@@ -137,6 +137,8 @@ export interface ApprovalRequestInfo {
   kind: ApprovalKind;
   /** 命令全文 / 文件路径 / 参数预览 */
   summary: string;
+  /** Worker 从已解析工具参数提取的全部写目标；不得由模型单独声明。 */
+  filePaths?: string[];
   /** 对应 toolCall.id，代审中徽章挂到时间线该行 */
   toolCallId?: string;
   /** reviewing = 代审模型评审中（不弹真人按钮）；缺省 = 等人决策 */
@@ -255,6 +257,348 @@ export interface CoworkerInfo {
   /** coworker 自己的 jsonl,渲染层持久化 resume 用 */
   sessionFile?: string;
   createdAt: number;
+}
+
+export type AgentMode = 'task' | 'coworker';
+export type AgentDelivery = 'auto' | 'steer' | 'next';
+export type AgentControlThinkingLevel = ThinkingLevel | 'off';
+export type AgentInstanceStatus = 'creating' | 'ready' | 'active' | 'parked' | 'closed';
+export type AgentRunStatus =
+  | 'queued'
+  | 'running'
+  | 'awaiting_input'
+  | 'validating'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted';
+
+export interface AgentOwnerIdentity {
+  ownerId: string;
+  projectId: string;
+  kind: 'chatSession';
+}
+
+export type AgentActorIdentity =
+  | {
+      kind: 'user';
+      actorId: string;
+      ownerId: string;
+      projectId: string;
+    }
+  | {
+      kind: 'agent';
+      actorId: string;
+      ownerId: string;
+      projectId: string;
+      identity: SessionIdentity | ChildSessionIdentity;
+    }
+;
+export interface AgentControlContext {
+  actor: AgentActorIdentity;
+  owner: AgentOwnerIdentity;
+}
+
+export type AgentRunGate = { argv: string[] } | { commandRef: string };
+
+export interface AgentControlSpawnRequest {
+  context: AgentControlContext;
+  requestId: string;
+  mode?: AgentMode;
+  name?: string;
+  description: string;
+  prompt: string;
+  agentType?: string;
+  model?: string;
+  thinking?: AgentControlThinkingLevel;
+  schema?: unknown;
+  gate?: AgentRunGate;
+}
+
+export interface AgentControlSendRequest {
+  context: AgentControlContext;
+  requestId: string;
+  agentId: string;
+  message: string;
+  delivery?: AgentDelivery;
+  expectedRunId?: string;
+  schema?: unknown;
+  gate?: AgentRunGate;
+}
+
+export interface AgentControlRunTargetRequest {
+  context: AgentControlContext;
+  requestId: string;
+  runId: string;
+}
+
+export interface AgentControlDismissRequest {
+  context: AgentControlContext;
+  requestId: string;
+  agentId: string;
+}
+
+export interface AgentControlWaitRequest {
+  context: AgentControlContext;
+  requestId: string;
+  runIds: string[];
+  until?: 'all' | 'any';
+  timeoutMs?: number;
+}
+
+export interface AgentControlListRequest {
+  context: AgentControlContext;
+  requestId: string;
+  status?: AgentInstanceStatus;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface AgentControlMessageRequest {
+  context: AgentControlContext;
+  requestId: string;
+  to: string;
+  text: string;
+}
+
+export interface AgentRunSnapshot {
+  owner: AgentOwnerIdentity;
+  agentId: string;
+  runId: string;
+  mode: AgentMode;
+  status: AgentRunStatus;
+  createdAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+}
+
+export interface AgentSpawnReceipt {
+  agentId: string;
+  runId: string;
+  mode: AgentMode;
+  status: 'queued' | 'running';
+}
+
+export interface AgentSendReceipt {
+  agentId: string;
+  runId: string;
+  delivery: 'steer' | 'next';
+  status: 'queued' | 'running';
+}
+
+export interface AgentRunReport {
+  run: AgentRunSnapshot;
+  text?: string;
+  value?: unknown;
+  error?: string;
+  usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
+}
+
+export interface AgentWaitReceipt {
+  runs: AgentRunSnapshot[];
+  timedOut: boolean;
+  interrupted: boolean;
+}
+
+export interface AgentListItem {
+  agentId: string;
+  mode: AgentMode;
+  status: AgentInstanceStatus;
+  activeRunId?: string;
+  latestRun?: AgentRunSnapshot;
+}
+
+export interface AgentListReceipt {
+  agents: AgentListItem[];
+  nextCursor?: string;
+}
+
+export type AgentServiceErrorCode =
+  | 'invalid-context'
+  | 'forbidden'
+  | 'mode-disabled'
+  | 'not-found'
+  | 'invalid-state'
+  | 'run-mismatch'
+  | 'runtime-unavailable';
+
+export type AgentServiceResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: AgentServiceErrorCode; error: string };
+
+export type AgentControlToolRequest =
+  | {
+      operation: 'spawn';
+      mode: AgentMode;
+      name?: string;
+      description: string;
+      prompt: string;
+      agentType?: string;
+      model?: string;
+      thinking?: AgentControlThinkingLevel;
+      wait: boolean;
+      schema?: unknown;
+      gate?: AgentRunGate;
+    }
+  | {
+      operation: 'send';
+      agentId: string;
+      message: string;
+      delivery: AgentDelivery;
+      expectedRunId?: string;
+      wait: boolean;
+      schema?: unknown;
+      gate?: AgentRunGate;
+    }
+  | {
+      operation: 'wait';
+      runIds: string[];
+      until: 'all' | 'any';
+      timeoutMs?: number;
+    }
+  | { operation: 'report'; runId: string }
+  | { operation: 'list'; status?: AgentInstanceStatus; cursor?: string; limit: number }
+  | { operation: 'message'; to: string; text: string }
+  | { operation: 'stop'; runId: string }
+  | { operation: 'dismiss'; agentId: string };
+
+export type AgentControlToolResponse =
+  | { ok: true; value: unknown }
+  | { ok: false; code: AgentServiceErrorCode; error: string };
+
+export function parseAgentControlToolRequest(value: unknown): AgentControlToolRequest | null {
+  if (!isRecord(value) || typeof value.operation !== 'string') return null;
+  const nonEmpty = (input: unknown): input is string =>
+    typeof input === 'string' && input.trim().length > 0;
+  const optionalString = (input: unknown): input is string | undefined =>
+    input === undefined || nonEmpty(input);
+  const schemaValid = value.schema === undefined || isRecord(value.schema);
+  const gateValid = (gate: unknown): gate is AgentRunGate => {
+    if (!isRecord(gate)) return false;
+    if (hasExactKeys(gate, ['argv'])) {
+      return (
+        Array.isArray(gate.argv) &&
+        gate.argv.length > 0 &&
+        gate.argv.every((part) => nonEmpty(part))
+      );
+    }
+    return hasExactKeys(gate, ['commandRef']) && nonEmpty(gate.commandRef);
+  };
+  const optionalGate = value.gate === undefined || gateValid(value.gate);
+  switch (value.operation) {
+    case 'spawn':
+      return hasOnlyKeys(value, [
+        'operation',
+        'mode',
+        'name',
+        'description',
+        'prompt',
+        'agentType',
+        'model',
+        'thinking',
+        'wait',
+        'schema',
+        'gate',
+      ]) &&
+        (value.mode === 'task' || value.mode === 'coworker') &&
+        optionalString(value.name) &&
+        nonEmpty(value.description) &&
+        nonEmpty(value.prompt) &&
+        optionalString(value.agentType) &&
+        optionalString(value.model) &&
+        (value.thinking === undefined ||
+          value.thinking === 'off' ||
+          THINKING_LEVELS.includes(value.thinking as ThinkingLevel)) &&
+        typeof value.wait === 'boolean' &&
+        schemaValid &&
+        optionalGate
+        ? (value as unknown as AgentControlToolRequest)
+        : null;
+    case 'send':
+      return hasOnlyKeys(value, [
+        'operation',
+        'agentId',
+        'message',
+        'delivery',
+        'expectedRunId',
+        'wait',
+        'schema',
+        'gate',
+      ]) &&
+        nonEmpty(value.agentId) &&
+        nonEmpty(value.message) &&
+        (value.delivery === 'auto' || value.delivery === 'steer' || value.delivery === 'next') &&
+        optionalString(value.expectedRunId) &&
+        typeof value.wait === 'boolean' &&
+        schemaValid &&
+        optionalGate
+        ? (value as unknown as AgentControlToolRequest)
+        : null;
+    case 'wait':
+      return hasOnlyKeys(value, ['operation', 'runIds', 'until', 'timeoutMs']) &&
+        Array.isArray(value.runIds) &&
+        value.runIds.length > 0 &&
+        value.runIds.every((runId) => nonEmpty(runId)) &&
+        new Set(value.runIds).size === value.runIds.length &&
+        (value.until === 'all' || value.until === 'any') &&
+        (value.timeoutMs === undefined ||
+          (Number.isInteger(value.timeoutMs) &&
+            (value.timeoutMs as number) >= 0 &&
+            (value.timeoutMs as number) <= 86_400_000))
+        ? (value as unknown as AgentControlToolRequest)
+        : null;
+    case 'report':
+    case 'stop':
+      return hasExactKeys(value, ['operation', 'runId']) && nonEmpty(value.runId)
+        ? (value as unknown as AgentControlToolRequest)
+        : null;
+    case 'list':
+      return hasOnlyKeys(value, ['operation', 'status', 'cursor', 'limit']) &&
+        (value.status === undefined ||
+          ['creating', 'ready', 'active', 'parked', 'closed'].includes(value.status as string)) &&
+        optionalString(value.cursor) &&
+        Number.isInteger(value.limit) &&
+        (value.limit as number) >= 1 &&
+        (value.limit as number) <= 100
+        ? (value as unknown as AgentControlToolRequest)
+        : null;
+    case 'message':
+      return hasExactKeys(value, ['operation', 'to', 'text']) &&
+        nonEmpty(value.to) &&
+        nonEmpty(value.text)
+        ? (value as unknown as AgentControlToolRequest)
+        : null;
+    case 'dismiss':
+      return hasExactKeys(value, ['operation', 'agentId']) && nonEmpty(value.agentId)
+        ? (value as unknown as AgentControlToolRequest)
+        : null;
+    default:
+      return null;
+  }
+}
+
+function parseAgentControlToolResponse(value: unknown): AgentControlToolResponse | null {
+  if (!isRecord(value)) return null;
+  if (value.ok === true) {
+    return hasExactKeys(value, ['ok', 'value'])
+      ? (value as unknown as AgentControlToolResponse)
+      : null;
+  }
+  const codes: readonly AgentServiceErrorCode[] = [
+    'invalid-context',
+    'forbidden',
+    'mode-disabled',
+    'not-found',
+    'invalid-state',
+    'run-mismatch',
+    'runtime-unavailable',
+  ];
+  return value.ok === false &&
+    hasExactKeys(value, ['ok', 'code', 'error']) &&
+    codes.includes(value.code as AgentServiceErrorCode) &&
+    typeof value.error === 'string'
+    ? (value as unknown as AgentControlToolResponse)
+    : null;
 }
 
 /** MCP OAuth 凭据（Main 加密持有，spawn 时下发；worker 只读用并可 refresh） */
@@ -419,6 +763,8 @@ export interface ResolvedAgentTypeSpawnConfig {
   systemPrompt: string;
   model: SpawnModelConfig;
   tools: 'all' | 'readonly' | 'enso-locked';
+  /** Main-authorized exact node/profile intersection; absent keeps the profile tool set. */
+  allowedToolIds?: readonly string[];
   skillPaths: readonly string[];
   skillBindingIds: readonly string[];
   mcpServers: readonly McpServerSpawnConfig[];
@@ -444,6 +790,7 @@ export interface ChildConversationMetadata {
   agentInstanceId: string;
   agentInstanceName: string;
   dispatchOrigin: 'typed-mention' | 'manual' | 'agent-tool';
+  mode?: AgentMode;
   lockedProfileId?: typeof ENSO_LOCKED_PROFILE_ID;
 }
 
@@ -609,6 +956,12 @@ export type AgentCommand =
       identity: ChildSessionIdentity;
       requestId: string;
       task: AgentDispatchTask;
+    }
+  | {
+      type: 'agent-control-result';
+      identity: SessionIdentity | ChildSessionIdentity;
+      requestId: string;
+      response: AgentControlToolResponse;
     }
   | {
       type: 'dismiss-child';
@@ -956,7 +1309,11 @@ export type RendererChildLifecycleEvent =
 export type RendererAgentEvent =
   | Exclude<
       AgentWorkerEvent,
-      ChildLifecycleEvent | McpWorkerEvent | WorkspaceLockEvent | { type: 'session-reloaded' }
+      | ChildLifecycleEvent
+      | McpWorkerEvent
+      | WorkspaceLockEvent
+      | Extract<AgentWorkerEvent, { type: 'agent-control-invoke' | 'agent-control-cancel' }>
+      | { type: 'session-reloaded' }
     >
   | RendererChildLifecycleEvent
   | { type: 'worker-exited' };
@@ -1108,6 +1465,19 @@ export type AgentWorkerEvent =
       requestId: string;
       op: MemoryOp;
       params: unknown;
+    }
+  | {
+      type: 'agent-control-invoke';
+      identity: SessionIdentity | ChildSessionIdentity;
+      seq: number;
+      requestId: string;
+      request: AgentControlToolRequest;
+    }
+  | {
+      type: 'agent-control-cancel';
+      identity: SessionIdentity | ChildSessionIdentity;
+      seq: number;
+      requestId: string;
     }
   | {
       type: 'goal-signal';
@@ -1690,6 +2060,7 @@ export function parseChildConversationMetadata(value: unknown): ChildConversatio
       'agentInstanceId',
       'agentInstanceName',
       'dispatchOrigin',
+      'mode',
       'lockedProfileId',
     ]) ||
     Object.keys(value).length < 6
@@ -1706,6 +2077,7 @@ export function parseChildConversationMetadata(value: unknown): ChildConversatio
     (value.dispatchOrigin !== 'typed-mention' &&
       value.dispatchOrigin !== 'manual' &&
       value.dispatchOrigin !== 'agent-tool') ||
+    (value.mode !== undefined && value.mode !== 'task' && value.mode !== 'coworker') ||
     (typeKey === 'agent:enso' && value.lockedProfileId !== ENSO_LOCKED_PROFILE_ID) ||
     (typeKey !== 'agent:enso' && value.lockedProfileId !== undefined)
   ) {
@@ -1911,6 +2283,7 @@ function parseResolvedAgentTypeSpawnConfig(value: unknown): ResolvedAgentTypeSpa
       'systemPrompt',
       'model',
       'tools',
+      'allowedToolIds',
       'skillPaths',
       'skillBindingIds',
       'mcpServers',
@@ -1936,6 +2309,8 @@ function parseResolvedAgentTypeSpawnConfig(value: unknown): ResolvedAgentTypeSpa
     typeof value.description !== 'string' ||
     typeof value.systemPrompt !== 'string' ||
     (value.tools !== 'all' && value.tools !== 'readonly' && value.tools !== 'enso-locked') ||
+    (value.allowedToolIds !== undefined &&
+      (!Array.isArray(value.allowedToolIds) || !value.allowedToolIds.every(isNonEmptyString))) ||
     !skillPaths ||
     !skillPaths.every(isNonEmptyString) ||
     !skillBindingIds ||
@@ -1954,6 +2329,7 @@ function parseResolvedAgentTypeSpawnConfig(value: unknown): ResolvedAgentTypeSpa
     (typeKey === 'agent:enso' &&
       (value.lockedProfileId !== ENSO_LOCKED_PROFILE_ID ||
         value.tools !== 'enso-locked' ||
+        value.allowedToolIds !== undefined ||
         skillPaths.length !== 0 ||
         skillBindingIds.length !== 0 ||
         mcpServers.length !== 0 ||
@@ -2114,6 +2490,13 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
         parseChildSessionIdentity(value.identity) &&
         isNonEmptyString(value.requestId) &&
         parseAgentDispatchTask(value.task)
+        ? (value as unknown as AgentCommand)
+        : null;
+    case 'agent-control-result':
+      return hasExactKeys(value, ['type', 'identity', 'requestId', 'response']) &&
+        parseAnySessionIdentity(value.identity) &&
+        isNonEmptyString(value.requestId) &&
+        parseAgentControlToolResponse(value.response)
         ? (value as unknown as AgentCommand)
         : null;
     case 'dismiss-child': {
@@ -2535,6 +2918,17 @@ export function parseAgentWorkerEvent(value: unknown): AgentWorkerEvent | null {
   const identity = parseAnySessionIdentity(value.identity);
   if (!identity || !isSequence(value.seq)) return null;
   switch (value.type) {
+    case 'agent-control-invoke':
+      return hasExactKeys(value, ['type', 'identity', 'seq', 'requestId', 'request']) &&
+        isNonEmptyString(value.requestId) &&
+        parseAgentControlToolRequest(value.request)
+        ? (value as unknown as AgentWorkerEvent)
+        : null;
+    case 'agent-control-cancel':
+      return hasExactKeys(value, ['type', 'identity', 'seq', 'requestId']) &&
+        isNonEmptyString(value.requestId)
+        ? (value as unknown as AgentWorkerEvent)
+        : null;
     case 'browser-invoke':
       return hasExactKeys(value, ['type', 'identity', 'seq', 'requestId', 'op', 'params']) &&
         isNonEmptyString(value.requestId) &&
@@ -2619,7 +3013,17 @@ export function parseAgentWorkerEvent(value: unknown): AgentWorkerEvent | null {
         : null;
     }
     case 'approval-request':
-      return isRecord(value.request) && isNonEmptyString(value.request.requestId)
+      return isRecord(value.request) &&
+        isNonEmptyString(value.request.requestId) &&
+        isNonEmptyString(value.request.tool) &&
+        (value.request.kind === 'command' ||
+          value.request.kind === 'file-edit' ||
+          value.request.kind === 'file-write' ||
+          value.request.kind === 'mcp') &&
+        typeof value.request.summary === 'string' &&
+        (value.request.filePaths === undefined ||
+          (Array.isArray(value.request.filePaths) &&
+            value.request.filePaths.every(isNonEmptyString)))
         ? (value as unknown as AgentWorkerEvent)
         : null;
     case 'approval-resolved':

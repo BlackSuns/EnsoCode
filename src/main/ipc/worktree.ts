@@ -31,7 +31,7 @@ import {
   WorkspaceBranchError,
   workspaceIdentityPath,
 } from '../services/gitBranches';
-import { WorktreeRegistry } from '../services/worktree/registry';
+import { getSharedWorktreeRegistry, type WorktreeRegistry } from '../services/worktree/registry';
 import {
   createSessionWorktree,
   rebuildSessionWorktree,
@@ -70,9 +70,14 @@ function worktreesRoot(): string {
 
 function ensureRegistry(): WorktreeRegistry {
   if (!registry) {
-    registry = new WorktreeRegistry(path.join(app.getPath('userData'), 'worktrees.json'));
+    registry = getSharedWorktreeRegistry(path.join(app.getPath('userData'), 'worktrees.json'));
   }
   return registry;
+}
+
+/** Workflow/usage 等 Main 服务必须复用该唯一实例，避免多个 JSON 缓存互相覆盖。 */
+export function getWorktreeRegistry(): WorktreeRegistry {
+  return ensureRegistry();
 }
 
 /** spawn cwd 授权用：该会话登记过的 worktree 记录（main 权威，不信任 renderer 传路径） */
@@ -640,6 +645,15 @@ export function registerWorktreeHandlers(): void {
       if (!isNonEmptyString(projectId)) return { ok: false, error: 'invalid projectId' };
       const repoPath = resolveRepoPath(projectId);
       if (!repoPath) return { ok: false, error: 'unknown or inactive project' };
+      try {
+        return { ok: true, value: await repoIsClean(repoPath) };
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+}
+ath) return { ok: false, error: 'unknown or inactive project' };
       try {
         return { ok: true, value: await repoIsClean(repoPath) };
       } catch (error) {

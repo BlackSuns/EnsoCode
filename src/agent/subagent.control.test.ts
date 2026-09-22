@@ -1,0 +1,260 @@
+import type { SpawnModelConfig } from '@shared/types';
+import { describe, expect, it, vi } from 'vitest';
+import { createUnifiedSubagentTool, type UnifiedSubagentDeps } from './subagent';
+
+const cheapConfig: SpawnModelConfig = {
+  api: 'openai-completions',
+  baseUrl: 'https://api.openai.com/v1',
+  apiKey: 'k',
+  modelId: 'gpt-cheap',
+  settingsProviderId: 'p1',
+};
+
+function setup(overrides: Partial<UnifiedSubagentDeps> = {}) {
+  const deps: UnifiedSubagentDeps = {
+    agentTypes: [],
+    models: [{ name: 'OpenAI/gpt-cheap', config: cheapConfig }],
+    invoke: vi.fn(async (request) => ({ ok: true as const, value: { request } })),
+    ...overrides,
+  };
+  return { deps, tool: createUnifiedSubagentTool(deps) };
+}
+
+describe('unified subagent tool', () => {
+  it('模型只看到 subagent，一个 schema 覆盖全部生命周期操作', () => {
+    const { tool } = setup();
+    expect(tool.name).toBe('subagent');
+    const operation = (tool.parameters as { properties: { operation: { enum: string[] } } })
+      .properties.operation;
+    expect(operation.enum).toEqual([
+      'spawn',
+      'send',
+      'wait',
+      'report',
+      'list',
+      'message',
+      'stop',
+      'dismiss',
+    ]);
+    expect(`${tool.description}\n${tool.promptSnippet}`).not.toMatch(/coworker tool/i);
+  });
+
+  it('spawn 先归一化默认 task/异步，再交给 typed Main RPC', async () => {
+    const { deps, tool } = setup();
+    const result = await tool.execute(
+      'call-1',
+      { operation: 'spawn', description: 'review', prompt: 'review this' },
+      undefined,
+      undefined,
+      {} as never
+    );
+    expect(deps.invoke).toHaveBeenCalledWith(
+      {
+        operation: 'spawn',
+        mode: 'task',
+        description: 'review',
+        prompt: 'review this',
+        wait: false,
+      },
+      undefined
+    );
+    expect(result.details).toMatchObject({ request: { operation: 'spawn', mode: 'task' } });
+  });
+
+  it('spawn/send 不把工具调用 abort 传给 Main，避免创建后丢 receipt', async () => {
+    const { deps, tool } = setup();
+    const controller = new AbortController();
+    await tool.execute(
+      'call-abort-safe',
+      { operation: 'spawn', description: 'review', prompt: 'review this' },
+      controller.signal,
+      undefined,
+      {} as never
+    );
+    expect(deps.invoke).toHaveBeenLastCalledWith(
+      expect.objectContaining({ operation: 'spawn' }),
+      undefined
+    );
+  });
+
+  it('list/message normalize pagination and server-bound sender inputs', async () => {
+    const { deps, tool } = setup();
+    await tool.execute('list', { operation: 'list', limit: 5 }, undefined, undefined, {} as never);
+    await tool.execute(
+      'message',
+      { operation: 'message', to: 'agent-1', text: 'status?' },
+      undefined,
+      undefined,
+      {} as never
+    );
+    expect(deps.invoke).toHaveBeenNthCalledWith(1, { operation: 'list', limit: 5 }, undefined);
+    expect(deps.invoke).toHaveBeenNthCalledWith(
+      2,
+      { operation: 'message', to: 'agent-1', text: 'status?' },
+      undefined
+    );
+  });
+
+  it('send 默认 auto/异步，next 可冻结新一轮 schema/gate', async () => {
+    const { deps, tool } = setup();
+    const schema = { type: 'object' };
+    await tool.execute(
+      'call-2',
+      {
+        operation: 'send',
+        agentId: 'agent-1',
+        message: 'next task',
+        delivery: 'next',
+        schema,
+        gate: { argv: ['pnpm', 'test'] },
+      },
+      undefined,
+      undefined,
+      {} as never
+    );
+    expect(deps.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'send',
+        delivery: 'next',
+        wait: false,
+        schema,
+        gate: { argv: ['pnpm', 'test'] },
+      }),
+      undefined
+    );
+  });
+
+  it('无效参数组合在 RPC 前拒绝，gate 不接受自由 shell 字符串', async () => {
+    const { deps, tool } = setup();
+    await expect(
+      tool.execute(
+        'call-3',
+        { operation: 'wait', agentId: 'agent-1' },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/invalid/i);
+    await expect(
+      tool.execute(
+        'call-4',
+        {
+          operation: 'spawn',
+          description: 'x',
+          prompt: 'x',
+          gate: 'pnpm test',
+        },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/invalid/i);
+    expect(deps.invoke).not.toHaveBeenCalled();
+  });
+
+  it('Main 结构化拒绝转成工具错误，不解析自然语言找 ID', async () => {
+    const { tool } = setup({
+      invoke: vi.fn(async () => ({
+        ok: false as const,
+        code: 'mode-disabled' as const,
+        error: 'task mode disabled',
+      })),
+    });
+    await expect(
+      tool.execute(
+        'call-5',
+        { operation: 'spawn', description: 'x', prompt: 'x' },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/mode-disabled.*task mode disabled/i);
+  });
+
+  it('模型后缀先归一化 thinking，并严格校验模型目录', async () => {
+    const { deps, tool } = setup();
+    await tool.execute(
+      'call-model',
+      {
+        operation: 'spawn',
+        description: 'x',
+        prompt: 'x',
+        model: 'OpenAI/gpt-cheap:high',
+      },
+      undefined,
+      undefined,
+      {} as never
+    );
+    expect(deps.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'OpenAI/gpt-cheap', thinking: 'high' }),
+      undefined
+    );
+    await expect(
+      tool.execute(
+        'call-unknown-model',
+        { operation: 'spawn', description: 'x', prompt: 'x', model: 'unknown' },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/unknown model/i);
+  });
+
+  it('保留 agent_type 的必选模型与锁定模型边界', async () => {
+    const required = setup({
+      agentTypes: [
+        {
+          name: 'scout',
+          description: 'scout',
+          systemPrompt: '',
+          tools: 'readonly',
+          allowModelOverride: true,
+        },
+      ],
+    });
+    await expect(
+      required.tool.execute(
+        'call-required',
+        { operation: 'spawn', description: 'x', prompt: 'x', agent_type: 'scout' },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/requires a model/i);
+    expect(required.deps.invoke).not.toHaveBeenCalled();
+
+    const locked = setup({
+      agentTypes: [
+        {
+          name: 'reviewer',
+          description: 'reviewer',
+          systemPrompt: '',
+          tools: 'readonly',
+          allowModelOverride: false,
+        },
+      ],
+    });
+    await expect(
+      locked.tool.execute(
+        'call-locked',
+        {
+          operation: 'spawn',
+          description: 'x',
+          prompt: 'x',
+          agent_type: 'reviewer',
+          model: 'OpenAI/gpt-cheap',
+        },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/does not allow custom model/i);
+    expect(locked.deps.invoke).not.toHaveBeenCalled();
+  });
+
+  it('无可选模型时不暴露 model 参数', () => {
+    const { tool } = setup({ models: [] });
+    const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
+    expect(properties).not.toHaveProperty('model');
+  });
+});

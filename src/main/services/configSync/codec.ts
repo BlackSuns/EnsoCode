@@ -77,6 +77,7 @@ const STATE_KEYS = [
   'subagentModelsEnabled',
   'disabledBuiltinAgentTypes',
   'disabledBuiltinTools',
+  'subagentAllowedModes',
   'theme',
   'language',
   'terminalTheme',
@@ -975,6 +976,12 @@ export function validateBundle(value: unknown): ConfigSyncBundle {
       state.disabledBuiltinTools,
       BUILTIN_TOOLS.map((tool) => tool.id),
       'state.disabledBuiltinTools'
+    );
+  if (state.subagentAllowedModes !== undefined)
+    uniqueStringArray(
+      state.subagentAllowedModes,
+      ['task', 'coworker'],
+      'state.subagentAllowedModes'
     );
   if (state.keybindings !== undefined)
     validateStringMap(state.keybindings, KEYBINDING_ACTIONS, 'state.keybindings');

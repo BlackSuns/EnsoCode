@@ -12,6 +12,7 @@ import {
   type SessionIdentity,
 } from '@shared/builtinAgents';
 import type { CapabilityExecutionEnvelope } from '@shared/capabilities/types';
+import { childProfileToolIds } from '@shared/childProfileTools';
 import { resolveCompactStrategy } from '@shared/compactStrategy';
 import {
   type DefaultModelRef,
@@ -97,6 +98,7 @@ export type AgentTypeResolution =
       config: ResolvedAgentTypeSpawnConfig;
       expectedModel: ModelRef;
       expectedToolIds: readonly string[];
+      allowsModelOverride?: boolean;
     }
   | { ok: false; error: string };
 
@@ -351,21 +353,16 @@ export function resolveModelSelection(
   };
 }
 
+/** 与 worker 构建子代理工具用同一份推导；硬编码列表会随 editMode / 内置工具开关漂移。 */
 export function expectedAgentTypeToolIds(tools: AgentTypeEntry['tools']): readonly string[] {
-  return tools === 'readonly'
-    ? ['read', 'grep', 'find', 'ls', 'message_main_agent', 'message_coworker']
-    : [
-        'read',
-        'grep',
-        'find',
-        'ls',
-        'bash',
-        'edit',
-        'apply_patch',
-        'write',
-        'message_main_agent',
-        'message_coworker',
-      ];
+  const state = readSettingsState();
+  const disabled = resolveDisabledBuiltinTools(state?.disabledBuiltinTools);
+  return childProfileToolIds({
+    tools,
+    editMode: resolveEditMode(state?.editMode, state?.hashlineEditEnabled),
+    isolatedSandboxEnabled: !disabled.includes('isolated_sandbox'),
+    exploreFoldEnabled: state?.exploreFoldEnabled === true,
+  });
 }
 
 export function resolveAgentTypeSpawnConfig(
@@ -397,6 +394,7 @@ export function resolveAgentTypeSpawnConfig(
       },
       expectedModel: parentModel.ref,
       expectedToolIds: ENSO_LOCKED_PROFILE.toolIds,
+      allowsModelOverride: false,
     };
   }
 
@@ -449,6 +447,14 @@ export function resolveAgentTypeSpawnConfig(
     },
     expectedModel: selectedModel.ref,
     expectedToolIds: expectedAgentTypeToolIds(definition.tools),
+    allowsModelOverride:
+      (definition.modelMode ??
+        (definition.providerId && definition.modelId
+          ? 'fixed'
+          : typeKey.startsWith('builtin:')
+            ? 'agent_pick'
+            : 'follow')) === 'agent_pick' &&
+      configuredSubagentModels(authenticatedAccountKeys).length > 0,
   };
 }
 
@@ -1100,6 +1106,30 @@ function configuredSubagentModels(
     }
   }
   return options;
+}
+
+export function resolveSubagentModelSelection(
+  name: string,
+  authenticatedAccountKeys: ReadonlySet<string>
+): { ok: true; selection: ResolvedModelSelection } | { ok: false; error: string } {
+  const selected = configuredSubagentModels(authenticatedAccountKeys).find(
+    (entry) => entry.name === name
+  );
+  if (!selected) return { ok: false, error: `Subagent model is unavailable: ${name}` };
+  return {
+    ok: true,
+    selection: {
+      ref: {
+        providerId: selected.config.settingsProviderId,
+        modelId: selected.config.modelId,
+      },
+      runtimeRef: {
+        providerId: selected.config.oauthAccountKey ?? selected.config.settingsProviderId,
+        modelId: selected.config.modelId,
+      },
+      config: selected.config,
+    },
+  };
 }
 
 function isSubagentModelEntry(value: unknown): value is SubagentModelEntry {

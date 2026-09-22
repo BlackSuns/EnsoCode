@@ -20,7 +20,7 @@ import type {
   SkillEntry,
   SubagentModelEntry,
 } from '@shared/types';
-import type { ApprovalMode, ThinkingLevel } from '@shared/types/agent';
+import type { AgentMode, ApprovalMode, ThinkingLevel } from '@shared/types/agent';
 import type { ModelPricing, PricingTable } from '@shared/usage/pricing';
 import type { WindowsLocalShell } from '@shared/windowsLocalShell';
 import type { OauthCredentialSnapshot } from '@/stores/oauthCredentials';
@@ -247,6 +247,8 @@ export interface SettingsState {
   disabledBuiltinAgentTypes: string[];
   /** 被关闭的内置工具（id 集合;默认全开） */
   disabledBuiltinTools: string[];
+  /** 统一 subagent 工具允许创建的 Agent 模式。 */
+  subagentAllowedModes: AgentMode[];
 
   /** 是否已完成首次运行引导；老用户（已有配置）视为已完成 */
   onboarded: boolean;
@@ -391,6 +393,7 @@ export interface SettingsState {
   removeAgentType: (id: string) => void;
   toggleBuiltinAgentType: (name: string, enabled: boolean) => void;
   toggleBuiltinTool: (id: string, enabled: boolean) => void;
+  setSubagentAllowedModes: (modes: AgentMode[]) => void;
 
   // Onboarding
   setOnboarded: (value: boolean) => void;
@@ -439,6 +442,8 @@ export interface SettingsState {
   ) => void;
   /** null = 跟随全局；数组覆盖全局（空 = 本项目全开） */
   setProjectDisabledBuiltinTools: (projectId: string, disabled: string[] | null) => void;
+  /** null = 跟随全局；数组是项目级显式权限掩码。 */
+  setProjectSubagentAllowedModes: (projectId: string, modes: AgentMode[] | null) => void;
 
   /** 非法条目不写入，返回 false */
   setUsageModelPricing: (modelId: string, pricing: ModelPricing) => boolean;

@@ -38,6 +38,8 @@ export interface Project {
    * 新建或冷恢复会话生效。
    */
   disabledBuiltinTools?: string[];
+  /** 本项目允许统一 subagent 工具创建的 Agent 模式；缺省跟随全局。 */
+  subagentAllowedModes?: ('task' | 'coworker')[];
 }
 
 /** 从本地编辑器 / 编程应用读到的最近打开目录 */

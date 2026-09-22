@@ -12,13 +12,7 @@ export const BUILTIN_TOOLS: BuiltinToolInfo[] = [
     id: 'subagent',
     name: 'Subagent',
     description:
-      'One-shot subagent: delegate a self-contained task and return a final report (parallel or async)',
-  },
-  {
-    id: 'coworker',
-    name: 'Coworker',
-    description:
-      'Persistent subagent: hire for multi-turn dialogue; you can watch and intervene from a tab',
+      'Unified agents: delegate one-shot tasks or keep persistent coworkers under Main control',
   },
   { id: 'todo', name: 'Todo', description: 'Task list: track progress on multi-step work' },
   {
@@ -58,6 +52,28 @@ export const BUILTIN_TOOLS: BuiltinToolInfo[] = [
  * 未启用时也不创建 memory.db（见 main/services/memoryHost.ts 的懒开）。
  */
 export const DEFAULT_DISABLED_BUILTIN_TOOLS = ['memory'] as const;
+
+export function effectiveSubagentAllowedModes(
+  configured: unknown,
+  disabledBuiltinTools: unknown
+): Array<'task' | 'coworker'> {
+  if (Array.isArray(configured)) {
+    const selected = new Set(
+      configured.filter(
+        (mode): mode is 'task' | 'coworker' => mode === 'task' || mode === 'coworker'
+      )
+    );
+    return (['task', 'coworker'] as const).filter((mode) => selected.has(mode));
+  }
+  const disabled = new Set(
+    Array.isArray(disabledBuiltinTools)
+      ? disabledBuiltinTools.filter((id): id is string => typeof id === 'string')
+      : []
+  );
+  return (['task', 'coworker'] as const).filter(
+    (mode) => !disabled.has(mode === 'task' ? 'subagent' : 'coworker')
+  );
+}
 
 /** Main 直读磁盘时把未知形状收成 string[]；缺字段走默认关闭列表（空 = 全开）。 */
 export function effectiveDisabledBuiltinTools(disabled: unknown): string[] {

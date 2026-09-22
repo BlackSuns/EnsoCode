@@ -1,6 +1,7 @@
 import { type DefaultModelRef, resolveChatReasoning } from '@shared/defaultModel';
 import { projectDisplayName } from '@shared/projectName';
 import { BUILTIN_TOOLS, type Project, type ThinkingLevel } from '@shared/types';
+import type { AgentMode } from '@shared/types/agent';
 import { FolderOpen, Wrench } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CopyButton } from '@/components/chat/CopyButton';
@@ -48,6 +49,11 @@ export function ProjectSettingsDialog({
   const setProjectDisabledBuiltinTools = useSettingsStore(
     (state) => state.setProjectDisabledBuiltinTools
   );
+  const setProjectSubagentAllowedModes = useSettingsStore(
+    (state) => state.setProjectSubagentAllowedModes
+  );
+  const globalDisabledBuiltinTools = useSettingsStore((state) => state.disabledBuiltinTools);
+  const globalSubagentAllowedModes = useSettingsStore((state) => state.subagentAllowedModes);
   const [alias, setAlias] = useState('');
   const [defaultModel, setDefaultModel] = useState<DefaultModelRef | null>(null);
   const [reasoningEnabled, setReasoningEnabled] = useState(true);
@@ -55,6 +61,8 @@ export function ProjectSettingsDialog({
   const [groupId, setGroupId] = useState('');
   const [followGlobalTools, setFollowGlobalTools] = useState(true);
   const [disabledBuiltinTools, setDisabledBuiltinTools] = useState<string[]>([]);
+  const [followGlobalSubagentModes, setFollowGlobalSubagentModes] = useState(true);
+  const [subagentAllowedModes, setSubagentAllowedModes] = useState<AgentMode[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -74,11 +82,23 @@ export function ProjectSettingsDialog({
     setThinkingLevel(project?.defaultThinkingLevel ?? inherited.thinkingLevel);
     const follow = project?.disabledBuiltinTools === undefined;
     setFollowGlobalTools(follow);
-    const globalDisabled = useSettingsStore.getState().disabledBuiltinTools;
     setDisabledBuiltinTools(
-      follow ? [...globalDisabled] : [...(project?.disabledBuiltinTools ?? [])]
+      follow ? [...globalDisabledBuiltinTools] : [...(project?.disabledBuiltinTools ?? [])]
     );
-  }, [open, project, groups, defaultReasoningEnabled, defaultThinkingLevel]);
+    const followModes = project?.subagentAllowedModes === undefined;
+    setFollowGlobalSubagentModes(followModes);
+    setSubagentAllowedModes(
+      followModes ? [...globalSubagentAllowedModes] : [...(project?.subagentAllowedModes ?? [])]
+    );
+  }, [
+    open,
+    project,
+    groups,
+    defaultReasoningEnabled,
+    defaultThinkingLevel,
+    globalDisabledBuiltinTools,
+    globalSubagentAllowedModes,
+  ]);
 
   const groupItems = useMemo(
     () => [
@@ -113,6 +133,10 @@ export function ProjectSettingsDialog({
             setProjectDisabledBuiltinTools(
               project.id,
               followGlobalTools ? null : disabledBuiltinTools
+            );
+            setProjectSubagentAllowedModes(
+              project.id,
+              followGlobalSubagentModes ? null : subagentAllowedModes
             );
             onOpenChange(false);
           }}
@@ -239,6 +263,58 @@ export function ProjectSettingsDialog({
                       />
                     </div>
                   ))}
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="font-medium text-sm">{t('Follow global unified agent modes')}</p>
+                  <p className="text-muted-foreground text-xs">
+                    {t('When off, this project uses its own explicit Agent mode permission mask.')}
+                  </p>
+                </div>
+                <Switch
+                  checked={followGlobalSubagentModes}
+                  onCheckedChange={(checked) => {
+                    setFollowGlobalSubagentModes(checked);
+                    if (!checked) setSubagentAllowedModes([...globalSubagentAllowedModes]);
+                  }}
+                />
+              </div>
+              {!followGlobalSubagentModes && (
+                <div className="space-y-2 rounded-lg border px-3 py-2.5">
+                  {(
+                    [
+                      ['task', 'One-shot task agents'],
+                      ['coworker', 'Persistent coworkers'],
+                    ] as const
+                  ).map(([mode, label]) => (
+                    <div key={mode} className="flex items-center justify-between gap-4">
+                      <span className="text-sm">{t(label)}</span>
+                      <Switch
+                        checked={subagentAllowedModes.includes(mode)}
+                        disabled={(followGlobalTools
+                          ? globalDisabledBuiltinTools
+                          : disabledBuiltinTools
+                        ).includes('subagent')}
+                        onCheckedChange={(checked) =>
+                          setSubagentAllowedModes((modes) =>
+                            checked
+                              ? [...new Set([...modes, mode])]
+                              : modes.filter((item) => item !== mode)
+                          )
+                        }
+                      />
+                    </div>
+                  ))}
+                  {(followGlobalTools ? globalDisabledBuiltinTools : disabledBuiltinTools).includes(
+                    'subagent'
+                  ) && (
+                    <p className="text-muted-foreground text-xs">
+                      {t(
+                        'The unified subagent tool is off. Re-enabling it keeps this mode selection.'
+                      )}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

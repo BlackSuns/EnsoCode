@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseAgentCommand,
+  parseAgentControlToolRequest,
   parseAgentSessionCustomEntry,
   parseAgentWorkerEvent,
   parseChildSessionIdentity,
@@ -73,7 +74,105 @@ const receipt = {
   sequence: 0,
 };
 
-describe('workspace switch internal protocol', () => {
+
+describe('agent control tool protocol', () => {
+  it('accepts normalized spawn/send/wait requests with bounded gate shape', () => {
+    expect(
+      parseAgentControlToolRequest({
+        operation: 'spawn',
+        mode: 'task',
+        description: 'review',
+        prompt: 'review it',
+        wait: false,
+        gate: { argv: ['pnpm', 'test'] },
+      })
+    ).not.toBeNull();
+    expect(
+      parseAgentControlToolRequest({
+        operation: 'send',
+        agentId: 'agent-1',
+        message: 'fix issue',
+        delivery: 'next',
+        wait: false,
+        gate: { commandRef: 'tests' },
+      })
+    ).not.toBeNull();
+    expect(
+      parseAgentControlToolRequest({
+        operation: 'wait',
+        runIds: ['run-1', 'run-2'],
+        until: 'any',
+        timeoutMs: 100,
+      })
+    ).not.toBeNull();
+  });
+
+  it('rejects invalid operation combinations, duplicate waits and free shell gate', () => {
+    for (const request of [
+      {
+        operation: 'spawn',
+        mode: 'task',
+        description: 'x',
+        prompt: 'x',
+        wait: false,
+        agentId: 'x',
+      },
+      {
+        operation: 'send',
+        agentId: 'a',
+        message: 'x',
+        delivery: 'auto',
+        wait: false,
+        mode: 'task',
+      },
+      { operation: 'wait', runIds: ['same', 'same'], until: 'all' },
+      { operation: 'wait', runIds: [], until: 'all' },
+      { operation: 'report', runId: 'r', timeoutMs: 1 },
+      { operation: 'stop', runId: '' },
+      {
+        operation: 'spawn',
+        mode: 'task',
+        description: 'x',
+        prompt: 'x',
+        wait: false,
+        gate: 'pnpm test',
+      },
+      {
+        operation: 'spawn',
+        mode: 'task',
+        description: 'x',
+        prompt: 'x',
+        wait: false,
+        gate: { argv: [''] },
+      },
+    ]) {
+      expect(parseAgentControlToolRequest(request)).toBeNull();
+    }
+  });
+
+  it('worker RPC binds an exact actor identity and request id in both directions', () => {
+    const request = { operation: 'report', runId: 'run-1' } as const;
+    const invoke = {
+      type: 'agent-control-invoke',
+      identity: parent,
+      seq: 3,
+      requestId: 'rpc-1',
+      request,
+    } as const;
+    expect(parseAgentWorkerEvent(invoke)).toEqual(invoke);
+    expect(
+      parseAgentCommand({
+        type: 'agent-control-result',
+        identity: parent,
+        requestId: 'rpc-1',
+        response: { ok: true, value: { runId: 'run-1' } },
+      })
+    ).not.toBeNull();
+    expect(parseAgentWorkerEvent({ ...invoke, identity: { sessionId: 'parent' } })).toBeNull();
+    expect(parseAgentWorkerEvent({ ...invoke, requestId: '' })).toBeNull();
+    expect(parseAgentCommand({ ...invoke, type: 'agent-control-result' })).toBeNull();
+  });
+
   it('accepts consumption only with exact session generation, sequence and operation nonce', () => {
     const event = {
       type: 'workspace-branch-context-consumed',

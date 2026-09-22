@@ -21,7 +21,7 @@ import {
 } from '@shared/statusLine';
 import { parseTerminalShell } from '@shared/terminalShell';
 import { DEFAULT_DISABLED_BUILTIN_TOOLS } from '@shared/types';
-import type { SourceAuthorityProjection } from '@shared/types/agent';
+import type { AgentMode, SourceAuthorityProjection } from '@shared/types/agent';
 import { parseUsageModelPricing } from '@shared/usage/pricing';
 import { parseWindowsLocalShell } from '@shared/windowsLocalShell';
 import { create } from 'zustand';
@@ -53,6 +53,10 @@ import type {
   SettingsState,
   Theme,
 } from './types';
+
+function normalizeSubagentAllowedModes(modes: readonly AgentMode[]): AgentMode[] {
+  return (['task', 'coworker'] as const).filter((mode) => modes.includes(mode));
+}
 
 export * from './types';
 
@@ -183,6 +187,7 @@ const initialState = {
   subagentModels: [] as import('@shared/types').SubagentModelEntry[],
   disabledBuiltinAgentTypes: [] as string[],
   disabledBuiltinTools: [...DEFAULT_DISABLED_BUILTIN_TOOLS] as string[],
+  subagentAllowedModes: ['task', 'coworker'] as import('@shared/types/agent').AgentMode[],
   onboarded: false,
   keybindings: {} as Record<string, string>,
   projects: [] as import('@shared/types').Project[],
@@ -617,6 +622,9 @@ export const useSettingsStore = create<SettingsState>()(
             : [...new Set([...state.disabledBuiltinTools, id])],
         })),
 
+      setSubagentAllowedModes: (modes) =>
+        set({ subagentAllowedModes: normalizeSubagentAllowedModes(modes) }),
+
       setOnboarded: (onboarded) => set({ onboarded }),
 
       setKeybinding: (action, binding) =>
@@ -818,6 +826,22 @@ export const useSettingsStore = create<SettingsState>()(
         }));
       },
 
+      setProjectSubagentAllowedModes: (projectId, modes) => {
+        set((state) => ({
+          projects: state.projects.map((project) => {
+            if (project.id !== projectId) return project;
+            if (!modes) {
+              const { subagentAllowedModes: _removed, ...rest } = project;
+              return rest;
+            }
+            return {
+              ...project,
+              subagentAllowedModes: normalizeSubagentAllowedModes(modes),
+            };
+          }),
+        }));
+      },
+
       removeProject: async (id) => {
         const projection = await window.electronAPI.sourceAuthority.read();
         const project = projection.projects.find(
@@ -927,7 +951,7 @@ export const useSettingsStore = create<SettingsState>()(
 type ProjectEntry = SettingsState['projects'][number];
 
 /**
- * 投影里没有的字段：别名、分组、项目级默认模型/内置工具只存在于渲染侧设置。
+ * 投影里没有的字段：别名、分组、项目级默认模型/内置工具与 Agent 模式只存在于渲染侧设置。
  * 重建 projects 时不原样带回就会被 source-authority 广播抹掉（新建对话必定触发一次广播）。
  */
 const LOCAL_PROJECT_KEYS = [
@@ -937,6 +961,7 @@ const LOCAL_PROJECT_KEYS = [
   'defaultReasoningEnabled',
   'defaultThinkingLevel',
   'disabledBuiltinTools',
+  'subagentAllowedModes',
 ] as const satisfies readonly (keyof ProjectEntry)[];
 
 function localProjectFields(previous: ProjectEntry | undefined): Partial<ProjectEntry> {

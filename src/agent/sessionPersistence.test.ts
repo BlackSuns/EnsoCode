@@ -1,8 +1,10 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { AssistantMessage, UserMessage } from '@earendil-works/pi-ai';
 import type { AgentSession } from '@earendil-works/pi-coding-agent';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
+import { emptyUsage } from '@shared/providers/piProviderTypes';
 import { afterAll, describe, expect, it } from 'vitest';
 import { materializeSessionFile, persistRewindLeaf } from './supervisor';
 
@@ -22,6 +24,41 @@ function entriesOf(file: string): { type?: string; customType?: string }[] {
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+}
+
+function user(text: string): UserMessage {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+    timestamp: 1,
+  };
+}
+
+function assistant(text: string): AssistantMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    api: 'openai-completions',
+    provider: 'openai',
+    model: 'gpt-4',
+    usage: emptyUsage(),
+    stopReason: 'stop',
+    timestamp: 1,
+  };
+}
+
+function userTexts(manager: SessionManager): string[] {
+  const texts: string[] = [];
+  for (const entry of manager.getBranch()) {
+    if (entry.type !== 'message' || entry.message.role !== 'user') continue;
+    const { content } = entry.message;
+    texts.push(
+      Array.isArray(content)
+        ? content.map((part) => ('text' in part ? part.text : '')).join('')
+        : ''
+    );
+  }
+  return texts;
 }
 
 describe('派发父容器的 custom entry 必须能落盘', () => {
@@ -71,15 +108,6 @@ describe('派发父容器的 custom entry 必须能落盘', () => {
 });
 
 describe('回退叶子必须能跨重启恢复', () => {
-  const user = (text: string) => ({
-    role: 'user' as const,
-    content: [{ type: 'text' as const, text }],
-  });
-  const assistant = (text: string) => ({
-    role: 'assistant' as const,
-    content: [{ type: 'text' as const, text }],
-  });
-
   it('navigateTree 只改内存时，重开文件会回到回退前的叶子', () => {
     const manager = SessionManager.create(cwd, sessionDir);
     const file = manager.getSessionFile();
@@ -94,15 +122,7 @@ describe('回退叶子必须能跨重启恢复', () => {
     if (!target?.parentId) return;
     manager.branch(target.parentId);
     const reopened = SessionManager.open(file, sessionDir);
-    const texts = reopened
-      .getBranch()
-      .filter((entry) => entry.type === 'message' && entry.message.role === 'user')
-      .map((entry) =>
-        entry.type === 'message' && Array.isArray(entry.message.content)
-          ? entry.message.content.map((part: { text?: string }) => part.text).join('')
-          : ''
-      );
-    expect(texts).toContain('edit-me');
+    expect(userTexts(reopened)).toContain('edit-me');
   });
 
   it('写入 rewind leaf 锚点后，重开会话不再包含被回退的 user', () => {
@@ -120,14 +140,6 @@ describe('回退叶子必须能跨重启恢复', () => {
     manager.branch(target.parentId);
     persistRewindLeaf(sessionWith(manager, [user('keep'), assistant('a')]));
     const reopened = SessionManager.open(file, sessionDir);
-    const texts = reopened
-      .getBranch()
-      .filter((entry) => entry.type === 'message' && entry.message.role === 'user')
-      .map((entry) =>
-        entry.type === 'message' && Array.isArray(entry.message.content)
-          ? entry.message.content.map((part: { text?: string }) => part.text).join('')
-          : ''
-      );
-    expect(texts).toEqual(['keep']);
+    expect(userTexts(reopened)).toEqual(['keep']);
   });
 });
