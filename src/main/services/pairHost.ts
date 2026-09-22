@@ -55,7 +55,7 @@ import type {
   PairStatus,
 } from '@shared/types/pair';
 import { app, powerMonitor, powerSaveBlocker } from 'electron';
-import { readTraySleepPolicy } from '../ipc/settings';
+import { readTrayPreventDisplaySleep, readTraySleepPolicy } from '../ipc/settings';
 // 会话命令一律走 agentBridge（身份解析留在 ipc/agent.ts），这里只留无需身份的 snapshot。
 import { requestSnapshot, setPinnedSessions } from './agentHost';
 import { MacosSystemSleepAssertion } from './macosSystemSleepAssertion';
@@ -73,7 +73,11 @@ import {
   shouldForward,
   sliceHistory,
 } from './pairPolicy';
-import { applyPairPowerTaskEvent, shouldHoldPairPowerKeepAlive } from './pairPowerKeepAlive';
+import {
+  applyPairPowerTaskEvent,
+  powerSaveBlockerKind,
+  shouldHoldPairPowerKeepAlive,
+} from './pairPowerKeepAlive';
 import { seedRelayHostCache } from './pairRelayLookup';
 import { openPairRelayWebSocket } from './pairRelayOpen';
 import { PairReplayLog } from './pairReplay';
@@ -242,24 +246,34 @@ export function setPairQueueActionListener(listener: (action: PairQueueAction) =
 }
 
 let powerBlockerId: number | null = null;
+let powerBlockerKind: ReturnType<typeof powerSaveBlockerKind> | null = null;
 const macosSystemSleepAssertion = new MacosSystemSleepAssertion();
 let runningTaskIds = new Set<string>();
 
 /**
- * 按托盘休眠策略持锁（屏幕仍可熄）。
- * macOS 额外请求 caffeinate -i -s：尝试挡住系统睡 / 合盖睡（插电才有 -s；合盖仍可能被系统强制睡）。
+ * 按托盘休眠策略持锁。默认屏幕仍可熄；打开「不休眠时阻止息屏」后改挡息屏。
+ * macOS 再加 caffeinate -i -s（阻止息屏时含 -d）。合盖仍可能被系统强制睡。
  */
 function syncPowerBlocker(): void {
+  const preventDisplaySleep = readTrayPreventDisplaySleep();
   const shouldBlock = shouldHoldPairPowerKeepAlive(readTraySleepPolicy(), runningTaskIds.size);
   if (shouldBlock) {
-    if (powerBlockerId === null) {
-      powerBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+    const kind = powerSaveBlockerKind(preventDisplaySleep);
+    if (powerBlockerId !== null && powerBlockerKind !== kind) {
+      powerSaveBlocker.stop(powerBlockerId);
+      powerBlockerId = null;
+      powerBlockerKind = null;
     }
-    macosSystemSleepAssertion.start('pair-keep-alive');
+    if (powerBlockerId === null) {
+      powerBlockerId = powerSaveBlocker.start(kind);
+      powerBlockerKind = kind;
+    }
+    macosSystemSleepAssertion.start('pair-keep-alive', { preventDisplaySleep });
   } else {
     if (powerBlockerId !== null) {
       powerSaveBlocker.stop(powerBlockerId);
       powerBlockerId = null;
+      powerBlockerKind = null;
     }
     macosSystemSleepAssertion.stop('pair-keep-alive');
   }

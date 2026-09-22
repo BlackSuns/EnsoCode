@@ -1,6 +1,8 @@
+import { DEFAULT_TRAY_TOGGLE_BINDING } from '@shared/keybindingAccelerator';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_KEYBINDINGS,
+  effectiveKeybindings,
   eventToBinding,
   formatBinding,
   IS_MAC,
@@ -27,6 +29,17 @@ describe('send-message binding', () => {
   it('defaults to Enter', () => {
     expect(KEYBINDING_ACTIONS).toContain('send-message');
     expect(DEFAULT_KEYBINDINGS['send-message']).toBe('enter');
+  });
+
+  it('切换最小化到托盘有默认全局绑定', () => {
+    expect(KEYBINDING_ACTIONS).toContain('toggle-minimize-to-tray');
+    expect(DEFAULT_KEYBINDINGS['toggle-minimize-to-tray']).toBe(DEFAULT_TRAY_TOGGLE_BINDING);
+  });
+
+  it('空覆盖表示删除，不回落到默认', () => {
+    expect(effectiveKeybindings({ 'toggle-minimize-to-tray': '' })['toggle-minimize-to-tray']).toBe(
+      ''
+    );
   });
 
   it('allowBare 只放行 Enter 家族，字母仍要修饰键', () => {

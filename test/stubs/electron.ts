@@ -45,6 +45,11 @@ export const screen = {
 };
 export const powerMonitor = { on: () => {} };
 export const powerSaveBlocker = { start: () => 0, stop: () => {} };
+export const globalShortcut = {
+  register: () => true,
+  unregister: () => {},
+  unregisterAll: () => {},
+};
 
 export default {
   app,
@@ -59,4 +64,5 @@ export default {
   screen,
   powerMonitor,
   powerSaveBlocker,
+  globalShortcut,
 };

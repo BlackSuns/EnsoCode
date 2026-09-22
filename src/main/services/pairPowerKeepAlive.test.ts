@@ -3,7 +3,9 @@ import type { RendererAgentEvent, SessionSnapshot } from '@shared/types/agent';
 import { describe, expect, it } from 'vitest';
 import {
   applyPairPowerTaskEvent,
+  parseTrayPreventDisplaySleep,
   parseTraySleepPolicy,
+  powerSaveBlockerKind,
   shouldHoldPairPowerKeepAlive,
 } from './pairPowerKeepAlive';
 
@@ -34,6 +36,15 @@ describe('shouldHoldPairPowerKeepAlive', () => {
     expect(parseTraySleepPolicy(undefined)).toBe('when-agent-running');
     expect(parseTraySleepPolicy('never')).toBe('never');
     expect(parseTraySleepPolicy('always')).toBe('when-agent-running');
+  });
+
+  it('只有显式 true 才在不休眠时阻止息屏', () => {
+    expect(parseTrayPreventDisplaySleep(true)).toBe(true);
+    expect(parseTrayPreventDisplaySleep(false)).toBe(false);
+    expect(parseTrayPreventDisplaySleep('true')).toBe(false);
+    expect(parseTrayPreventDisplaySleep(undefined)).toBe(false);
+    expect(powerSaveBlockerKind(false)).toBe('prevent-app-suspension');
+    expect(powerSaveBlockerKind(true)).toBe('prevent-display-sleep');
   });
 });
 

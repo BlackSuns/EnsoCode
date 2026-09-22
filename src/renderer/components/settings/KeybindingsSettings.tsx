@@ -1,4 +1,4 @@
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, X } from 'lucide-react';
 import * as React from 'react';
 import { Kbd } from '@/components/ui/kbd';
 import { useI18n } from '@/i18n';
@@ -22,7 +22,7 @@ export function KeybindingsSettings() {
       <div data-settings-row="shortcuts.root">
         <h3 className="text-lg font-medium">{t('Shortcuts')}</h3>
         <p className="text-sm text-muted-foreground">
-          {t('Click a shortcut to rebind it; press Esc to cancel.')}
+          {t('Click a shortcut to rebind it. Backspace removes it; Esc cancels.')}
         </p>
       </div>
       <KeybindingsSection />
@@ -49,6 +49,12 @@ function KeybindingsSection() {
       setConflictWith(null);
       return;
     }
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      setKeybinding(capturing, '');
+      setCapturing(null);
+      setConflictWith(null);
+      return;
+    }
     const binding = eventToBinding(e, { allowBare: capturing === 'send-message' });
     if (!binding) return;
     const taken = KEYBINDING_ACTIONS.find(
@@ -69,6 +75,7 @@ function KeybindingsSection() {
       {KEYBINDING_ACTIONS.map((action) => {
         const isCapturing = capturing === action;
         const isCustom = keybindings[action] !== undefined;
+        const binding = bindings[action];
         return (
           <div key={action} className="flex items-center gap-3 px-3 py-2">
             <div className="min-w-0 flex-1">
@@ -81,6 +88,16 @@ function KeybindingsSection() {
               <span className="text-xs text-destructive">
                 {t('Already used by "{{label}}"', { label: t(ACTION_LABEL_KEYS[conflictWith]) })}
               </span>
+            )}
+            {binding && !isCapturing && (
+              <button
+                type="button"
+                title={t('Remove shortcut')}
+                onClick={() => setKeybinding(action, '')}
+                className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             )}
             {isCustom && !isCapturing && (
               <button
@@ -115,7 +132,11 @@ function KeybindingsSection() {
               {isCapturing ? (
                 <span className="text-xs text-muted-foreground">{t('Press shortcut…')}</span>
               ) : (
-                <Kbd>{formatBinding(bindings[action])}</Kbd>
+                binding ? (
+                  <Kbd>{formatBinding(binding)}</Kbd>
+                ) : (
+                  <span className="text-xs text-muted-foreground">{t('No shortcut')}</span>
+                )
               )}
             </button>
           </div>

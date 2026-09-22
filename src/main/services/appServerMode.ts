@@ -13,7 +13,9 @@ import { app, ipcMain, Menu, nativeImage, Tray } from 'electron';
 import {
   flushSettings,
   readSettings,
+  readTrayPreventDisplaySleep,
   readTraySleepPolicy,
+  writeTrayPreventDisplaySleep,
   writeTraySleepPolicy,
 } from '../ipc/settings';
 import {
@@ -80,6 +82,7 @@ function rebuildTrayMenu(): void {
   if (!tray) return;
   const zh = languageIsZh();
   const sleepPolicy = readTraySleepPolicy();
+  const preventDisplaySleep = readTrayPreventDisplaySleep();
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
@@ -103,6 +106,16 @@ function rebuildTrayMenu(): void {
         checked: sleepPolicy === 'never',
         click: () => {
           writeTraySleepPolicy('never');
+          refreshPowerKeepAlive();
+          rebuildTrayMenu();
+        },
+      },
+      {
+        label: zh ? '不休眠时阻止息屏' : 'Keep the screen on while awake',
+        type: 'checkbox',
+        checked: preventDisplaySleep,
+        click: () => {
+          writeTrayPreventDisplaySleep(!preventDisplaySleep);
           refreshPowerKeepAlive();
           rebuildTrayMenu();
         },

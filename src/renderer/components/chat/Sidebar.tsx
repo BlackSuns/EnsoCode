@@ -168,7 +168,8 @@ export function Sidebar({
   const reorderProjectGroups = useSettingsStore((state) => state.reorderProjectGroups);
   const setProjectGroupId = useSettingsStore((state) => state.setProjectGroupId);
   const keybindings = useSettingsStore((state) => state.keybindings);
-  const searchShortcut = formatBinding(effectiveKeybindings(keybindings)['search-workspace']);
+  const searchBinding = effectiveKeybindings(keybindings)['search-workspace'];
+  const searchShortcut = searchBinding ? formatBinding(searchBinding) : '';
   const addProject = useSettingsStore((state) => state.addProject);
   const removeProject = useSettingsStore((state) => state.removeProject);
   const conversations = useSessionsStore((state) =>
@@ -696,7 +697,11 @@ export function Sidebar({
             type="button"
             onClick={onOpenSearch}
             className={ICON_BUTTON_CLASS}
-            title={`${t('Search anything')} (${searchShortcut})`}
+            title={
+              searchShortcut
+                ? `${t('Search anything')} (${searchShortcut})`
+                : t('Search anything')
+            }
           >
             <Search className="h-4 w-4" />
           </button>
@@ -746,7 +751,11 @@ export function Sidebar({
               type="button"
               onClick={onOpenSearch}
               className={ICON_BUTTON_CLASS}
-              title={`${t('Search anything')} (${searchShortcut})`}
+              title={
+                searchShortcut
+                  ? `${t('Search anything')} (${searchShortcut})`
+                  : t('Search anything')
+              }
             >
               <Search className="h-4 w-4" />
             </button>

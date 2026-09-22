@@ -760,7 +760,9 @@ export function Composer({
                 agentRecipient
                   ? t('Send only to the selected Agent')
                   : enterToSend
-                    ? `${t('Send')} ${formatBinding(sendBinding)}`
+                    ? sendBinding
+                      ? `${t('Send')} ${formatBinding(sendBinding)}`
+                      : t('Send')
                     : t('Send')
               }
             >

@@ -24,6 +24,7 @@ import type {
 } from '@shared/capabilities/types';
 import { modelUsability } from '@shared/defaultModel';
 import { normalizeLocale, translate } from '@shared/i18n';
+import { DEFAULT_TRAY_TOGGLE_BINDING } from '@shared/keybindingAccelerator';
 import { TERMINAL_SHELLS } from '@shared/terminalShell';
 import {
   type AgentTypeEntry,
@@ -613,6 +614,7 @@ const DEFAULT_KEYBINDINGS: Record<string, string> = {
   'new-side-tab': 'mod+t',
   'new-btw-tab': 'mod+shift+b',
   'close-side-tab': 'mod+w',
+  'toggle-minimize-to-tray': DEFAULT_TRAY_TOGGLE_BINDING,
 };
 
 export function createCapabilityHandlers(

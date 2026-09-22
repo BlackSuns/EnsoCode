@@ -13,7 +13,11 @@ import { join } from 'node:path';
 import { IPC_CHANNELS, isEditMode, resolveEditMode } from '@shared/types';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { readStoredOauthCredentialKeys } from '../services/oauthProviders';
-import { parseTraySleepPolicy, type TraySleepPolicy } from '../services/pairPowerKeepAlive';
+import {
+  parseTrayPreventDisplaySleep,
+  parseTraySleepPolicy,
+  type TraySleepPolicy,
+} from '../services/pairPowerKeepAlive';
 import { deleteSystemPrompt, isSystemPromptId } from '../services/systemPromptStore';
 import { getWindowWebContents, sendToWindow } from '../windows/createAppWindow';
 
@@ -171,6 +175,13 @@ function notifyMemoryEmbeddingSettings(settings: Record<string, unknown>): void 
     .catch(() => {});
 }
 
+function notifyTrayToggleShortcut(settings: Record<string, unknown>): void {
+  const keybindings = settingsStateOf(settings).keybindings;
+  void import('../services/trayToggleShortcut')
+    .then(({ syncTrayToggleShortcut }) => syncTrayToggleShortcut(keybindings))
+    .catch(() => {});
+}
+
 function settingsStateOf(settings: Record<string, unknown> | null): Record<string, unknown> {
   const store = settings?.['enso-settings'];
   if (!store || typeof store !== 'object') return {};
@@ -313,6 +324,7 @@ function scheduleWrite(
     cachedSettings = data;
     isDirty = true;
     notifyMemoryEmbeddingSettings(data);
+    notifyTrayToggleShortcut(data);
 
     // 普通 store 写排除 sender；Gateway 写显式选择 all-renderers。
     for (const win of BrowserWindow.getAllWindows()) {
@@ -448,6 +460,7 @@ export function commitSettingsTransaction(
   cachedSettings = next;
   isDirty = false;
   notifyMemoryEmbeddingSettings(next);
+  notifyTrayToggleShortcut(next);
   try {
     for (const win of BrowserWindow.getAllWindows()) {
       if (win.isDestroyed()) continue;
@@ -525,6 +538,16 @@ export function readTraySleepPolicy(): TraySleepPolicy {
 
 export function writeTraySleepPolicy(policy: TraySleepPolicy): boolean {
   return writeTrayState({ sleepPolicy: policy });
+}
+
+export function readTrayPreventDisplaySleep(): boolean {
+  return parseTrayPreventDisplaySleep(
+    objectRecord(readSettings()?.[TRAY_SETTINGS_KEY])?.preventDisplaySleep
+  );
+}
+
+export function writeTrayPreventDisplaySleep(enabled: boolean): boolean {
+  return writeTrayState({ preventDisplaySleep: enabled });
 }
 
 function trayState(): Record<string, unknown> {

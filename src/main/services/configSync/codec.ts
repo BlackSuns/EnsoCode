@@ -213,6 +213,7 @@ const KEYBINDING_ACTIONS = [
   'new-side-tab',
   'new-btw-tab',
   'close-side-tab',
+  'toggle-minimize-to-tray',
 ] as const;
 const PRICING_KEYS = ['input', 'output', 'cacheRead', 'cacheWrite'] as const;
 

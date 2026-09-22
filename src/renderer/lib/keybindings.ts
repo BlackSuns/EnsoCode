@@ -1,6 +1,8 @@
 /** 可配置快捷键:动作清单、默认绑定、事件↔绑定串转换。
  *  绑定格式 "mod+ctrl+alt+shift+key":mod = mac ⌘ / 其它平台 Ctrl;ctrl 仅 mac 有意义(⌃) */
 
+import { DEFAULT_TRAY_TOGGLE_BINDING } from '@shared/keybindingAccelerator';
+
 export const KEYBINDING_ACTIONS = [
   'toggle-sidebar',
   'toggle-side-panel',
@@ -17,6 +19,7 @@ export const KEYBINDING_ACTIONS = [
   'new-side-tab',
   'new-btw-tab',
   'close-side-tab',
+  'toggle-minimize-to-tray',
 ] as const;
 export type KeybindingAction = (typeof KEYBINDING_ACTIONS)[number];
 
@@ -36,6 +39,7 @@ export const ACTION_LABEL_KEYS: Record<KeybindingAction, string> = {
   'new-side-tab': 'New terminal tab',
   'new-btw-tab': 'New Btw tab',
   'close-side-tab': 'Close terminal tab',
+  'toggle-minimize-to-tray': 'Toggle minimize to tray',
 };
 
 /** 仅部分动作需要补充生效范围，没有就不渲染 */
@@ -44,6 +48,7 @@ export const ACTION_HINT_KEYS: Partial<Record<KeybindingAction, string>> = {
   'send-message': 'Only when the chat input is focused',
   'new-side-tab': 'New terminal when the side panel is focused; otherwise new conversation',
   'new-btw-tab': 'Open a Btw tab in the side panel',
+  'toggle-minimize-to-tray': 'Works while the app is in the tray',
 };
 
 export function isEventInSidePanel(target: EventTarget | null): boolean {
@@ -72,6 +77,7 @@ export const DEFAULT_KEYBINDINGS: Record<KeybindingAction, string> = {
   'new-side-tab': 'mod+t',
   'new-btw-tab': 'mod+shift+b',
   'close-side-tab': 'mod+w',
+  'toggle-minimize-to-tray': DEFAULT_TRAY_TOGGLE_BINDING,
 };
 
 /** 合并用户覆盖与默认(store 只存覆盖项,默认可随版本演进) */

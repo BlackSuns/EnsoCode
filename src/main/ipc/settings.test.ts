@@ -109,4 +109,20 @@ describe('settings广播策略', () => {
     expect(consumeTrayReenterAfterUpdate()).toBe(true);
     expect(consumeTrayReenterAfterUpdate()).toBe(false);
   });
+
+  it('阻止息屏开关与休眠策略互不覆盖', async () => {
+    const {
+      readTrayPreventDisplaySleep,
+      readTraySleepPolicy,
+      writeTrayPreventDisplaySleep,
+      writeTraySleepPolicy,
+    } = await import('./settings');
+    expect(writeTrayPreventDisplaySleep(true)).toBe(true);
+    expect(writeTraySleepPolicy('never')).toBe(true);
+    expect(readTrayPreventDisplaySleep()).toBe(true);
+    expect(readTraySleepPolicy()).toBe('never');
+    expect(writeTrayPreventDisplaySleep(false)).toBe(true);
+    expect(readTraySleepPolicy()).toBe('never');
+    expect(readTrayPreventDisplaySleep()).toBe(false);
+  });
 });

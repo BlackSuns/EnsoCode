@@ -76,10 +76,16 @@ vi.mock('./windows/MainWindow', () => ({
 vi.mock('./services/appServerMode', () => ({
   ensureTray: vi.fn(() => mocks.order.push('tray')),
   leaveServerMode: vi.fn(),
+  enterServerMode: vi.fn(),
+  isServerMode: () => false,
   restoreFromSecondInstance: vi.fn(),
   shouldQuitOnWindowAllClosed: () => false,
-  isServerMode: () => false,
   scheduleReenterServerMode: (...args: unknown[]) => mocks.scheduleReenter(...args),
+}));
+vi.mock('./services/trayToggleShortcut', () => ({
+  setTrayToggleHandler: vi.fn(),
+  syncTrayToggleShortcut: vi.fn(),
+  stopTrayToggleShortcut: vi.fn(),
 }));
 
 const originalUserDataOverride = process.env.ENSO_USER_DATA_DIR;

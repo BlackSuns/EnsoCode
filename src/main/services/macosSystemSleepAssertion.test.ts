@@ -33,6 +33,41 @@ describe('MacosSystemSleepAssertion', () => {
     });
   });
 
+  it('阻止息屏时额外加上 display assertion', () => {
+    const child = new FakeCaffeinateProcess();
+    const spawn = vi.fn(() => child);
+    const assertion = new MacosSystemSleepAssertion({
+      platform: 'darwin',
+      spawn,
+    });
+
+    assertion.start('pair-keep-alive', { preventDisplaySleep: true });
+
+    expect(spawn).toHaveBeenCalledWith('/usr/bin/caffeinate', ['-d', '-i', '-s'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+  });
+
+  it('息屏策略变化时重启 caffeinate', () => {
+    const first = new FakeCaffeinateProcess();
+    const second = new FakeCaffeinateProcess();
+    const spawn = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const assertion = new MacosSystemSleepAssertion({
+      platform: 'darwin',
+      spawn,
+    });
+
+    assertion.start('pair-keep-alive');
+    assertion.start('pair-keep-alive', { preventDisplaySleep: true });
+
+    expect(first.kill).toHaveBeenCalledTimes(1);
+    expect(spawn).toHaveBeenLastCalledWith('/usr/bin/caffeinate', ['-d', '-i', '-s'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+  });
+
   it('非 macOS 不拉起进程', () => {
     const spawn = vi.fn(() => new FakeCaffeinateProcess());
     const assertion = new MacosSystemSleepAssertion({

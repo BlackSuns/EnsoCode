@@ -29,13 +29,14 @@ export type MacosSystemSleepAssertionOptions = {
 
 /**
  * 请求 macOS 不要因 idle / 系统策略进入睡眠（插电时含 PreventSystemSleep）。
- * 合盖仍可能被系统强制睡，只是尝试。屏幕是否熄由 Electron 的 blocker 类型决定。
+ * 合盖仍可能被系统强制睡。preventDisplaySleep 时加 -d，托盘隐藏 Dock 后也挡住息屏。
  */
 export class MacosSystemSleepAssertion {
   private readonly logger: Logger;
   private readonly platform: NodeJS.Platform;
   private readonly spawn: CaffeinateSpawn;
   private desired = false;
+  private preventDisplaySleep = false;
   private child: CaffeinateProcess | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalStop = false;
@@ -46,8 +47,12 @@ export class MacosSystemSleepAssertion {
     this.spawn = options.spawn ?? nodeSpawn;
   }
 
-  start(_reason: string): void {
+  start(_reason: string, options?: { preventDisplaySleep?: boolean }): void {
+    const preventDisplaySleep = options?.preventDisplaySleep === true;
+    const modeChanged = this.desired && this.preventDisplaySleep !== preventDisplaySleep;
+    this.preventDisplaySleep = preventDisplaySleep;
     this.desired = true;
+    if (modeChanged) this.killChild();
     this.spawnIfNeeded();
   }
 
@@ -68,7 +73,7 @@ export class MacosSystemSleepAssertion {
 
     let child: CaffeinateProcess;
     try {
-      child = this.spawn('/usr/bin/caffeinate', ['-i', '-s'], {
+      child = this.spawn('/usr/bin/caffeinate', this.caffeinateArgs(), {
         stdio: 'ignore',
         windowsHide: true,
       });
@@ -117,6 +122,10 @@ export class MacosSystemSleepAssertion {
         this.logger.warn('[pair-awake] failed to stop macOS system sleep assertion', { error });
       }
     }
+  }
+
+  private caffeinateArgs(): string[] {
+    return this.preventDisplaySleep ? ['-d', '-i', '-s'] : ['-i', '-s'];
   }
 
   private scheduleRetry(): void {
