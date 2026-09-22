@@ -36,7 +36,8 @@ import {
   pairJsonFingerprint,
   providersSyncFingerprint,
   rememberStableMeta,
-  shouldEmitProviders,
+  planProviderEmit,
+  providerChannelsToSend,
   shouldRelayPairSnapshot,
   slimCatalogForPhone,
   slimProjectsForPhone,
@@ -142,6 +143,8 @@ interface Connection {
   metaEpoch?: number;
   providersSentFp?: string;
   providersSentAt?: number;
+  /** 窗口内没发出的模型表：到点补推，不能把新指纹提前记成已同步 */
+  providersRetry?: NodeJS.Timeout | null;
   phoneOnline: boolean;
   /** 当前业务通道 RTT（ms）；切通道时清空 */
   rttMs: number | null;
@@ -184,6 +187,8 @@ let pinnedOrder: string[] = [];
 let projects: ProjectEntry[] = [];
 let projectGroups: ProjectGroupEntry[] = [];
 let providers: ProviderEntry[] = [];
+/** false：还没有一份可下发的模型表（OAuth 暂态空列表不能当真） */
+let providersSettled = false;
 /** 桌面外观偏好，随目录下发给手机作为默认值 */
 let theme: HostAppearance = 'system';
 /** 桌面终端配色（bash 输出用），随外观一起下发 */
@@ -337,6 +342,7 @@ export function stopPairHost(): void {
     conn.ioEpoch++;
     conn.syncRevision++;
     if (conn.timer) clearTimeout(conn.timer);
+    if (conn.providersRetry) clearTimeout(conn.providersRetry);
     conn.heartbeat?.stop();
     conn.heartbeat = null;
     conn.direct.close();
@@ -488,6 +494,7 @@ function openConnection(device: PairedDevice): void {
     existing.ioEpoch++;
     existing.syncRevision++;
     if (existing.timer) clearTimeout(existing.timer);
+    if (existing.providersRetry) clearTimeout(existing.providersRetry);
     existing.heartbeat?.stop();
     existing.heartbeat = null;
     existing.direct.close();
@@ -674,6 +681,7 @@ function forgetDevice(pairId: string): void {
     conn.ioEpoch++;
     conn.syncRevision++;
     if (conn.timer) clearTimeout(conn.timer);
+    if (conn.providersRetry) clearTimeout(conn.providersRetry);
     conn.heartbeat?.stop();
     conn.heartbeat = null;
     conn.direct.close();
@@ -959,21 +967,28 @@ async function sendNow(
     if (sentProviderFp.get(conn.device.pairId) === fp) return true;
     sentProviderFp.set(conn.device.pairId, fp);
   }
+  const releaseProviderFp = (): void => {
+    if (!relayOnly && message.type === 'providers') sentProviderFp.delete(conn.device.pairId);
+  };
   try {
     const frame = await sealFrame(conn.contentKey, message);
-    if (!connectionCurrent(conn, generation, ioEpoch) || (guard && !guard())) return false;
+    if (!connectionCurrent(conn, generation, ioEpoch) || (guard && !guard())) {
+      releaseProviderFp();
+      return false;
+    }
     // 中继对超过 1MB 的帧直接丢弃且不通知发送方：本地拦下并留痕，别白发（直连同限，分片上限对齐）
     if (frame.byteLength >= 1_000_000) {
       console.warn(`[pair] frame ${frame.byteLength}B over relay limit, dropped locally`);
+      releaseProviderFp();
       return false;
     }
     // 直连优先；背压/刚好断掉时无缝退回中继。信令始终只走中继。
     if (!relayOnly && conn.direct.send(frame)) return true;
     const ok = sendFrameViaRelay(conn, frame);
-    if (!ok && message.type === 'providers') sentProviderFp.delete(conn.device.pairId);
+    if (!ok) releaseProviderFp();
     return ok;
   } catch (error) {
-    if (message.type === 'providers') sentProviderFp.delete(conn.device.pairId);
+    releaseProviderFp();
     console.warn('[pair] send failed', error);
     return false;
   }
@@ -1017,6 +1032,15 @@ function requestMeta(conn: Connection): void {
   requestPairMeta(conn, sendMeta);
 }
 
+function scheduleProvidersResync(conn: Connection, delayMs: number): void {
+  if (conn.closed || conn.providersRetry) return;
+  conn.providersRetry = setTimeout(() => {
+    conn.providersRetry = null;
+    if (conn.closed || !conn.phoneOnline) return;
+    requestMeta(conn);
+  }, delayMs);
+}
+
 /** 进房重发目录/项目/模型表/推送配置。 */
 function resyncGuestMeta(conn: Connection, forgetCatalog = true): void {
   if (forgetCatalog && !conn.metaSending) {
@@ -1051,7 +1075,7 @@ async function sendMeta(conn: Connection): Promise<void> {
   const next: PairMetaFingerprints = {
     catalog: catalogSyncFingerprint(catalogEntries, pinnedOrder),
     projects: pairJsonFingerprint({ projects: projectEntries, groups: projectGroups }),
-    providers: providersSyncFingerprint(providers),
+    ...(providersSettled ? { providers: providersSyncFingerprint(providers) } : {}),
     appearance: pairJsonFingerprint(appearance),
     pushConfig: pairJsonFingerprint(vapidPublicKey),
     hostInfo: pairJsonFingerprint(hostInfo),
@@ -1060,7 +1084,12 @@ async function sendMeta(conn: Connection): Promise<void> {
   // host 重启后 guest 往往已在房里，peer-joined 先于 renderer 首推到达，空 catalog 当真目录发出去
   // 会让 guest 把仍在订阅的会话误判为幽灵。被扣下的通道不进 next，flushChangedMeta 只记实际发出的。
   const last = mergeStableMeta(stableMetaByPair.get(conn.device.pairId), conn.sentMeta);
-  const allowed = new Set(channelsForMetaPush(last, next, catalogReady));
+  const providerPlan = next.providers
+    ? planProviderEmit(conn.providersSentFp, conn.providersSentAt, next.providers, Date.now())
+    : ({ kind: 'unchanged' } as const);
+  const emit = providerChannelsToSend(channelsForMetaPush(last, next, catalogReady), providerPlan);
+  if (emit.deferMs !== undefined) scheduleProvidersResync(conn, emit.deferMs);
+  const allowed = new Set(emit.channels);
   const remembered = rememberStableMeta(stableMetaByPair.get(conn.device.pairId), allowed, next);
   if (remembered) stableMetaByPair.set(conn.device.pairId, remembered);
   const gated: PairMetaFingerprints = {};
@@ -1079,11 +1108,20 @@ async function sendMeta(conn: Connection): Promise<void> {
       providers: async () => {
         const fp = next.providers ?? providersSyncFingerprint(providers);
         const now = Date.now();
-        if (!shouldEmitProviders(conn.providersSentFp, conn.providersSentAt, fp, now)) return true;
+        const plan = planProviderEmit(conn.providersSentFp, conn.providersSentAt, fp, now);
+        if (plan.kind === 'unchanged') return true;
+        if (plan.kind === 'defer') {
+          scheduleProvidersResync(conn, plan.delayMs);
+          return false;
+        }
         const ok = await send(conn, { type: 'providers', providers });
         if (ok) {
           conn.providersSentFp = fp;
           conn.providersSentAt = now;
+          if (conn.providersRetry) {
+            clearTimeout(conn.providersRetry);
+            conn.providersRetry = null;
+          }
         }
         return ok;
       },
@@ -1267,21 +1305,26 @@ export function updatePairCatalog(payload: {
   terminalFontFamily?: string;
   compactReadOnlyTools?: boolean;
   expandLiveEdits?: boolean;
+  /** false：OAuth 暂态空列表，不能覆盖上一份真列表，也不能下发 */
+  providersSettled?: boolean;
 }): void {
   catalog = payload.catalog;
   catalogReady = true;
   pinnedOrder = payload.pinnedOrder ?? [];
   projects = payload.projects;
   projectGroups = payload.projectGroups ?? [];
-  providers = payload.providers;
   theme = payload.theme;
   terminal = payload.terminal;
   terminalFontFamily = payload.terminalFontFamily;
   compactReadOnlyTools = payload.compactReadOnlyTools !== false;
   expandLiveEdits = payload.expandLiveEdits !== false;
+  if (payload.providersSettled !== false) {
+    providers = payload.providers;
+    providersSettled = true;
+  }
   whitelist = {
     projects: payload.projectPaths,
-    providers: payload.providers.map((p) => ({
+    providers: (payload.providersSettled === false ? providers : payload.providers).map((p) => ({
       id: p.id,
       models: p.models.map((m) => ({ id: m.id })),
     })),

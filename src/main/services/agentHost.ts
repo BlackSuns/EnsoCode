@@ -12,7 +12,11 @@ import {
   type SessionIdentity,
 } from '@shared/builtinAgents';
 import type { CapabilityExecutionEnvelope } from '@shared/capabilities/types';
-import { type ChildProfileToolInput, childProfileToolIds } from '@shared/childProfileTools';
+import {
+  type ChildProfileToolOptions,
+  childProfileShell,
+  childProfileToolIds,
+} from '@shared/childProfileTools';
 import { resolveCompactStrategy } from '@shared/compactStrategy';
 import {
   type DefaultModelRef,
@@ -353,17 +357,19 @@ export function resolveModelSelection(
   };
 }
 
-type ParentToolProfile = Omit<ChildProfileToolInput, 'tools'>;
+const parentToolProfiles = new Map<string, ChildProfileToolOptions>();
 
-const parentToolProfiles = new Map<string, ParentToolProfile>();
-
-export interface AgentTypeToolScope {
+export interface AgentTypeProfileContext {
   parentSessionId?: string;
   projectId?: string;
+  remote?: boolean;
 }
 
 /** 记下父会话 spawn 时下发给 worker 的工具档。事后改设置不能拿来做 proof。 */
-export function rememberParentToolProfile(sessionId: string, profile: ParentToolProfile): void {
+export function rememberParentToolProfile(
+  sessionId: string,
+  profile: ChildProfileToolOptions
+): void {
   parentToolProfiles.set(sessionId, profile);
 }
 
@@ -373,29 +379,19 @@ export function forgetParentToolProfile(sessionId: string): void {
 
 export function expectedAgentTypeToolIds(
   tools: AgentTypeEntry['tools'],
-  scope?: AgentTypeToolScope
+  options?: ChildProfileToolOptions & AgentTypeProfileContext
 ): readonly string[] {
-  const remembered = scope?.parentSessionId
-    ? parentToolProfiles.get(scope.parentSessionId)
+  const remembered = options?.parentSessionId
+    ? parentToolProfiles.get(options.parentSessionId)
     : undefined;
-  if (remembered) return childProfileToolIds({ tools, ...remembered });
-  const state = readSettingsState();
-  const disabled = resolveDisabledBuiltinTools(state?.disabledBuiltinTools, {
-    disabledBuiltinTools: projectDisabledBuiltinTools(state?.projects, scope?.projectId),
-  });
-  return childProfileToolIds({
-    tools,
-    editMode: resolveEditMode(state?.editMode, state?.hashlineEditEnabled),
-    isolatedSandboxEnabled: !disabled.includes('isolated_sandbox'),
-    exploreFoldEnabled: state?.exploreFoldEnabled === true,
-  });
+  return childProfileToolIds(tools, remembered ?? options);
 }
 
 export function resolveAgentTypeSpawnConfig(
   typeKey: AgentTypeKey,
   parentModel: ResolvedModelSelection,
   authenticatedAccountKeys: ReadonlySet<string>,
-  scope?: AgentTypeToolScope
+  context?: AgentTypeProfileContext
 ): AgentTypeResolution {
   const snapshot = agentTypeRegistrySnapshot();
   const candidate = snapshot.candidates.find((entry) => entry.typeKey === typeKey);
@@ -456,7 +452,23 @@ export function resolveAgentTypeSpawnConfig(
 
   const resources = resolveAgentTypeResources(definition);
   if (!resources.ok) return resources;
-  const expectedToolIds = expectedAgentTypeToolIds(definition.tools, scope);
+  const disabledTools = resolveDisabledBuiltinTools(state?.disabledBuiltinTools, {
+    disabledBuiltinTools: projectDisabledBuiltinTools(state?.projects, context?.projectId),
+  });
+  const liveProfile: ChildProfileToolOptions = {
+    editMode: resolveEditMode(state?.editMode, state?.hashlineEditEnabled),
+    shell: childProfileShell({
+      platform: process.platform,
+      remote: context?.remote === true,
+      preference: state?.windowsLocalShell,
+    }),
+    exploreFold: state?.exploreFoldEnabled === true,
+    isolatedSandbox: !disabledTools.includes('isolated_sandbox'),
+  };
+  const expectedToolIds = expectedAgentTypeToolIds(definition.tools, {
+    ...liveProfile,
+    ...(context?.parentSessionId ? { parentSessionId: context.parentSessionId } : {}),
+  });
   return {
     ok: true,
     config: {
@@ -601,8 +613,13 @@ export function spawnSession(
   if (sent.ok) {
     rememberParentToolProfile(identity.sessionId, {
       editMode,
-      isolatedSandboxEnabled: !disabledTools.includes('isolated_sandbox'),
-      exploreFoldEnabled,
+      shell: childProfileShell({
+        platform: process.platform,
+        remote: remote !== undefined,
+        preference: windowsLocalShell,
+      }),
+      exploreFold: exploreFoldEnabled,
+      isolatedSandbox: !disabledTools.includes('isolated_sandbox'),
     });
   }
   return sent;

@@ -1,16 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { childProfileToolIds } from './childProfileTools';
+import { childProfileShell, childProfileToolIds } from './childProfileTools';
 
 describe('childProfileToolIds', () => {
-  it('all 档按 editMode 给出唯一变更工具，并跟随 isolated_sandbox/explore 设置', () => {
-    expect(
-      childProfileToolIds({
-        tools: 'all',
-        editMode: 'apply_patch',
-        isolatedSandboxEnabled: true,
-        exploreFoldEnabled: false,
-      })
-    ).toEqual([
+  it('apply_patch 的 all 只有 apply_patch，默认带沙箱 exec', () => {
+    expect(childProfileToolIds('all')).toEqual([
       'read',
       'grep',
       'find',
@@ -21,19 +14,24 @@ describe('childProfileToolIds', () => {
       'message_coworker',
       'exec',
     ]);
+    expect(childProfileToolIds('all')).not.toContain('edit');
+    expect(childProfileToolIds('all')).not.toContain('write');
+  });
+
+  it('replace 用 edit/write，关沙箱并打开探后折叠时名单跟着变', () => {
     expect(
-      childProfileToolIds({
-        tools: 'all',
+      childProfileToolIds('all', {
         editMode: 'replace',
-        isolatedSandboxEnabled: false,
-        exploreFoldEnabled: true,
+        isolatedSandbox: false,
+        exploreFold: true,
+        shell: 'powershell',
       })
     ).toEqual([
       'read',
       'grep',
       'find',
       'ls',
-      'bash',
+      'powershell',
       'edit',
       'write',
       'message_main_agent',
@@ -43,26 +41,25 @@ describe('childProfileToolIds', () => {
     ]);
   });
 
-  it('readonly 档永不包含变更工具', () => {
-    const ids = childProfileToolIds({
-      tools: 'readonly',
-      editMode: 'apply_patch',
-      isolatedSandboxEnabled: true,
-      exploreFoldEnabled: true,
-    });
-    expect(ids).toEqual([
+  it('readonly 不带 shell 和写工具', () => {
+    expect(childProfileToolIds('readonly', { isolatedSandbox: false })).toEqual([
       'read',
       'grep',
       'find',
       'ls',
       'message_main_agent',
       'message_coworker',
-      'exec',
-      'explore_mark',
-      'explore_fold',
     ]);
-    for (const mutating of ['bash', 'apply_patch', 'edit', 'write']) {
-      expect(ids).not.toContain(mutating);
-    }
+  });
+});
+
+describe('childProfileShell', () => {
+  it('远程或非 win32 用 bash，本地 win32 默认 powershell', () => {
+    expect(childProfileShell({ platform: 'win32', remote: true, preference: 'powershell' })).toBe(
+      'bash'
+    );
+    expect(childProfileShell({ platform: 'darwin', preference: 'powershell' })).toBe('bash');
+    expect(childProfileShell({ platform: 'win32' })).toBe('powershell');
+    expect(childProfileShell({ platform: 'win32', preference: 'bash' })).toBe('bash');
   });
 });

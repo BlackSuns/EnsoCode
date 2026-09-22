@@ -139,9 +139,34 @@ export function evictColdMessages<T extends { messages: unknown[]; customEntries
   ttl = MESSAGE_CACHE_TTL_MS,
   extraHotIds?: ReadonlySet<string>
 ): Record<string, T> {
+  return evictColdMessageBodies(conversations, viewedId, lastViewedAt, now, ttl, extraHotIds, false);
+}
+
+/** 只清已经离开并过 TTL 的正文。没有盖章的留给定时全量清，避免同一次写入被切 tab 抹掉。 */
+export function evictStampedColdMessages<T extends { messages: unknown[]; customEntries: unknown[] }>(
+  conversations: Record<string, T>,
+  viewedId: string | null,
+  lastViewedAt: Readonly<Record<string, number>>,
+  now: number,
+  ttl = MESSAGE_CACHE_TTL_MS,
+  extraHotIds?: ReadonlySet<string>
+): Record<string, T> {
+  return evictColdMessageBodies(conversations, viewedId, lastViewedAt, now, ttl, extraHotIds, true);
+}
+
+function evictColdMessageBodies<T extends { messages: unknown[]; customEntries: unknown[] }>(
+  conversations: Record<string, T>,
+  viewedId: string | null,
+  lastViewedAt: Readonly<Record<string, number>>,
+  now: number,
+  ttl: number,
+  extraHotIds: ReadonlySet<string> | undefined,
+  requireStamp: boolean
+): Record<string, T> {
   let changed = false;
   const next: Record<string, T> = { ...conversations };
   for (const [id, conversation] of Object.entries(conversations)) {
+    if (requireStamp && lastViewedAt[id] === undefined) continue;
     if (isMessageCacheHot(id, viewedId, lastViewedAt, now, ttl, extraHotIds)) continue;
     if (conversation.messages.length === 0 && conversation.customEntries.length === 0) continue;
     next[id] = {
@@ -154,6 +179,32 @@ export function evictColdMessages<T extends { messages: unknown[]; customEntries
     changed = true;
   }
   return changed ? next : conversations;
+}
+
+/**
+ * 下次清冷正文的等待时间。已过期返回 0（调用方应立刻清）；
+ * 只安排尚未到期的最早离开，不能从最近一次切 tab 重计满 TTL。
+ * 正在看的会话和旁路热会话不参与。
+ */
+export function nextColdEvictDelay(
+  lastViewedAt: Readonly<Record<string, number>>,
+  viewedId: string | null,
+  now: number,
+  ttl = MESSAGE_CACHE_TTL_MS,
+  extraHotIds?: ReadonlySet<string>
+): number | null {
+  let soonest: number | null = null;
+  let due = false;
+  for (const [id, at] of Object.entries(lastViewedAt)) {
+    if (id === viewedId || extraHotIds?.has(id)) continue;
+    const remaining = at + ttl - now;
+    if (remaining <= 0) {
+      due = true;
+      continue;
+    }
+    if (soonest === null || remaining < soonest) soonest = remaining;
+  }
+  return soonest ?? (due ? 0 : null);
 }
 
 /** 已删会话的浏览/resync 时间戳不再占表 */

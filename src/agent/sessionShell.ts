@@ -3,7 +3,8 @@ import {
   createBashToolDefinition,
   createPowerShellToolDefinition,
 } from '@earendil-works/pi-coding-agent';
-import { parseWindowsLocalShell, type WindowsLocalShell } from '@shared/windowsLocalShell';
+import { childProfileShell } from '@shared/childProfileTools';
+import type { WindowsLocalShell } from '@shared/windowsLocalShell';
 
 export type SessionShellKind = 'bash' | 'powershell';
 
@@ -12,9 +13,7 @@ export function resolveSessionShellKind(input: {
   remote?: boolean;
   preference?: WindowsLocalShell;
 }): SessionShellKind {
-  if (input.remote) return 'bash';
-  if (input.platform !== 'win32') return 'bash';
-  return parseWindowsLocalShell(input.preference) === 'bash' ? 'bash' : 'powershell';
+  return childProfileShell(input);
 }
 
 export function createSessionCommandTool(input: {

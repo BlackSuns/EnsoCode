@@ -69,7 +69,7 @@ interface DispatchHost {
     typeKey: AgentTypeKey,
     parentModel: ModelSelection,
     authenticatedAccountKeys: ReadonlySet<string>,
-    scope?: { parentSessionId: string; projectId?: string }
+    parentConversationId?: string
   ): AgentTypeResolution;
   resolveSubagentModel?(
     name: string,
@@ -265,7 +265,7 @@ export class AgentDispatchService {
       candidate.typeKey,
       parentModel.selection,
       credentialKeys,
-      { parentSessionId: source.parentConversationId, projectId: source.parentProjectId }
+      parentConversationId
     );
     if (!resolved.ok || !resolved.config || !resolved.expectedModel) {
       return {
@@ -653,10 +653,7 @@ export class AgentDispatchService {
       request.typeKey,
       parentModel.selection,
       credentialKeys,
-      {
-        parentSessionId: binding.parentConversationId,
-        projectId: binding.parentProjectId,
-      }
+      binding.parentConversationId
     );
     if (!agentType.ok || !agentType.config || !agentType.expectedModel) {
       return this.rejected(
@@ -827,7 +824,7 @@ export class AgentDispatchService {
           metadata.agentTypeKey,
           model.selection,
           credentialKeys,
-          { parentSessionId: parent.sessionId, projectId: source.parentProjectId }
+          parent.sessionId
         );
         if (!resolved.ok || !resolved.config) continue;
         const reservation = this.options.sessionIndex.reserveChildResume(
@@ -1037,23 +1034,26 @@ export class AgentDispatchService {
     const actualMcp = [...proof.loadedMcpBindingIds].sort();
     const sameSet = (left: readonly string[], right: readonly string[]) =>
       left.length === right.length && left.every((value, index) => value === right[index]);
-    // 逐字段列出差异：证明失配只在 worker→Main 边界发生，没有字段名根本无从定位。
-    const mismatched = [
-      ready.identity.typeKey !== config.typeKey ? 'identity.typeKey' : '',
-      ready.identity.profileId !== config.lockedProfileId ? 'identity.profileId' : '',
-      proof.spawnSpecId !== config.spawnSpecId ? 'spawnSpecId' : '',
-      proof.typeKey !== config.typeKey ? 'typeKey' : '',
-      proof.model.providerId !== expectedModel.providerId ? 'model.providerId' : '',
-      proof.model.modelId !== expectedModel.modelId ? 'model.modelId' : '',
-      proof.systemPromptHash !== config.systemPromptHash ? 'systemPromptHash' : '',
-      sameSet(actualTools, expectedTools)
-        ? ''
-        : `toolIds(missing=[${expectedTools.filter((id) => !actualTools.includes(id)).join('|')}] unexpected=[${actualTools.filter((id) => !expectedTools.includes(id)).join('|')}])`,
-      sameSet(actualSkills, expectedSkills) ? '' : 'skillBindingIds',
-      sameSet(actualMcp, expectedMcp) ? '' : 'mcpBindingIds',
-    ].filter(Boolean);
-    if (mismatched.length > 0) {
-      throw new Error(`Child exact profile proof mismatch: ${mismatched.join(', ')}.`);
+    const mismatches: string[] = [];
+    if (ready.identity.typeKey !== config.typeKey || proof.typeKey !== config.typeKey) {
+      mismatches.push('type');
+    }
+    if (ready.identity.profileId !== config.lockedProfileId) mismatches.push('profile');
+    if (proof.spawnSpecId !== config.spawnSpecId) mismatches.push('spawnSpec');
+    if (
+      proof.model.providerId !== expectedModel.providerId ||
+      proof.model.modelId !== expectedModel.modelId
+    ) {
+      mismatches.push('model');
+    }
+    if (proof.systemPromptHash !== config.systemPromptHash) mismatches.push('prompt');
+    if (!sameSet(actualTools, expectedTools)) {
+      mismatches.push(`tools expected=${expectedTools.join('|')} actual=${actualTools.join('|')}`);
+    }
+    if (!sameSet(actualSkills, expectedSkills)) mismatches.push('skills');
+    if (!sameSet(actualMcp, expectedMcp)) mismatches.push('mcp');
+    if (mismatches.length > 0) {
+      throw new Error(`Child exact profile proof mismatch: ${mismatches.join('; ')}.`);
     }
     if (
       config.tools !== 'enso-locked' &&

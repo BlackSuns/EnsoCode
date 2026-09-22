@@ -257,8 +257,9 @@ describe('resolveBaseModel oauth', () => {
     };
     const registerProvider = vi.fn();
     const runtime = {
-      getModels: vi.fn(() => {
-        throw new Error('oauth 不应走全局 catalog 反查');
+      getModels: vi.fn((providerId?: string) => {
+        if (!providerId) throw new Error('oauth 不应走全局 catalog 反查');
+        return [];
       }),
       getModel: vi.fn(() => oauthModel),
       registerProvider,
@@ -281,6 +282,82 @@ describe('resolveBaseModel oauth', () => {
     expect(runtime.getModel).toHaveBeenCalledWith('anthropic', 'claude-sonnet-4-5');
     expect(registerProvider).not.toHaveBeenCalled();
   });
+
+  it('xAI 订阅 catalog 没有 grok-4.7 时按 grok-4.6 克隆解析', () => {
+    const grok46 = {
+      id: 'grok-4.6',
+      name: 'Grok 4.6',
+      reasoning: true,
+      thinkingLevelMap: { xhigh: 'xhigh' },
+      contextWindow: 500_000,
+      maxTokens: 500_000,
+      provider: 'xai',
+      api: 'openai-responses',
+    };
+    const registerProvider = vi.fn();
+    const runtime = {
+      getModels: vi.fn((providerId?: string) => {
+        if (providerId !== 'xai') throw new Error('oauth 不应走全局 catalog 反查');
+        return [grok46];
+      }),
+      getModel: vi.fn(() => undefined),
+      registerProvider,
+    } as unknown as ModelRuntime;
+
+    const resolved = resolveBaseModel(runtime, {
+      api: 'openai-completions',
+      baseUrl: '',
+      apiKey: '',
+      modelId: 'grok-4.7',
+      settingsProviderId: 'settings-provider',
+      oauthAccountKey: 'xai',
+    });
+
+    expect(resolved).toMatchObject({
+      id: 'grok-4.7',
+      name: 'Grok 4.7',
+      provider: 'xai',
+      api: 'openai-responses',
+      reasoning: true,
+      contextWindow: 500_000,
+    });
+    expect(registerProvider).not.toHaveBeenCalled();
+  });
+
+  it('xAI 手填未知 id 克隆同厂模板，其它订阅仍报缺失', () => {
+    const grok46 = { id: 'grok-4.6', name: 'Grok 4.6', provider: 'xai', reasoning: true };
+    const xaiRuntime = {
+      getModels: vi.fn(() => [grok46]),
+      getModel: vi.fn(() => undefined),
+      registerProvider: vi.fn(),
+    } as unknown as ModelRuntime;
+    expect(
+      resolveBaseModel(xaiRuntime, {
+        api: 'openai-completions',
+        baseUrl: '',
+        apiKey: '',
+        modelId: 'grok-build-0.1',
+        settingsProviderId: 'settings-provider',
+        oauthAccountKey: 'xai',
+      })
+    ).toMatchObject({ id: 'grok-build-0.1', name: 'grok-build-0.1', provider: 'xai' });
+
+    const anthropicRuntime = {
+      getModels: vi.fn(() => [{ id: 'claude-sonnet-4-5' }]),
+      getModel: vi.fn(() => undefined),
+      registerProvider: vi.fn(),
+    } as unknown as ModelRuntime;
+    expect(() =>
+      resolveBaseModel(anthropicRuntime, {
+        api: 'anthropic-messages',
+        baseUrl: '',
+        apiKey: '',
+        modelId: 'claude-mystery',
+        settingsProviderId: 'settings-provider',
+        oauthAccountKey: 'anthropic',
+      })
+    ).toThrow('oauth model not found: anthropic/claude-mystery');
+  });
 });
 
 describe('resolveBaseModelOrRefresh', () => {
@@ -301,6 +378,7 @@ describe('resolveBaseModelOrRefresh', () => {
       return { aborted: false, errors: new Map() };
     });
     const runtime = {
+      getModels: vi.fn(() => []),
       getModel: vi.fn(() => (refreshed ? late : undefined)),
       refresh,
     } as unknown as ModelRuntime;
@@ -321,6 +399,7 @@ describe('resolveBaseModelOrRefresh', () => {
       return { aborted: false, errors: new Map() };
     });
     const runtime = {
+      getModels: vi.fn(() => []),
       getModel: vi.fn((providerId: string, modelId: string) =>
         providerId === 'cursor' && modelId === late.id ? catalog : undefined
       ),
@@ -346,6 +425,7 @@ describe('resolveBaseModelOrRefresh', () => {
 
   it('刷新后仍缺才报错，且刷新失败不吞掉原始错误', async () => {
     const runtime = {
+      getModels: vi.fn(() => []),
       getModel: vi.fn(() => undefined),
       refresh: vi.fn(async () => {
         throw new Error('offline');

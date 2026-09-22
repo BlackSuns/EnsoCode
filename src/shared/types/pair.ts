@@ -127,6 +127,11 @@ export interface PairCatalogPayload {
     order: number;
   }[];
   providers: { id: string; name: string; models: { id: string; label?: string }[] }[];
+  /**
+   * false：OAuth 凭证还没有真值，providers 是暂态空列表，main 不得下发。
+   * 缺省视为已结算，兼容旧 renderer。
+   */
+  providersSettled?: boolean;
   /** 仅供 main 侧 spawn 反查 cwd，不下发手机 */
   projectPaths: { id: string; path: string }[];
   /**

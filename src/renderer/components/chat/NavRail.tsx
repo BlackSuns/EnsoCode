@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useSettingsStore } from '@/stores/settings';
+import { navRailEnabled } from './navRailVisibility';
 
 export interface NavRailItem {
   key: string;
@@ -18,8 +20,9 @@ const MAX_BARS = 40;
 
 /** Codex 风格的轮次快速导航条：每条 user 轮次一条小横线，hover 预览问答，点击跳转 */
 export function NavRail({ items, activeKey, onJump }: NavRailProps) {
+  const chatWide = useSettingsStore((s) => s.chatWide);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  if (items.length < 2) return null;
+  if (!navRailEnabled(chatWide, items.length)) return null;
 
   // 轮次超过容量时，以 active 为中心截取窗口；首尾渐隐提示还有更多
   const activeIndex = Math.max(

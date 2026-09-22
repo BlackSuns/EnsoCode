@@ -136,7 +136,7 @@
 
 首条高度异常时，总高会被放大几十倍，初始定位反复修正。此时 Virtuoso 隐藏正文、但不隐藏 Footer，表现为白屏只剩三个点，滚动条先很短、滚动测量后又变长，不代表历史尚未读回。
 
-即便提供初始估算，持续行高变化仍会让初始定位的完成信号迟迟不到。`TimelineList` 经公开 `components.List` 接口给隐藏态加 1 秒显示上限，只放开 visibility，透传 ref 和测量样式，不重挂列表、不改滚动位置或会话正文。不能用等待整个轮次结束替代显示保障；PWA 的非虚拟化路径不受此门控。
+即便提供初始估算，持续行高变化仍会让初始定位的完成信号迟迟不到。`TimelineList` 经公开 `components.List` 接口给隐藏态加 100 毫秒显示上限，只放开 visibility，透传 ref 和测量样式，不重挂列表、不改滚动位置或会话正文。上限从本次挂载第一次 hidden 起算，Virtuoso 来回切换 visibility 不得重计，否则切换 coworker 时正文会一直不出现。`initialTopMostItemIndex`、`increaseViewportBy`、`followOutput` 必须是稳定引用：库每次渲染都重发 props，按引用去重的输入不能每次都是新对象。不能用等待整个轮次结束替代显示保障；PWA 的非虚拟化路径不受此门控。
 
 回归：在隔离 dev 环境、窗口保持可见时运行 `node scripts/verify-timeline-height.mjs`，真实测量长首条 / 长末条 / 往返切换 / 短列表以及持续测高时的总高、正文可见和末条贴底。持续测高必须在停止之前显示正文；脚本不改会话或设置。
 
