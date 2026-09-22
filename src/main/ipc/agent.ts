@@ -632,7 +632,18 @@ export function registerAgentHandlers(): void {
     host: {
       registrySnapshot: agentTypeRegistrySnapshot,
       resolveModel: resolveModelSelection,
-      resolveAgentType: resolveAgentTypeSpawnConfig,
+      resolveAgentType: (typeKey, parentModel, credentialKeys, parentConversationId) =>
+        resolveAgentTypeSpawnConfig(
+          typeKey,
+          parentModel,
+          credentialKeys,
+          parentConversationId
+            ? {
+                projectId: projectIdFor(parentConversationId),
+                remote: remoteConfigFor(parentConversationId) !== undefined,
+              }
+            : undefined
+        ),
       spawnParent: spawnBoundSession,
       spawnChild: spawnChildSession,
       promptChild: promptChildSession,

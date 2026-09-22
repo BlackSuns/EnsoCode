@@ -67,7 +67,8 @@ interface DispatchHost {
   resolveAgentType(
     typeKey: AgentTypeKey,
     parentModel: ModelSelection,
-    authenticatedAccountKeys: ReadonlySet<string>
+    authenticatedAccountKeys: ReadonlySet<string>,
+    parentConversationId?: string
   ): AgentTypeResolution;
   spawnParent(
     identity: SessionIdentity,
@@ -251,7 +252,8 @@ export class AgentDispatchService {
     const resolved = this.options.host.resolveAgentType(
       candidate.typeKey,
       parentModel.selection,
-      credentialKeys
+      credentialKeys,
+      parentConversationId
     );
     if (!resolved.ok || !resolved.config || !resolved.expectedModel) {
       return {
@@ -566,7 +568,8 @@ export class AgentDispatchService {
     const agentType = this.options.host.resolveAgentType(
       request.typeKey,
       parentModel.selection,
-      credentialKeys
+      credentialKeys,
+      binding.parentConversationId
     );
     if (!agentType.ok || !agentType.config || !agentType.expectedModel) {
       return this.rejected(
@@ -734,7 +737,8 @@ export class AgentDispatchService {
         const resolved = this.options.host.resolveAgentType(
           metadata.agentTypeKey,
           model.selection,
-          credentialKeys
+          credentialKeys,
+          parent.sessionId
         );
         if (!resolved.ok || !resolved.config) continue;
         const reservation = this.options.sessionIndex.reserveChildResume(
@@ -944,19 +948,26 @@ export class AgentDispatchService {
     const actualMcp = [...proof.loadedMcpBindingIds].sort();
     const sameSet = (left: readonly string[], right: readonly string[]) =>
       left.length === right.length && left.every((value, index) => value === right[index]);
+    const mismatches: string[] = [];
+    if (ready.identity.typeKey !== config.typeKey || proof.typeKey !== config.typeKey) {
+      mismatches.push('type');
+    }
+    if (ready.identity.profileId !== config.lockedProfileId) mismatches.push('profile');
+    if (proof.spawnSpecId !== config.spawnSpecId) mismatches.push('spawnSpec');
     if (
-      ready.identity.typeKey !== config.typeKey ||
-      ready.identity.profileId !== config.lockedProfileId ||
-      proof.spawnSpecId !== config.spawnSpecId ||
-      proof.typeKey !== config.typeKey ||
       proof.model.providerId !== expectedModel.providerId ||
-      proof.model.modelId !== expectedModel.modelId ||
-      proof.systemPromptHash !== config.systemPromptHash ||
-      !sameSet(actualTools, expectedTools) ||
-      !sameSet(actualSkills, expectedSkills) ||
-      !sameSet(actualMcp, expectedMcp)
+      proof.model.modelId !== expectedModel.modelId
     ) {
-      throw new Error('Child exact profile proof mismatch.');
+      mismatches.push('model');
+    }
+    if (proof.systemPromptHash !== config.systemPromptHash) mismatches.push('prompt');
+    if (!sameSet(actualTools, expectedTools)) {
+      mismatches.push(`tools expected=${expectedTools.join('|')} actual=${actualTools.join('|')}`);
+    }
+    if (!sameSet(actualSkills, expectedSkills)) mismatches.push('skills');
+    if (!sameSet(actualMcp, expectedMcp)) mismatches.push('mcp');
+    if (mismatches.length > 0) {
+      throw new Error(`Child exact profile proof mismatch: ${mismatches.join('; ')}.`);
     }
     if (
       config.tools !== 'enso-locked' &&

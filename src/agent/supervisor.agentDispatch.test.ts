@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
+import { childProfileShell, childProfileToolIds } from '@shared/childProfileTools';
 import { DEFAULT_PERSONA_PROMPT } from '@shared/systemPrompt';
 import type { AgentCommand, AgentWorkerEvent } from '@shared/types/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -587,6 +588,92 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
     expect(messageMain).toBeDefined();
     await messageMain!.execute('call', { message: 'explicit handoff', urgent: true });
     expect(parentSession.prompt).toHaveBeenCalledWith(expect.stringContaining('explicit handoff'));
+  });
+
+  it.each([
+    {
+      label: 'apply_patch + 探后折叠 + 关沙箱',
+      editMode: 'apply_patch' as const,
+      exploreFold: true,
+      isolatedSandbox: false,
+      tools: 'all' as const,
+    },
+    {
+      label: 'replace + 默认沙箱',
+      editMode: 'replace' as const,
+      exploreFold: false,
+      isolatedSandbox: true,
+      tools: 'all' as const,
+    },
+    {
+      label: 'readonly',
+      editMode: 'apply_patch' as const,
+      exploreFold: false,
+      isolatedSandbox: false,
+      tools: 'readonly' as const,
+    },
+  ])('$label 的 child proof 工具与共享推导一致', async (spec) => {
+    const events: AgentWorkerEvent[] = [];
+    const supervisor = new SessionSupervisor({
+      emit: (event) => events.push(event),
+      agentDir: '/tmp/agent',
+      sessionDir: mkdtempSync(path.join(tmpdir(), 'enso-dispatch-profile-')),
+    });
+    supervisor.handleCommand({
+      type: 'spawn-parent',
+      identity: parent,
+      cwd: '/workspace',
+      model,
+      editMode: spec.editMode,
+      ...(spec.exploreFold ? { exploreFoldEnabled: true } : {}),
+      ...(spec.isolatedSandbox ? {} : { disabledTools: ['isolated_sandbox'] }),
+    });
+    await waitFor(events, 'parent-ready');
+    const typeKey =
+      spec.tools === 'readonly' ? ('builtin:scout' as const) : ('builtin:worker' as const);
+    supervisor.handleCommand({
+      type: 'spawn-child',
+      identity: {
+        sessionId: 'parent::cw-profile',
+        generation: '44444444-4444-4444-8444-444444444444',
+        parent,
+        instanceId: '55555555-5555-4555-8555-555555555555',
+        instanceName: 'profile',
+        typeKey,
+      },
+      cwd: '/workspace',
+      config: {
+        typeKey,
+        displayName: 'Profile',
+        description: 'profile proof',
+        spawnSpecId: 'spawn-profile',
+        systemPrompt: 'role',
+        model,
+        tools: spec.tools,
+        skillPaths: [],
+        skillBindingIds: [],
+        mcpServers: [],
+        mcpBindingIds: [],
+        systemPromptHash: 'profile-hash',
+      },
+    });
+    await waitFor(events, 'child-ready');
+    const ready = events.find(
+      (event) => event.type === 'child-ready' && event.identity.typeKey === typeKey
+    );
+    expect(ready?.type).toBe('child-ready');
+    if (ready?.type !== 'child-ready') return;
+    expect([...ready.proof.toolIds].sort()).toEqual(
+      [
+        ...childProfileToolIds(spec.tools, {
+          editMode: spec.editMode,
+          shell: childProfileShell({ platform: process.platform }),
+          exploreFold: spec.exploreFold,
+          isolatedSandbox: spec.isolatedSandbox,
+        }),
+      ].sort()
+    );
+    await supervisor.shutdown();
   });
 
   it('idle 投影但 pi 仍在 streaming（agent_end 尚未回流）：等空闲后按新轮 prompt，不 steer', async () => {

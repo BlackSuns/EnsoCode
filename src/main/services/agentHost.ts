@@ -12,6 +12,11 @@ import {
   type SessionIdentity,
 } from '@shared/builtinAgents';
 import type { CapabilityExecutionEnvelope } from '@shared/capabilities/types';
+import {
+  type ChildProfileToolOptions,
+  childProfileShell,
+  childProfileToolIds,
+} from '@shared/childProfileTools';
 import { resolveCompactStrategy } from '@shared/compactStrategy';
 import {
   type DefaultModelRef,
@@ -351,27 +356,23 @@ export function resolveModelSelection(
   };
 }
 
-export function expectedAgentTypeToolIds(tools: AgentTypeEntry['tools']): readonly string[] {
-  return tools === 'readonly'
-    ? ['read', 'grep', 'find', 'ls', 'message_main_agent', 'message_coworker']
-    : [
-        'read',
-        'grep',
-        'find',
-        'ls',
-        'bash',
-        'edit',
-        'apply_patch',
-        'write',
-        'message_main_agent',
-        'message_coworker',
-      ];
+export function expectedAgentTypeToolIds(
+  tools: AgentTypeEntry['tools'],
+  options?: ChildProfileToolOptions
+): readonly string[] {
+  return childProfileToolIds(tools, options);
+}
+
+export interface AgentTypeProfileContext {
+  projectId?: string;
+  remote?: boolean;
 }
 
 export function resolveAgentTypeSpawnConfig(
   typeKey: AgentTypeKey,
   parentModel: ResolvedModelSelection,
-  authenticatedAccountKeys: ReadonlySet<string>
+  authenticatedAccountKeys: ReadonlySet<string>,
+  context?: AgentTypeProfileContext
 ): AgentTypeResolution {
   const snapshot = agentTypeRegistrySnapshot();
   const candidate = snapshot.candidates.find((entry) => entry.typeKey === typeKey);
@@ -431,6 +432,9 @@ export function resolveAgentTypeSpawnConfig(
 
   const resources = resolveAgentTypeResources(definition);
   if (!resources.ok) return resources;
+  const disabledTools = resolveDisabledBuiltinTools(state?.disabledBuiltinTools, {
+    disabledBuiltinTools: projectDisabledBuiltinTools(state?.projects, context?.projectId),
+  });
   return {
     ok: true,
     config: {
@@ -448,7 +452,16 @@ export function resolveAgentTypeSpawnConfig(
       systemPromptHash: createHash('sha256').update(definition.systemPrompt).digest('hex'),
     },
     expectedModel: selectedModel.ref,
-    expectedToolIds: expectedAgentTypeToolIds(definition.tools),
+    expectedToolIds: expectedAgentTypeToolIds(definition.tools, {
+      editMode: resolveEditMode(state?.editMode, state?.hashlineEditEnabled),
+      shell: childProfileShell({
+        platform: process.platform,
+        remote: context?.remote === true,
+        preference: state?.windowsLocalShell,
+      }),
+      exploreFold: state?.exploreFoldEnabled === true,
+      isolatedSandbox: !disabledTools.includes('isolated_sandbox'),
+    }),
   };
 }
 
