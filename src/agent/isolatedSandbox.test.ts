@@ -6,7 +6,7 @@ import {
   looksLikeShellCommand,
 } from './isolatedSandbox';
 
-function mockTool(name: string, execute: ToolDefinition['execute']): ToolDefinition {
+function mockTool(name: string, execute: (id: string, params: unknown) => unknown): ToolDefinition {
   return {
     name,
     description: name,
