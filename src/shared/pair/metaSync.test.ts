@@ -9,6 +9,8 @@ import {
   PAIR_META_CHANNELS,
   pairJsonFingerprint,
   providersSyncFingerprint,
+  planProviderEmit,
+  providerChannelsToSend,
   rememberStableMeta,
   shouldEmitProviders,
   shouldRelayPairSnapshot,
@@ -133,6 +135,36 @@ describe('shouldEmitProviders', () => {
 
   it('从未发过则发', () => {
     expect(shouldEmitProviders(undefined, undefined, 'a', 1)).toBe(true);
+  });
+});
+
+describe('planProviderEmit', () => {
+  it('相同指纹视为已经同步', () => {
+    expect(planProviderEmit('a', 0, 'a', 1000)).toEqual({ kind: 'unchanged' });
+  });
+
+  it('窗口内指纹变了要延后补发，不能当成已发出', () => {
+    expect(planProviderEmit('empty', 1000, 'full', 1400, 1500)).toEqual({
+      kind: 'defer',
+      delayMs: 1100,
+    });
+  });
+
+  it('窗口外指纹变了立即发', () => {
+    expect(planProviderEmit('empty', 1000, 'full', 3000, 1500)).toEqual({ kind: 'send' });
+  });
+
+  it('从未发过则立即发', () => {
+    expect(planProviderEmit(undefined, undefined, 'full', 1)).toEqual({ kind: 'send' });
+  });
+
+  it('延后的模型表不锁进 stable，避免空列表把后续真列表吞掉', () => {
+    const plan = planProviderEmit('empty', 0, 'full', 400, 1500);
+    const gated = providerChannelsToSend(['catalog', 'providers'], plan);
+    expect(gated).toEqual({ channels: ['catalog'], deferMs: 1100 });
+    expect(
+      rememberStableMeta(undefined, gated.channels, { catalog: 'c', providers: 'full' })
+    ).toBeUndefined();
   });
 });
 

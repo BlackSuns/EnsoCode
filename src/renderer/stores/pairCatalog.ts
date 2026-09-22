@@ -4,7 +4,7 @@ import { projectDisplayName } from '@shared/projectName';
 import type { PairCatalogPayload } from '@shared/types';
 import { getXtermTheme } from '@/lib/ghosttyTheme';
 import { useOauthCredentialStore } from '@/stores/oauthCredentials';
-import { toPairProviderEntries } from '@/stores/pairCatalogProviders';
+import { pairProviderSyncPlan } from '@/stores/pairCatalogProviders';
 import { useSessionsStore } from '@/stores/sessions';
 import { setPairViewedSession } from '@/stores/sessions/unread';
 import { useSettingsStore } from '@/stores/settings';
@@ -103,8 +103,9 @@ function buildPayload(): PairCatalogPayload {
 
   const catalog = [...topLevel, ...children].map(toEntry);
 
-  // 与桌面选择器同一套可用口径（启用 + 凭证真实可用 + 启用模型），并剥掉密钥 / 账号 key
-  const providers = toPairProviderEntries(
+  // 与桌面选择器同一套可用口径（启用 + 凭证真实可用 + 启用模型），并剥掉密钥。
+  // OAuth 未就绪的空列表不结算，main 会扣下这一帧，避免手机显示没有模型服务。
+  const providerPlan = pairProviderSyncPlan(
     settings.providers,
     useOauthCredentialStore.getState().snapshot
   );
@@ -118,7 +119,8 @@ function buildPayload(): PairCatalogPayload {
       ...(archivedProjects.has(project.id) ? { archived: true as const } : {}),
     })),
     projectGroups: settings.projectGroups,
-    providers,
+    providers: providerPlan.entries,
+    providersSettled: providerPlan.settled,
     // 仅 main 侧用于 spawn 反查 cwd，不下发手机
     projectPaths: settings.projects.map((p) => ({ id: p.id, path: p.path })),
     // 原样下发（含 sync-terminal：手机也按终端配色推导整套 UI，与桌面一致）；
@@ -138,6 +140,7 @@ function catalogPushFingerprint(payload: PairCatalogPayload): string {
     projects: payload.projects,
     projectGroups: payload.projectGroups,
     providers: payload.providers,
+    providersSettled: payload.providersSettled,
     projectPaths: payload.projectPaths,
     theme: payload.theme,
     terminal: payload.terminal,
