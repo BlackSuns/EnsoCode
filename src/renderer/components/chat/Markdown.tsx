@@ -1,14 +1,16 @@
 import type { Root } from 'mdast';
-import { createContext, useContext, useMemo } from 'react';
-import ReactMarkdown, { type Components } from 'react-markdown';
+import { createContext, type MouseEvent, type ReactNode, useContext, useMemo } from 'react';
+import ReactMarkdown, { type Components, defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { visit } from 'unist-util-visit';
+import { addToast } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { CodeBlock } from './CodeBlock';
 import { CopyButton } from './CopyButton';
 import { highlightNode } from './highlightQuery';
 import { MermaidRenderer } from './MermaidRenderer';
+import { classifyMarkdownLink, toWorkspaceRelativePath } from './markdownLinks';
 
 /**
  * 解析代码围栏的 info 串。除了纯语言名（```ts），agent 常输出
@@ -78,6 +80,107 @@ export const MarkdownCtx = createContext<{
   activeNth: number;
 }>({ text: '', streaming: false, searchQuery: '', activeNth: -1 });
 
+export interface MarkdownLinkContextValue {
+  conversationId: string;
+  projectId: string;
+  /**
+   * 当前会话实际 worktree；缺失时仍由 Main 校验相对路径。
+   *
+   * The current worktree for this conversation; Main still validates relative paths when absent.
+   */
+  cwd?: string;
+}
+
+/**
+ * 本地聊天链接的权限上下文；Files 预览不提供它，保持原有外链行为。
+ *
+ * Authorization context for local chat links; Files preview omits it to preserve its existing external-link behavior.
+ */
+export const MarkdownLinkContext = createContext<MarkdownLinkContextValue | null>(null);
+
+function revealErrorDescription(error: string, t: (key: string) => string): string {
+  switch (error) {
+    case 'invalid-path':
+      return t('The link is outside the current workspace.');
+    case 'unsupported':
+      return t('This link is not available on the local computer.');
+    case 'unavailable':
+      return t('The linked file or folder is unavailable.');
+    default:
+      return error;
+  }
+}
+
+function MarkdownAnchor({ children, href }: { children?: ReactNode; href?: string }) {
+  const { t } = useI18n();
+  const linkContext = useContext(MarkdownLinkContext);
+  const classification =
+    typeof href === 'string' ? classifyMarkdownLink(href) : ({ kind: 'blocked' } as const);
+  const local = classification.kind === 'local' && linkContext !== null;
+
+  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (classification.kind === 'blocked') {
+      event.preventDefault();
+      return;
+    }
+    if (!local || !linkContext || classification.kind !== 'local') return;
+    event.preventDefault();
+    const rel = toWorkspaceRelativePath(classification.path, linkContext.cwd);
+    if (rel == null) {
+      addToast({
+        type: 'error',
+        title: t('Could not open local file link'),
+        description: t('The link is outside the current workspace.'),
+      });
+      return;
+    }
+    void window.electronAPI.workspaceFiles
+      .reveal({
+        conversationId: linkContext.conversationId,
+        projectId: linkContext.projectId,
+        rel,
+      })
+      .then((result) => {
+        if (!result.ok) {
+          addToast({
+            type: 'error',
+            title: t('Could not open local file link'),
+            description: revealErrorDescription(result.error, t),
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        addToast({
+          type: 'error',
+          title: t('Could not open local file link'),
+          description: error instanceof Error ? error.message : String(error),
+        });
+      });
+  };
+
+  return (
+    <a
+      href={href || undefined}
+      className="text-primary underline underline-offset-2"
+      {...(local ? {} : { target: '_blank', rel: 'noreferrer' })}
+      onClick={onClick}
+    >
+      {children}
+    </a>
+  );
+}
+
+/**
+ * 在保留 react-markdown 默认安全协议过滤的基础上，仅放行待点击的本地链接。
+ *
+ * Preserve react-markdown's default safe-protocol filter and only additionally allow local links that are handled on click.
+ */
+export function markdownUrlTransform(value: string, key?: string, allowLocal = true): string {
+  const transformed = defaultUrlTransform(value);
+  if (transformed || key !== 'href') return transformed;
+  return allowLocal && classifyMarkdownLink(value).kind === 'local' ? value : '';
+}
+
 /** 模块级稳定引用：react-markdown 按组件类型协调子树，内联对象每帧都会拆掉 CodeBlock */
 export const markdownComponents: Components = {
   p: ({ children }) => {
@@ -88,16 +191,7 @@ export const markdownComponents: Components = {
       </p>
     );
   },
-  a: ({ children, href }) => (
-    <a
-      href={href}
-      className="text-primary underline underline-offset-2"
-      target="_blank"
-      rel="noreferrer"
-    >
-      {children}
-    </a>
-  ),
+  a: MarkdownAnchor,
   ul: ({ children }) => <ul className="my-1.5 list-disc pl-5 space-y-0.5">{children}</ul>,
   ol: ({ children }) => <ol className="my-1.5 list-decimal pl-5 space-y-0.5">{children}</ol>,
   h1: ({ children }) => <h1 className="mt-3 mb-1.5 text-base font-semibold">{children}</h1>,
@@ -197,14 +291,24 @@ export function Markdown({
   searchQuery?: string;
   activeNth?: number;
 }) {
+  const linkContext = useContext(MarkdownLinkContext);
+  const allowLocalMarkdownLinks = linkContext !== null;
   const ctx = useMemo(
     () => ({ text, streaming, searchQuery, activeNth }),
     [text, streaming, searchQuery, activeNth]
   );
+  const urlTransform = useMemo(
+    () => (value: string, key: string) => markdownUrlTransform(value, key, allowLocalMarkdownLinks),
+    [allowLocalMarkdownLinks]
+  );
   return (
     <MarkdownCtx.Provider value={ctx}>
       <div className={streaming ? 't-stream-live' : undefined}>
-        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
+        <ReactMarkdown
+          remarkPlugins={REMARK_PLUGINS}
+          components={markdownComponents}
+          urlTransform={urlTransform}
+        >
           {text}
         </ReactMarkdown>
       </div>
