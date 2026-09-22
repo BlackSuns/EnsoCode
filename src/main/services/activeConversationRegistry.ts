@@ -52,6 +52,9 @@ export class ActiveConversationRegistry {
   private readonly selectedByWebContents = new Map<number, string>();
   private readonly parentBindings = new Map<string, ParentSourceBinding>();
   private readonly selectionBindings = new Map<string, StoredSelectionBinding>();
+  private readonly selectionEpochByOwner = new Map<number, number>();
+  private readonly selectionBootByOwner = new Map<number, string>();
+  private readonly retiredSelectionBoots = new Map<number, Set<string>>();
   private readonly now: () => number;
   private readonly randomUuid: () => string;
   private readonly bindingTtlMs: number;
@@ -62,13 +65,60 @@ export class ActiveConversationRegistry {
     this.bindingTtlMs = options.bindingTtlMs ?? 30_000;
   }
 
-  selectConversation(ownerWebContentsId: number, conversationId: string): boolean {
+  selectConversation(
+    ownerWebContentsId: number,
+    conversationId: string,
+    selectionEpoch?: number,
+    selectionBootId?: string
+  ): boolean {
     if (!this.options.isMainWebContents(ownerWebContentsId)) return false;
+    if (!this.acceptSelectionClock(ownerWebContentsId, selectionEpoch, selectionBootId)) {
+      return false;
+    }
     const source = this.resolveAuthority(conversationId);
     if (!source) return false;
     this.invalidateOwner(ownerWebContentsId);
     this.selectedByWebContents.set(ownerWebContentsId, conversationId);
     return true;
+  }
+
+  /**
+   * 同一启动 id 内，更小的序号是迟到回写。新的启动 id 换基线，旧 id 作废，
+   * 避免渲染进程重载后从 0 计数时被永久丢掉，也避免上一轮的在途请求盖回来。
+   */
+  private acceptSelectionClock(
+    ownerWebContentsId: number,
+    selectionEpoch: number | undefined,
+    selectionBootId: string | undefined
+  ): boolean {
+    if (selectionBootId !== undefined) {
+      const retired = this.retiredSelectionBoots.get(ownerWebContentsId);
+      if (retired?.has(selectionBootId)) return false;
+      const currentBoot = this.selectionBootByOwner.get(ownerWebContentsId);
+      if (currentBoot && currentBoot !== selectionBootId) {
+        const nextRetired = retired ?? new Set<string>();
+        nextRetired.add(currentBoot);
+        this.retiredSelectionBoots.set(ownerWebContentsId, nextRetired);
+        this.selectionBootByOwner.set(ownerWebContentsId, selectionBootId);
+        if (selectionEpoch !== undefined) {
+          this.selectionEpochByOwner.set(ownerWebContentsId, selectionEpoch);
+        }
+        return true;
+      }
+      this.selectionBootByOwner.set(ownerWebContentsId, selectionBootId);
+    }
+    if (selectionEpoch === undefined) return true;
+    const applied = this.selectionEpochByOwner.get(ownerWebContentsId) ?? -1;
+    if (selectionEpoch < applied) return false;
+    this.selectionEpochByOwner.set(ownerWebContentsId, selectionEpoch);
+    return true;
+  }
+
+  /** webContents 销毁后丢掉启动 id 和序号。重载不会销毁，靠新的 boot id 换代。 */
+  forgetRendererSelectionClock(ownerWebContentsId: number): void {
+    this.selectionEpochByOwner.delete(ownerWebContentsId);
+    this.selectionBootByOwner.delete(ownerWebContentsId);
+    this.retiredSelectionBoots.delete(ownerWebContentsId);
   }
 
   bindSource(

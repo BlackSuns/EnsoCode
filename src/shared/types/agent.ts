@@ -739,6 +739,13 @@ export interface ConversationAuthorityRequest {
   requestId: string;
   conversationId: string;
   version: number;
+  /** 渲染层切换序号。更小的迟到 select 不得改写 Main 当前选中。 */
+  selectionEpoch?: number;
+  /**
+   * 渲染进程这一轮的启动 id。重载或热替换会换新 id，Main 用它丢掉上一轮的迟到回写。
+   * 同一个 id 内仍按 selectionEpoch 排序。
+   */
+  selectionBootId?: string;
 }
 
 export interface UpdateConversationSelectionRequest extends ConversationAuthorityRequest {
@@ -2016,10 +2023,19 @@ export function parseConversationAuthorityRequest(
 ): ConversationAuthorityRequest | null {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ['requestId', 'conversationId', 'version']) ||
+    !hasOnlyKeys(value, [
+      'requestId',
+      'conversationId',
+      'version',
+      'selectionEpoch',
+      'selectionBootId',
+    ]) ||
     !isNonEmptyString(value.requestId) ||
     !isUuid(value.conversationId) ||
-    !isSequence(value.version)
+    !isSequence(value.version) ||
+    (value.selectionEpoch !== undefined && !isSequence(value.selectionEpoch)) ||
+    (value.selectionBootId !== undefined &&
+      (!isNonEmptyString(value.selectionBootId) || value.selectionBootId.length > 128))
   ) {
     return null;
   }

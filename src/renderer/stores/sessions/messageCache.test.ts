@@ -51,18 +51,19 @@ describe('messageCache', () => {
   it('evicts stale message bodies, leaves hot and empty conversations', () => {
     const conversations = {
       hot: { messages: [1], customEntries: [2] },
-      stale: { messages: [3], customEntries: [4], historyLoading: true },
-      empty: { messages: [], customEntries: [] },
+      stale: { messages: [3], customEntries: [4], historyLoading: true, historyLoadAttempted: true },
+      empty: { messages: [], customEntries: [], historyLoadAttempted: true },
     };
     const next = evictColdMessages(conversations, 'hot', { stale: 0 }, MESSAGE_CACHE_TTL_MS);
     expect(next.hot).toBe(conversations.hot);
+    expect(next.empty).toBe(conversations.empty);
     expect(next.stale).toEqual({
       messages: [],
       customEntries: [],
       historyBaseIndex: undefined,
       historyLoading: undefined,
+      historyLoadAttempted: undefined,
     });
-    expect(next.empty).toBe(conversations.empty);
   });
 
   it('requireStamp 不碰从未离开过、因而没有盖章的正文', () => {

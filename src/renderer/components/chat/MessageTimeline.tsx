@@ -27,6 +27,7 @@ import { ChatSearchHighlightContext } from './highlightQuery';
 import { NavRail } from './NavRail';
 import { isCompactRow, RetryTurnButton, TimelineRow } from './TimelineRow';
 import { nextTimelineReveal } from './timelineReveal';
+import { nextTimelineRowOrigin, type TimelineRowAnchor } from './timelineRowOrigin';
 
 /** 消息列/输入区共用的列：阶梯 max-w + 水平 padding。padding 必须在列上而不是 @container 上，否则两侧查询宽度差 2rem，会在断点附近上下错位。默认到 4xl 保持原阅读宽度，更宽再逐级加档。 */
 export const CHAT_COL =
@@ -108,8 +109,6 @@ interface MessageTimelineProps {
   historyLoading?: boolean;
   /** 还有更早一页；false = 已到第 0 条，顶部给出到头提示 */
   hasOlder?: boolean;
-  /** 当前权威区绝对起点；Virtuoso prepend 时靠它钉住已渲染行 */
-  firstItemIndex?: number;
   searchQuery?: string;
   activeHit?: { key: string; nth: number } | null;
 }
@@ -132,7 +131,6 @@ export function MessageTimeline({
   onStartReached,
   historyLoading = false,
   hasOlder,
-  firstItemIndex = 0,
   searchQuery = '',
   activeHit = null,
 }: MessageTimelineProps) {
@@ -190,6 +188,16 @@ export function MessageTimeline({
       }),
     [items, running, expandedGroups, compact, autoCollapseTurns, turnOverrides]
   );
+  // 原点必须用折叠后的行。未折叠的 key 还在，但 Virtuoso 的 data 已经把它们收进组里。
+  const rowAnchor = useRef<TimelineRowAnchor | null>(null);
+  const rowEpoch = useRef(0);
+  const rowOrigin = nextTimelineRowOrigin(
+    rowAnchor.current,
+    folded.map((item) => item.key)
+  );
+  rowAnchor.current = rowOrigin.anchor;
+  if (rowOrigin.remount) rowEpoch.current += 1;
+  const firstItemIndex = rowOrigin.firstItemIndex;
   // 引用必须稳定：TimelineRow 的 memo 比较不含回调
   const setTurnCollapsed = useCallback((key: string, collapsed: boolean) => {
     setTurnOverrides((prev) =>
@@ -335,7 +343,9 @@ export function MessageTimeline({
       return;
     }
     const index = foldedIndexOf(key);
-    if (index >= 0) virtuosoRef.current?.scrollToIndex({ index, align: 'center' });
+    if (index >= 0) {
+      virtuosoRef.current?.scrollToIndex({ index: firstItemIndex + index, align: 'center' });
+    }
   };
   /** 目标藏在折叠轮次里：先展开，等 folded 重算后再滚动（同步滚动拿到的是旧 folded / 旧 DOM） */
   const pendingJumpRef = useRef<string | null>(null);
@@ -583,6 +593,7 @@ export function MessageTimeline({
           </div>
         ) : (
           <Virtuoso
+            key={rowEpoch.current}
             ref={virtuosoRef}
             data={folded}
             // 不用首条长消息探测整段高度，否则初始定位反复校正，正文隐藏只剩脚点。
@@ -607,8 +618,9 @@ export function MessageTimeline({
             rangeChanged={({ startIndex }) => {
               if (startIndex > firstItemIndex + 4) startReachedLatch.current = false;
               scheduleActiveNavKey(() => {
+                const dataIndex = Math.max(0, startIndex - firstItemIndex);
                 let current: string | null = null;
-                for (let i = 0; i <= Math.min(startIndex + 1, folded.length - 1); i++) {
+                for (let i = 0; i <= Math.min(dataIndex + 1, folded.length - 1); i++) {
                   if (folded[i]?.kind === 'user') current = folded[i].key;
                 }
                 return current;

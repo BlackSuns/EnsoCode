@@ -124,7 +124,6 @@ export function ChatSessionTimeline({
     status,
     historyLoadAttempted,
   });
-
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [findIndex, setFindIndex] = useState(0);
@@ -240,7 +239,6 @@ export function ChatSessionTimeline({
             ? () => void useSessionsStore.getState().resumeConversation(conversationId)
             : undefined
         }
-        firstItemIndex={historyBaseIndex}
         historyLoading={historyLoading}
         hasOlder={historyBaseIndex > 0}
         onStartReached={

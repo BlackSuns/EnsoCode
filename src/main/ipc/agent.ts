@@ -39,7 +39,7 @@ import {
   parseParentModelSelectionRequest,
   parseParentSourceBindingRequest,
 } from '@shared/types/mentions';
-import { app, ipcMain, webContents } from 'electron';
+import { app, type WebContents, ipcMain, webContents } from 'electron';
 import { EnsoSafeJournal } from '../../agent/ensoSafeJournal';
 import { titleSummaryTimeoutMs } from '../../agent/titleSummary';
 import { ActiveConversationRegistry } from '../services/activeConversationRegistry';
@@ -174,6 +174,16 @@ let agentService: AgentService | null = null;
 const pendingAgentControl = new Map<string, AbortController>();
 let sourceBindings: ActiveConversationRegistry | null = null;
 let sourceAuthority: SourceAuthorityRegistry | null = null;
+const selectionClockOwners = new WeakSet<WebContents>();
+
+function watchSelectionClock(sender: WebContents): void {
+  if (selectionClockOwners.has(sender)) return;
+  selectionClockOwners.add(sender);
+  sender.once('destroyed', () => {
+    sourceBindings?.invalidateOwner(sender.id);
+    sourceBindings?.forgetRendererSelectionClock(sender.id);
+  });
+}
 
 export function getAgentDispatchService(): AgentDispatchService | null {
   return dispatchService;
@@ -1027,9 +1037,15 @@ export function registerAgentHandlers(): void {
     if (!parsed || !isMainWebContents(event.sender.id))
       return { accepted: false, error: 'Invalid conversation selection.' };
     const result = sourceAuthority!.selectConversation(parsed);
-    if (result.accepted)
-      sourceBindings!.selectConversation(event.sender.id, result.value.conversationId);
-    return result;
+    if (!result.accepted) return result;
+    watchSelectionClock(event.sender);
+    const bound = sourceBindings!.selectConversation(
+      event.sender.id,
+      result.value.conversationId,
+      parsed.selectionEpoch,
+      parsed.selectionBootId
+    );
+    return bound ? result : { accepted: false, error: 'Stale conversation selection.' };
   });
   ipcMain.handle(IPC_CHANNELS.SOURCE_CONVERSATION_END, (event, request: unknown) => {
     const parsed = parseConversationAuthorityRequest(request);

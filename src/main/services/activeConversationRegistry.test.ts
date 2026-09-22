@@ -93,4 +93,35 @@ describe('ActiveConversationRegistry', () => {
     });
     expect(registry.consumeSelection(selection.binding.selectionBindingId, 1)).toBeNull();
   });
+
+  it('drops a late selection whose epoch is older than the one already applied', () => {
+    const { authority, registry, conversation } = setup();
+    const projectId = conversation.projectId;
+    const newer = authority.createConversation({
+      requestId: 'newer',
+      projectId,
+      projectVersion: 1,
+    });
+    if (!newer.accepted) throw new Error(newer.error);
+    expect(registry.selectConversation(1, newer.value.conversationId, 2)).toBe(true);
+    expect(registry.selectConversation(1, conversation.conversationId, 1)).toBe(false);
+    registry.invalidateConversation(conversation.conversationId);
+    expect(registry.bindSource(1, { requestId: 'bind' }).accepted).toBe(true);
+  });
+
+  it('a new renderer boot replaces the epoch baseline and a retired boot cannot write back', () => {
+    const { authority, registry, conversation } = setup();
+    const projectId = conversation.projectId;
+    const newer = authority.createConversation({
+      requestId: 'newer',
+      projectId,
+      projectVersion: 1,
+    });
+    if (!newer.accepted) throw new Error(newer.error);
+    expect(registry.selectConversation(1, conversation.conversationId, 8, 'boot-a')).toBe(true);
+    expect(registry.selectConversation(1, newer.value.conversationId, 1, 'boot-b')).toBe(true);
+    expect(registry.selectConversation(1, conversation.conversationId, 9, 'boot-a')).toBe(false);
+    registry.invalidateConversation(conversation.conversationId);
+    expect(registry.bindSource(1, { requestId: 'bind' }).accepted).toBe(true);
+  });
 });

@@ -419,6 +419,39 @@ describe('Main-owned source authority contracts', () => {
       parseConversationAuthorityRequest({ requestId: 'c2', conversationId, version: 2 })
     ).not.toBeNull();
     expect(
+      parseConversationAuthorityRequest({
+        requestId: 'c2',
+        conversationId,
+        version: 2,
+        selectionEpoch: 4,
+      })
+    ).toMatchObject({ selectionEpoch: 4 });
+    expect(
+      parseConversationAuthorityRequest({
+        requestId: 'c2',
+        conversationId,
+        version: 2,
+        selectionEpoch: -1,
+      })
+    ).toBeNull();
+    expect(
+      parseConversationAuthorityRequest({
+        requestId: 'c2',
+        conversationId,
+        version: 2,
+        selectionEpoch: 4,
+        selectionBootId: 'boot-a',
+      })
+    ).toMatchObject({ selectionBootId: 'boot-a' });
+    expect(
+      parseConversationAuthorityRequest({
+        requestId: 'c2',
+        conversationId,
+        version: 2,
+        selectionBootId: '',
+      })
+    ).toBeNull();
+    expect(
       parseUpdateConversationSelectionRequest({
         requestId: 'c3',
         conversationId,

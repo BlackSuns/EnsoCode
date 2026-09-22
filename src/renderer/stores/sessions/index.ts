@@ -64,6 +64,7 @@ import { oauthCredentialContext, useOauthCredentialStore } from '@/stores/oauthC
 import { useSettingsStore } from '@/stores/settings';
 import { createElectronPersistStorage, openPersistWriteGate } from '@/stores/settings/storage';
 import { purgeConversationAuthority } from './authorityCleanup';
+import { shouldFocusChildReservation } from './childReservationFocus';
 import {
   canWakeConversationForRewind,
   extractRewindDraft,
@@ -114,6 +115,8 @@ import {
 const lastViewedAt: Record<string, number> = {};
 const parentTailInFlight = new Set<string>();
 const olderHistoryInFlight = new Set<string>();
+/** 冷缓存清掉的 child 再被看到时补历史。实现在 store 创建后赋值。 */
+let loadViewedChildHistory: (conversationId: string) => void = () => {};
 /**
  * 手动重读在途：同会话合并为一次 IPC；缓冲期间到达的实时事件，快照落地后按 seq 水位重放，
  * 防止 IPC reply 晚于实时事件时旧快照把新消息抹掉。实时事件本身仍照常即时上屏。
@@ -486,6 +489,11 @@ export const useSessionsStore = create<SessionsState>()(
     (set, get) => {
       const pendingSelectionUpdates = new Map<string, Promise<void>>();
       const pendingDispatchEvents = new Map<string, DispatchMainEvent[]>();
+      /** 本窗口 dispatchAgent 发出、尚未被 child-reserved 消费的 requestId。 */
+      const manualDispatchRequestIds = new Set<string>();
+      let conversationSelectionEpoch = 0;
+      /** 这次渲染进程的启动 id。重载会换新的，Main 据此丢掉上一轮的迟到 select。 */
+      const selectionBootId = crypto.randomUUID();
       /**
        * 标题总结在飞时的基准截断标题。title-generated 回流时只有当前标题仍等于基准
        * 才覆盖——用户已手动改名的绝不动。不持久化：重启后在飞的总结直接作废。
@@ -562,6 +570,9 @@ export const useSessionsStore = create<SessionsState>()(
             : state
         );
       }
+      loadViewedChildHistory = (conversationId) => {
+        void loadChildHistory(conversationId);
+      };
 
       /** 返回原本是否在飞（迟到的 title-generated / title-failed 靠它识别） */
       function clearTitlePending(conversationId: string): boolean {
@@ -738,13 +749,18 @@ export const useSessionsStore = create<SessionsState>()(
         return created.accepted;
       }
 
-      async function activateConversationAuthority(conversationId: string): Promise<{
+      async function activateConversationAuthority(
+        conversationId: string,
+        epoch = ++conversationSelectionEpoch
+      ): Promise<{
         project: ProjectAuthorityProjection;
         conversation: ConversationAuthorityProjection;
       } | null> {
         // markReady（fork-done / parent-ready）会抬 version；读投影与 select 之间可能过期。
         for (let attempt = 0; attempt < 2; attempt++) {
+          if (epoch !== conversationSelectionEpoch) return null;
           const projection = await window.electronAPI.sourceAuthority.read();
+          if (epoch !== conversationSelectionEpoch) return null;
           const conversation = projection.conversations.find(
             (candidate) =>
               candidate.conversationId === conversationId &&
@@ -762,6 +778,7 @@ export const useSessionsStore = create<SessionsState>()(
             projectId: project.projectId,
             version: project.version,
           });
+          if (epoch !== conversationSelectionEpoch) return null;
           if (!projectResult.accepted) {
             if (attempt === 0) continue;
             return null;
@@ -770,7 +787,10 @@ export const useSessionsStore = create<SessionsState>()(
             requestId: crypto.randomUUID(),
             conversationId: conversation.conversationId,
             version: conversation.version,
+            selectionEpoch: epoch,
+            selectionBootId,
           });
+          if (epoch !== conversationSelectionEpoch) return null;
           if (!conversationResult.accepted) {
             if (attempt === 0) continue;
             return null;
@@ -911,6 +931,11 @@ export const useSessionsStore = create<SessionsState>()(
                 );
                 const next = applyAgentEvent(conversation, id, event);
                 const title = conversation.title || firstUserText(next) || '';
+                const droppingBody =
+                  hasAuthoritativeMessages(conversation.messages) ||
+                  conversation.customEntries.length > 0 ||
+                  snapshot.messages.length > 0 ||
+                  (snapshot.customEntries?.length ?? 0) > 0;
                 conversations[id] = {
                   ...conversation,
                   ...next,
@@ -922,6 +947,7 @@ export const useSessionsStore = create<SessionsState>()(
                         customEntries: [],
                         historyBaseIndex: undefined,
                         historyLoading: undefined,
+                        ...(droppingBody ? { historyLoadAttempted: undefined } : {}),
                       }),
                   ...(conversation.rewinding &&
                   (snapshot.baseIndex ?? 0) + snapshot.messages.length >
@@ -975,6 +1001,7 @@ export const useSessionsStore = create<SessionsState>()(
                           customEntries: [],
                           historyBaseIndex: undefined,
                           historyLoading: undefined,
+                          historyLoadAttempted: undefined,
                         }
                       : {}),
                   }
@@ -1005,7 +1032,8 @@ export const useSessionsStore = create<SessionsState>()(
                 viewedFromState(state) === event.sessionId &&
                 needsHistoryHydration(target)
               ) {
-                void hydrateParentHistoryTail(event.sessionId);
+                if (target.parentId) void loadChildHistory(event.sessionId);
+                else void hydrateParentHistoryTail(event.sessionId);
               }
             }
           }
@@ -1041,8 +1069,16 @@ export const useSessionsStore = create<SessionsState>()(
               child = applyDispatchEvent(child, childId, dispatchEvent) as Conversation;
             }
             pendingDispatchEvents.delete(childId);
+            const focus = shouldFocusChildReservation({
+              manual: manualDispatchRequestIds.delete(event.requestId),
+              activeId: state.activeId,
+              parentId,
+              childId,
+              activeTabId: parent.activeTabId,
+              tabExists: Boolean(parent.activeTabId && state.conversations[parent.activeTabId]),
+            });
             return {
-              activeId: parentId,
+              activeId: focus ? parentId : state.activeId,
               conversations: {
                 ...state.conversations,
                 [childId]: child,
@@ -1052,7 +1088,7 @@ export const useSessionsStore = create<SessionsState>()(
                   coworkerIds: (parent.coworkerIds ?? []).includes(childId)
                     ? parent.coworkerIds
                     : [...(parent.coworkerIds ?? []), childId],
-                  activeTabId: childId,
+                  activeTabId: focus ? childId : parent.activeTabId,
                   error: undefined,
                 },
               },
@@ -1158,6 +1194,7 @@ export const useSessionsStore = create<SessionsState>()(
                     sessionFile: coworker.sessionFile ?? existing.sessionFile,
                     coworkerName: coworker.name,
                     ...(coworker.agentType ? { agentType: coworker.agentType } : {}),
+                    ...(coworker.modelId ? { lastModelId: coworker.modelId } : {}),
                     ...(metadata
                       ? {
                           generation: metadata.childGeneration,
@@ -1483,6 +1520,7 @@ export const useSessionsStore = create<SessionsState>()(
                   customEntries: [],
                   historyBaseIndex: undefined,
                   historyLoading: undefined,
+                  historyLoadAttempted: undefined,
                 }
               : {}),
             // spawn IPC ack 时已乐观置 started:true；拒绝到达不清回 false 的话，
@@ -2123,7 +2161,8 @@ export const useSessionsStore = create<SessionsState>()(
                   );
                 });
           if (existing) {
-            if (!(await activateConversationAuthority(existing))) return null;
+            const epoch = ++conversationSelectionEpoch;
+            if (!(await activateConversationAuthority(existing, epoch))) return null;
             const pendingAgentPrefill = get().pendingAgentPrefill;
             set((state) => ({
               activeId: existing,
@@ -2264,6 +2303,7 @@ export const useSessionsStore = create<SessionsState>()(
           if (!get().conversations[id]) return;
           const pendingAgentPrefill = get().pendingAgentPrefill;
           const local = get().conversations[id];
+          const epoch = ++conversationSelectionEpoch;
           set((state) => ({
             activeId: id,
             pendingAgentPrefill: undefined,
@@ -2278,7 +2318,8 @@ export const useSessionsStore = create<SessionsState>()(
             if (local && !local.parentId) {
               await adoptMissingRootAuthority(id, local.projectId);
             }
-            const authority = await activateConversationAuthority(id);
+            const authority = await activateConversationAuthority(id, epoch);
+            if (epoch !== conversationSelectionEpoch) return;
             if (authority || !get().conversations[id]) return;
             set((state) =>
               patch(state, id, {
@@ -2539,13 +2580,22 @@ export const useSessionsStore = create<SessionsState>()(
             set((state) => patch(state, parentId, { error: result.message }));
             return result;
           }
+          const epoch = ++conversationSelectionEpoch;
           try {
             // 新草稿尚未 setModel 时先把 UI 模型写入 authority，避免 Main 只认全局默认。
             if (!parent.started) {
               get().setModel(parentId, selectedModel.providerId, selectedModel.modelId);
             }
             await pendingSelectionUpdates.get(parentId);
-            const authority = await activateConversationAuthority(parentId);
+            const authority = await activateConversationAuthority(parentId, epoch);
+            if (epoch !== conversationSelectionEpoch) {
+              return {
+                accepted: false,
+                requestId,
+                code: 'invalid-binding',
+                message: 'The conversation changed before the agent was dispatched.',
+              };
+            }
             if (!authority) {
               const result: AgentDispatchResult = {
                 accepted: false,
@@ -2584,6 +2634,7 @@ export const useSessionsStore = create<SessionsState>()(
               set((state) => patch(state, parentId, { error: result.message }));
               return result;
             }
+            manualDispatchRequestIds.add(requestId);
             const result = await window.electronAPI.agentDispatch.dispatch({
               requestId,
               selectionBindingId: selectionBinding.binding.selectionBindingId,
@@ -2595,8 +2646,10 @@ export const useSessionsStore = create<SessionsState>()(
                 error: result.accepted ? undefined : result.message,
               })
             );
+            if (!result.accepted) manualDispatchRequestIds.delete(requestId);
             return result;
           } catch (error) {
+            manualDispatchRequestIds.delete(requestId);
             const result: AgentDispatchResult = {
               accepted: false,
               requestId,
@@ -3729,7 +3782,8 @@ useSessionsStore.subscribe((state) => {
   const conversation = viewed ? state.conversations[viewed] : undefined;
   if (viewed && conversation) {
     // 历史补水不受 failed 门控：红字与历史同屏，而不是只剩红字
-    if (needsHistoryHydration(conversation)) void hydrateParentHistoryTail(viewed);
+    if (conversation.parentId) loadViewedChildHistory(viewed);
+    else if (needsHistoryHydration(conversation)) void hydrateParentHistoryTail(viewed);
     // worker 若还持有，快照比尾窗完整（审批 / 进行中轮次）；回空则由 sessionId 路由收回 started
     if (needsWorkerSnapshot(conversation)) void window.electronAPI.agent.requestSnapshot(viewed);
   }

@@ -175,6 +175,7 @@ function evictColdMessageBodies<T extends { messages: unknown[]; customEntries: 
       customEntries: [],
       historyBaseIndex: undefined,
       historyLoading: undefined,
+      historyLoadAttempted: undefined,
     };
     changed = true;
   }
