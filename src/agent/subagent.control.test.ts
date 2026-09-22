@@ -37,6 +37,60 @@ describe('unified subagent tool', () => {
       'dismiss',
     ]);
     expect(`${tool.description}\n${tool.promptSnippet}`).not.toMatch(/coworker tool/i);
+    const fields = (
+      tool.parameters as {
+        properties: { description: { description?: string }; prompt: { description?: string } };
+      }
+    ).properties;
+    expect(`${fields.description.description}\n${fields.prompt.description}`).toMatch(/spawn/i);
+    expect(fields.description.description).toMatch(/required/i);
+    expect(fields.prompt.description).toMatch(/required/i);
+    expect(tool.promptGuidelines?.join('\n')).toMatch(/spawn requires non-empty description and prompt/i);
+  });
+
+  it('spawn 缺 description 或 prompt 时点名缺哪个字段，斜杠模型名仍然合法', async () => {
+    const { deps, tool } = setup({
+      agentTypes: [
+        {
+          name: 'reviewer',
+          description: 'reviewer',
+          systemPrompt: '',
+          tools: 'readonly',
+          allowModelOverride: true,
+        },
+      ],
+    });
+    await expect(
+      tool.execute(
+        'call-missing-description',
+        {
+          operation: 'spawn',
+          agent_type: 'reviewer',
+          mode: 'task',
+          model: 'OpenAI/gpt-cheap',
+          name: 'issue98review',
+          prompt: 'review this',
+        },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/description/);
+    await expect(
+      tool.execute(
+        'call-missing-prompt',
+        {
+          operation: 'spawn',
+          model: 'OpenAI/gpt-cheap',
+          description: '   ',
+          prompt: '',
+        },
+        undefined,
+        undefined,
+        {} as never
+      )
+    ).rejects.toThrow(/prompt/);
+    expect(deps.invoke).not.toHaveBeenCalled();
   });
 
   it('spawn 先归一化默认 task/异步，再交给 typed Main RPC', async () => {

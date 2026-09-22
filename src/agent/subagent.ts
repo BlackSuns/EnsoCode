@@ -45,12 +45,18 @@ export function createUnifiedSubagentTool(deps: UnifiedSubagentDeps): ToolDefini
           `agent_type "${agentType.name}" requires a model. Available: [${modelNames.join(', ')}]`
         );
       }
+      const description = typeof params.description === 'string' ? params.description.trim() : '';
+      const prompt = typeof params.prompt === 'string' ? params.prompt.trim() : '';
+      const missing = [description ? '' : 'description', prompt ? '' : 'prompt'].filter(Boolean);
+      if (missing.length > 0) {
+        throw new Error(`spawn requires non-empty ${missing.join(' and ')}`);
+      }
       const candidate = {
         operation,
         mode: params.mode ?? 'task',
         ...(typeof params.name === 'string' ? { name: params.name } : {}),
-        description: params.description,
-        prompt: params.prompt,
+        description,
+        prompt,
         ...(agentTypeName ? { agentType: agentTypeName } : {}),
         ...(modelName ? { model: modelName } : {}),
         ...(thinking ? { thinking } : {}),
@@ -118,6 +124,7 @@ export function createUnifiedSubagentTool(deps: UnifiedSubagentDeps): ToolDefini
       'Use send delivery=auto to steer a running Run or start an idle coworker Run; delivery=next queues a new coworker Run.',
       'gate.commandRef is a Main-authorized command id, not shell text or argv.',
       'Unknown gate ids fail the run and nothing is executed.',
+      'spawn requires non-empty description and prompt. Omit both for every other operation.',
     ],
     parameters: {
       type: 'object',
@@ -128,8 +135,14 @@ export function createUnifiedSubagentTool(deps: UnifiedSubagentDeps): ToolDefini
         },
         mode: { type: 'string', enum: ['task', 'coworker'] },
         name: { type: 'string' },
-        description: { type: 'string' },
-        prompt: { type: 'string' },
+        description: {
+          type: 'string',
+          description: 'Required for spawn: non-empty short label of the delegated work.',
+        },
+        prompt: {
+          type: 'string',
+          description: 'Required for spawn: non-empty task instructions.',
+        },
         ...(deps.agentTypes.length > 0
           ? {
               agent_type: {
