@@ -1,10 +1,12 @@
 import type { RendererAgentEvent, SessionSnapshot } from '@shared/types/agent';
+import { PROJECTED_FILE_TEXT_LIMIT } from '@shared/types/fileChanges';
 import { describe, expect, it } from 'vitest';
 import {
   applyAgentEvent,
   applyDispatchEvent,
   applyHistoryPage,
   emptyProjection,
+  retainedOptimisticTail,
   rewindTruncatedNeedsSnapshotResync,
   type SessionProjection,
   truncatedNeedsSnapshotResync,
@@ -685,6 +687,35 @@ describe('applyAgentEvent', () => {
     });
     expect(delivered.messages).toHaveLength(1);
     expect(delivered.messages[0]).not.toHaveProperty('optimistic', true);
+  });
+
+  it('超长 user 正文投影被截断后仍消费乐观回显（upsert 与 snapshot）', () => {
+    const typed = 'log line\n'.repeat(8000);
+    const truncated = `${typed.slice(0, PROJECTED_FILE_TEXT_LIMIT)}\n…`;
+    const withEcho = {
+      ...base,
+      messages: [
+        {
+          role: 'user' as const,
+          content: [{ type: 'text' as const, text: typed }],
+          optimistic: true as const,
+        },
+      ],
+    };
+    const delivered = applyAgentEvent(withEcho, 's1', {
+      type: 'message-upsert',
+      identity: identity(),
+      seq: 1,
+      index: 0,
+      message: { role: 'user', content: [{ type: 'text', text: truncated }] },
+    });
+    expect(delivered.messages).toHaveLength(1);
+    expect(delivered.messages[0]).not.toHaveProperty('optimistic', true);
+    expect(
+      retainedOptimisticTail(withEcho.messages, [
+        { role: 'user', content: [{ type: 'text', text: truncated }] },
+      ])
+    ).toEqual([]);
   });
 
   it('restored generation replaces the projection and rejects stale generation events', () => {

@@ -1,3 +1,4 @@
+import { PROJECTED_FILE_TEXT_LIMIT } from '@shared/types/fileChanges';
 import { describe, expect, it } from 'vitest';
 import {
   appendEchoMessages,
@@ -49,5 +50,12 @@ describe('PWA 排队消息马上发送：乐观上墙', () => {
 
   it('找不到排队项则不上墙', () => {
     expect(captureQueueSendEcho(queued, 's1', 'missing', [])).toBeNull();
+  });
+
+  it('超长正文被投影截断后，权威 user 仍能收掉回显', () => {
+    const text = 'log line\n'.repeat(8000);
+    const truncated = `${text.slice(0, PROJECTED_FILE_TEXT_LIMIT)}\n…`;
+    const echo = captureQueueSendEcho([{ id: 'q1', text }], 's1', 'q1', []);
+    expect(retainQueueSendEchoes([echo!], 's1', [truncated])).toEqual([]);
   });
 });
