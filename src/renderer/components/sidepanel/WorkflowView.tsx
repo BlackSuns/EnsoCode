@@ -8,7 +8,7 @@ import {
   type WorkflowRunStatus,
 } from '@shared/types/workflow';
 import { buildWorkflowPresetMessage } from '@shared/workflowPresetMessage';
-import { Play, RefreshCw, Settings2 } from 'lucide-react';
+import { Eraser, Play, RefreshCw, Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -263,10 +263,26 @@ function MemberRow({
 export function WorkflowView({ conversationId }: { conversationId: string }) {
   const { t } = useI18n();
   const runs = useWorkflowRunsStore((state) => state.byConversation[conversationId]) ?? EMPTY_RUNS;
+  const clearFinished = useWorkflowRunsStore((state) => state.clearFinished);
+  const hasFinished = runs.some((run) => run.status !== 'running');
   return (
     <div className="h-full overflow-auto bg-background p-3">
       <div className="space-y-3">
         <PresetList conversationId={conversationId} />
+        {hasFinished ? (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
+              onClick={() => clearFinished(conversationId)}
+            >
+              <Eraser />
+              {t('Clear finished runs')}
+            </Button>
+          </div>
+        ) : null}
         {runs.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">{t('No workflow runs')}</p>
         ) : null}

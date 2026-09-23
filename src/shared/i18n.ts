@@ -1105,6 +1105,7 @@ export const zhTranslations: Record<string, string> = {
   'Run a JavaScript workflow that fans work out across subagents. Live status appears in the side panel.':
     '运行一段扇出子代理的 JavaScript 工作流。实时状态显示在右侧栏。',
   'No workflow runs': '还没有工作流',
+  'Clear finished runs': '清除已结束',
   Run: '运行',
   'Workflow preset': '预设工作流',
   'Manage workflow presets': '管理工作流预设',
