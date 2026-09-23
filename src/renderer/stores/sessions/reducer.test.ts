@@ -718,6 +718,42 @@ describe('applyAgentEvent', () => {
     ).toEqual([]);
   });
 
+  it('delivery-settled 按 deliveryId 收回文本对不上的乐观回显', () => {
+    const echo = (text: string, deliveryId: string) => ({
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+      optimistic: true as const,
+      deliveryId,
+    });
+    const withEcho = { ...base, messages: [echo('原文', 'd1'), echo('另一条', 'd2')] };
+    const upserted = applyAgentEvent(withEcho, 's1', {
+      type: 'message-upsert',
+      identity: identity(),
+      seq: 1,
+      index: 0,
+      message: { role: 'user', content: [{ type: 'text', text: '改写后的原文' }] },
+    });
+    expect(upserted.messages.filter((message) => message.optimistic)).toHaveLength(2);
+    const settled = applyAgentEvent(upserted, 's1', {
+      type: 'delivery-settled',
+      identity: identity(),
+      seq: 2,
+      deliveryId: 'd1',
+    });
+    expect(
+      settled.messages.map((message) => (message.content[0] as { text: string }).text)
+    ).toEqual(['改写后的原文', '另一条']);
+    expect(settled.lastSeq).toBe(2);
+    const unknown = applyAgentEvent(settled, 's1', {
+      type: 'delivery-settled',
+      identity: identity(),
+      seq: 3,
+      deliveryId: 'gone',
+    });
+    expect(unknown.messages).toBe(settled.messages);
+    expect(unknown.lastSeq).toBe(3);
+  });
+
   it('restored generation replaces the projection and rejects stale generation events', () => {
     const g1 = applyAgentEvent(base, 's1', status(5, 'running', 'g1'));
     const snapshot: SessionSnapshot = {

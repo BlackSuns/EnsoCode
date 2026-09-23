@@ -499,6 +499,29 @@ describe('agent IPC Main identity boundary', () => {
     });
   });
 
+  describe.each([
+    [IPC_CHANNELS.AGENT_PROMPT, mocks.promptSession],
+    [IPC_CHANNELS.AGENT_STEER, mocks.steerSession],
+  ])('%s 透传乐观回显 deliveryId', (channel, send) => {
+    const parent = { sessionId: 'conv-1', generation: 'gen-1' };
+    const invoke = (...args: unknown[]) => mocks.handlers.get(channel)?.(event, ...args);
+
+    it('合法 deliveryId 原样下发，缺省时不带', async () => {
+      mocks.currentIdentity.mockReturnValue(parent);
+      send.mockReturnValue({ ok: true });
+      await invoke('conv-1', 'hi', undefined, 'd-1');
+      expect(send).toHaveBeenLastCalledWith(parent, 'hi', undefined, 'd-1');
+      await invoke('conv-1', 'hi');
+      expect(send).toHaveBeenLastCalledWith(parent, 'hi', undefined, undefined);
+    });
+
+    it.each(['', 7, 'x'.repeat(129)])('非法 deliveryId %# 拒绝且不下发', async (deliveryId) => {
+      mocks.currentIdentity.mockReturnValue(parent);
+      expect(await invoke('conv-1', 'hi', undefined, deliveryId)).toMatchObject({ ok: false });
+      expect(send).not.toHaveBeenCalled();
+    });
+  });
+
   describe('已结束 child 的只读历史读取', () => {
     const read = (request: unknown) =>
       mocks.handlers.get(IPC_CHANNELS.AGENT_CHILD_HISTORY_READ)?.(event, request);

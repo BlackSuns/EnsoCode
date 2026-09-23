@@ -792,26 +792,30 @@ export function setSessionReasoning(
 export function promptSession(
   identity: SessionIdentity,
   text: string,
-  images?: AttachedImage[]
+  images?: AttachedImage[],
+  deliveryId?: string
 ): { ok: boolean; error?: string } {
   return sendAgentCommand({
     type: 'prompt',
     identity,
     text,
     ...(images?.length ? { images } : {}),
+    ...(deliveryId ? { deliveryId } : {}),
   });
 }
 
 export function steerSession(
   identity: SessionIdentity,
   text: string,
-  images?: AttachedImage[]
+  images?: AttachedImage[],
+  deliveryId?: string
 ): { ok: boolean; error?: string } {
   return sendAgentCommand({
     type: 'steer',
     identity,
     text,
     ...(images?.length ? { images } : {}),
+    ...(deliveryId ? { deliveryId } : {}),
   });
 }
 

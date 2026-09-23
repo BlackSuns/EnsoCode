@@ -557,15 +557,17 @@ const electronAPI = {
     prompt: (
       sessionId: string,
       text: string,
-      images?: AttachedImage[]
+      images?: AttachedImage[],
+      deliveryId?: string
     ): Promise<AgentActionResult> =>
-      ipcRenderer.invoke(IPC_CHANNELS.AGENT_PROMPT, sessionId, text, images),
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_PROMPT, sessionId, text, images, deliveryId),
     steer: (
       sessionId: string,
       text: string,
-      images?: AttachedImage[]
+      images?: AttachedImage[],
+      deliveryId?: string
     ): Promise<AgentActionResult> =>
-      ipcRenderer.invoke(IPC_CHANNELS.AGENT_STEER, sessionId, text, images),
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_STEER, sessionId, text, images, deliveryId),
     abort: (sessionId: string): Promise<AgentActionResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_ABORT, sessionId),
     abortRetry: (sessionId: string): Promise<AgentActionResult> =>

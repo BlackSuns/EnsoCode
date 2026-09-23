@@ -203,6 +203,29 @@ describe('agent control tool protocol', () => {
     }
   });
 
+  it.each(['prompt', 'steer'])('%s 命令可带有界的 deliveryId', (type) => {
+    const command = { type, identity: parent, text: 'hi', deliveryId: 'delivery-1' };
+    expect(parseAgentCommand(command)).toEqual(command);
+    expect(parseAgentCommand({ type, identity: parent, text: 'hi' })).not.toBeNull();
+    for (const deliveryId of ['', 42, 'x'.repeat(129)]) {
+      expect(parseAgentCommand({ ...command, deliveryId })).toBeNull();
+    }
+  });
+
+  it('delivery-settled 只接受精确 identity、seq 与 deliveryId', () => {
+    const event = { type: 'delivery-settled', identity: parent, seq: 3, deliveryId: 'delivery-1' };
+    expect(parseAgentWorkerEvent(event)).toEqual(event);
+    for (const patch of [
+      { identity: { sessionId: parent.sessionId } },
+      { seq: -1 },
+      { deliveryId: '' },
+      { deliveryId: 'x'.repeat(129) },
+      { extra: true },
+    ]) {
+      expect(parseAgentWorkerEvent({ ...event, ...patch })).toBeNull();
+    }
+  });
+
   it('formats branch background as quoted data, not a new task', () => {
     const note = workspaceBranchChangedNote('feature/branch');
     expect(note).toContain('<workspace-branch-changed>');
