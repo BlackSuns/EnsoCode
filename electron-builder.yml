@@ -3,6 +3,10 @@ productName: EnsoCode
 directories:
   buildResources: build
 extraResources:
+  # 配合 files 里的 sqlite-vec-windows-x64：from/to 拷进来的文件不吃 asarUnpack，
+  # 而 loadExtension 读不了 asar 内的 dll，真实文件放到 app.asar.unpacked
+  - from: node_modules/.pnpm/sqlite-vec-windows-x64@0.1.9/node_modules/sqlite-vec-windows-x64
+    to: app.asar.unpacked/node_modules/sqlite-vec-windows-x64
   - from: build/trayTemplate.png
     to: trayTemplate.png
   - from: build/trayTemplate@2x.png
@@ -31,6 +35,10 @@ files:
   # require('@node-datachannel/<platform>') 在安装包里找不到（Windows 直连会降级中继）
   - from: node_modules/.pnpm/node-datachannel@0.33.2/node_modules/@node-datachannel
     to: node_modules/@node-datachannel
+  # 收集器在 Windows 上不跟进 pnpm junction，漏掉 sqlite-vec 平台包（向量检索退回扫 BLOB）；
+  # 直接拷真实目录供 require.resolve 定位（dll 本体见 extraResources），其他平台没有该目录时跳过
+  - from: node_modules/.pnpm/sqlite-vec-windows-x64@0.1.9/node_modules/sqlite-vec-windows-x64
+    to: node_modules/sqlite-vec-windows-x64
   # node-llama-cpp 平台预编译全部按需下载（含 CPU / Metal / CUDA / Vulkan）
   - '!node_modules/@node-llama-cpp/**'
   - '!node_modules/.pnpm/@node-llama-cpp+*/**'
