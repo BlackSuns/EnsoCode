@@ -618,6 +618,8 @@ export const zhTranslations: Record<string, string> = {
   JSON: 'JSON',
   'JSON configuration': 'JSON 配置',
   Format: '格式化',
+  'Format failed: {{error}}': '格式化失败：{{error}}',
+  'Generated code is already formatted': '设计器生成的代码已是规范格式',
   'Invalid JSON': 'JSON 格式错误',
   'No MCP servers found in JSON': 'JSON 中没有有效的 MCP 服务器',
   'JSON must describe a single MCP server': 'JSON 只能描述一台 MCP 服务器',

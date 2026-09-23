@@ -6,7 +6,16 @@ import type {
   WorkflowPresetSummary,
 } from '@shared/types/workflow';
 import { generateWorkflowScript, parseWorkflowDesign } from '@shared/workflowDesign';
-import { CircleAlert, Loader2, Pencil, Plus, Trash2, Workflow, X } from 'lucide-react';
+import {
+  CircleAlert,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+  WandSparkles,
+  Workflow,
+  X,
+} from 'lucide-react';
 import * as React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,6 +33,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs';
 import { useI18n } from '@/i18n';
+import { formatScript } from '@/lib/formatScript';
 import { useSettingsStore } from '@/stores/settings';
 import { CodeEditor } from './CodeEditor';
 import { WorkflowDesigner } from './WorkflowDesigner';
@@ -91,6 +101,7 @@ function WorkflowPresetDialog({
   const detachedDesign = React.useRef<WorkflowDesign | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [formatting, setFormatting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const disabledBuiltinAgentTypes = useSettingsStore((state) => state.disabledBuiltinAgentTypes);
   const customAgentTypes = useSettingsStore((state) => state.agentTypes);
@@ -144,6 +155,19 @@ function WorkflowPresetDialog({
     if (script === draft.script) return;
     if (draft.design) detachedDesign.current = draft.design;
     setDraft((d) => ({ ...d, script, design: undefined }));
+  };
+  const handleFormat = async () => {
+    setFormatting(true);
+    const result = await formatScript(draft.script);
+    setFormatting(false);
+    if (!result.ok) {
+      setError(t('Format failed: {{error}}', { error: result.error }));
+      return;
+    }
+    setError(null);
+    if (result.code === draft.script) return;
+    editCode(result.code);
+    setEpoch((n) => n + 1);
   };
   const designValid = !draft.design || parseWorkflowDesign(draft.design) !== null;
   const canSave =
@@ -248,6 +272,19 @@ function WorkflowPresetDialog({
           <Field>
             <div className="flex w-full items-center justify-between gap-2">
               <FieldLabel>{t('Steps')}</FieldLabel>
+              {tab === 'code' && (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="ml-auto"
+                  disabled={loading || formatting || !!draft.design || !draft.script.trim()}
+                  title={draft.design ? t('Generated code is already formatted') : undefined}
+                  onClick={handleFormat}
+                >
+                  {formatting ? <Loader2 className="animate-spin" /> : <WandSparkles />}
+                  {t('Format')}
+                </Button>
+              )}
               <Tabs value={tab} onValueChange={(value) => setTab(value as EditorTab)}>
                 <TabsList>
                   <TabsTab value="design">{t('Design')}</TabsTab>
