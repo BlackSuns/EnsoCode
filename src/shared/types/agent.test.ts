@@ -74,7 +74,6 @@ const receipt = {
   sequence: 0,
 };
 
-
 describe('agent control tool protocol', () => {
   it('accepts normalized spawn/send/wait requests with bounded gate shape', () => {
     expect(
@@ -516,6 +515,16 @@ describe('parent/child commands', () => {
     expect(parseAgentCommand({ type: 'set-max-active-coworkers', limit: 21 })).toBeNull();
     expect(parseAgentCommand({ type: 'set-max-active-coworkers', limit: 5.5 })).toBeNull();
     expect(parseAgentCommand({ type: 'set-max-active-coworkers' })).toBeNull();
+  });
+
+  it('set-disabled-workflow-presets 只接受合法 id 数组', () => {
+    expect(
+      parseAgentCommand({ type: 'set-disabled-workflow-presets', ids: ['parallel-review'] })
+    ).toEqual({ type: 'set-disabled-workflow-presets', ids: ['parallel-review'] });
+    expect(parseAgentCommand({ type: 'set-disabled-workflow-presets', ids: [] })).not.toBeNull();
+    expect(parseAgentCommand({ type: 'set-disabled-workflow-presets', ids: ['../x'] })).toBeNull();
+    expect(parseAgentCommand({ type: 'set-disabled-workflow-presets', ids: 'x' })).toBeNull();
+    expect(parseAgentCommand({ type: 'set-disabled-workflow-presets' })).toBeNull();
   });
 
   it('spawn-parent 携 editMode:仅接受三个互斥模式', () => {

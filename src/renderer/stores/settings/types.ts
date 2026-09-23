@@ -249,6 +249,8 @@ export interface SettingsState {
   disabledBuiltinAgentTypes: string[];
   /** 被关闭的内置工具（id 集合;默认全开） */
   disabledBuiltinTools: string[];
+  /** 被关闭的内置工作流预设（id 集合;默认全开） */
+  disabledWorkflowPresets: string[];
   /** 统一 subagent 工具允许创建的 Agent 模式。 */
   subagentAllowedModes: AgentMode[];
 
@@ -396,6 +398,7 @@ export interface SettingsState {
   removeAgentType: (id: string) => void;
   toggleBuiltinAgentType: (name: string, enabled: boolean) => void;
   toggleBuiltinTool: (id: string, enabled: boolean) => void;
+  toggleWorkflowPreset: (id: string, enabled: boolean) => void;
   setSubagentAllowedModes: (modes: AgentMode[]) => void;
 
   // Onboarding

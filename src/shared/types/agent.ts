@@ -42,7 +42,7 @@ import {
   type ModelThinkingLevelOverride,
 } from './llm';
 import { type AgentDispatchTask, parseAgentDispatchTask } from './mentions';
-import { parseWorkflowRunSnapshot, type WorkflowRunSnapshot } from './workflow';
+import { isWorkflowPresetId, parseWorkflowRunSnapshot, type WorkflowRunSnapshot } from './workflow';
 
 export type { ChildSessionIdentity, SessionIdentity } from '../builtinAgents';
 export { parseChildSessionIdentity, parseSessionIdentity } from '../builtinAgents';
@@ -1007,6 +1007,8 @@ export type AgentCommand =
   | { type: 'set-approval-mode'; identity: SessionIdentity; mode: ApprovalMode }
   | { type: 'set-approval-reviewer'; model?: SpawnModelConfig }
   | { type: 'set-max-active-coworkers'; limit: number }
+  /** 设置里禁用的内置预设：worker 执行与工具说明都按它过滤 */
+  | { type: 'set-disabled-workflow-presets'; ids: string[] }
   | { type: 'compact'; identity: SessionIdentity; instructions?: string }
   | { type: 'ask-respond'; identity: SessionIdentity; requestId: string; answer: string }
   | {
@@ -2655,6 +2657,13 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
         : null;
     case 'set-max-active-coworkers':
       return hasExactKeys(value, ['type', 'limit']) && parseMaxActiveCoworkers(value.limit) !== null
+        ? (value as unknown as AgentCommand)
+        : null;
+    case 'set-disabled-workflow-presets':
+      return hasExactKeys(value, ['type', 'ids']) &&
+        Array.isArray(value.ids) &&
+        value.ids.length <= 64 &&
+        value.ids.every((id) => typeof id === 'string' && isWorkflowPresetId(id))
         ? (value as unknown as AgentCommand)
         : null;
     case 'ask-respond':

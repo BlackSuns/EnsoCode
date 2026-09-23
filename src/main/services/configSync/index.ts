@@ -152,6 +152,10 @@ export const CONFIG_SYNC_FIELD_POLICY = {
   agentTypes: { mode: 'portable' },
   disabledBuiltinAgentTypes: { mode: 'portable' },
   disabledBuiltinTools: { mode: 'portable' },
+  disabledWorkflowPresets: {
+    mode: 'excluded',
+    reason: 'pairs with device-local custom workflow presets in userData',
+  },
   subagentAllowedModes: { mode: 'portable' },
   onboarded: { mode: 'excluded', reason: 'device onboarding state' },
   keybindings: { mode: 'portable' },

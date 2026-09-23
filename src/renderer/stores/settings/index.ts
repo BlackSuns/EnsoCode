@@ -188,6 +188,7 @@ const initialState = {
   subagentModels: [] as import('@shared/types').SubagentModelEntry[],
   disabledBuiltinAgentTypes: [] as string[],
   disabledBuiltinTools: [...DEFAULT_DISABLED_BUILTIN_TOOLS] as string[],
+  disabledWorkflowPresets: [] as string[],
   subagentAllowedModes: ['task', 'coworker'] as import('@shared/types/agent').AgentMode[],
   onboarded: false,
   keybindings: {} as Record<string, string>,
@@ -622,6 +623,13 @@ export const useSettingsStore = create<SettingsState>()(
           disabledBuiltinTools: enabled
             ? state.disabledBuiltinTools.filter((n) => n !== id)
             : [...new Set([...state.disabledBuiltinTools, id])],
+        })),
+
+      toggleWorkflowPreset: (id, enabled) =>
+        set((state) => ({
+          disabledWorkflowPresets: enabled
+            ? state.disabledWorkflowPresets.filter((n) => n !== id)
+            : [...new Set([...state.disabledWorkflowPresets, id])],
         })),
 
       setSubagentAllowedModes: (modes) =>

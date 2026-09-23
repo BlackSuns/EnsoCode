@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   deleteCustomWorkflowPreset,
+  listBuiltinWorkflowPresets,
   listCustomWorkflowPresets,
   listWorkflowPresets,
   loadWorkflowPreset,
@@ -115,6 +116,22 @@ describe('listWorkflowPresets', () => {
     const builtin = listWorkflowPresets([]).filter((item) => item.source === 'builtin');
     expect(builtin.length).toBeGreaterThan(0);
     for (const item of builtin) expect(loadWorkflowPreset(item.id, [])?.script).toBeTruthy();
+  });
+
+  it('禁用的内置预设不列出也不能加载，同 id 的项目预设不受影响', () => {
+    const [first, second] = listBuiltinWorkflowPresets();
+    expect(first?.source).toBe('builtin');
+    const disabled = [first?.id ?? ''];
+    const ids = listWorkflowPresets([], disabled).map((item) => item.id);
+    expect(ids).not.toContain(first?.id);
+    expect(ids).toContain(second?.id);
+    expect(loadWorkflowPreset(first?.id ?? '', [], disabled)).toBeNull();
+    write(cwd, `${first?.id}.js`, preset('Project override'));
+    const roots = workflowPresetRoots(cwd, { home });
+    expect(loadWorkflowPreset(first?.id ?? '', roots, disabled)?.name).toBe('Project override');
+    expect(listWorkflowPresets(roots, disabled).find((item) => item.id === first?.id)?.source).toBe(
+      'project'
+    );
   });
 });
 

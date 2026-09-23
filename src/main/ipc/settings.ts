@@ -111,6 +111,7 @@ export const SETTINGS_STATE_FIELDS = [
   'agentTypes',
   'disabledBuiltinAgentTypes',
   'disabledBuiltinTools',
+  'disabledWorkflowPresets',
   'subagentAllowedModes',
   'memoryEmbeddingModel',
   'memoryEmbeddingAutoDownload',
@@ -151,6 +152,7 @@ const CONFIG_SYNC_EXCLUDED_STATE_FIELDS = new Set<SettingsStateField>([
   'onboarded',
   'projects',
   'projectGroups',
+  'disabledWorkflowPresets',
 ]);
 
 export const CONFIG_SYNC_COMMIT_FIELDS = SETTINGS_STATE_FIELDS.filter(
@@ -363,10 +365,13 @@ function scheduleWrite(
     }, DEBOUNCE_MS);
 
     void import('../services/agentHost')
-      .then(async ({ pushApprovalReviewer, pushMaxActiveCoworkers }) => {
-        pushApprovalReviewer(await readStoredOauthCredentialKeys());
-        pushMaxActiveCoworkers();
-      })
+      .then(
+        async ({ pushApprovalReviewer, pushMaxActiveCoworkers, pushDisabledWorkflowPresets }) => {
+          pushApprovalReviewer(await readStoredOauthCredentialKeys());
+          pushMaxActiveCoworkers();
+          pushDisabledWorkflowPresets();
+        }
+      )
       .catch(() => {});
     return true;
   } catch {
@@ -470,9 +475,10 @@ export function commitSettingsTransaction(
     // Durable write already succeeded; a dead renderer must not fail the import.
   }
   void import('../services/agentHost')
-    .then(async ({ pushApprovalReviewer, pushMaxActiveCoworkers }) => {
+    .then(async ({ pushApprovalReviewer, pushMaxActiveCoworkers, pushDisabledWorkflowPresets }) => {
       pushApprovalReviewer(await readStoredOauthCredentialKeys());
       pushMaxActiveCoworkers();
+      pushDisabledWorkflowPresets();
     })
     .catch(() => {});
   return { ok: true, backupPath };

@@ -4,6 +4,7 @@ import { ipcMain } from 'electron';
 import { snapshotBuiltinOccupancyTools } from '../../agent/builtinOccupancy';
 import {
   deleteCustomWorkflowPreset,
+  listBuiltinWorkflowPresets,
   listCustomWorkflowPresets,
   listWorkflowPresets,
   parseWorkflowPresetDraft,
@@ -100,12 +101,15 @@ export function registerAssetHandlers(): void {
     if (typeof conversationId !== 'string' || !conversationId) return [];
     // 与 worker 执行同口径：本地会话含项目根（worktree 感知），远程只列设置、全局与内置
     const cwd = resolveLocalCwdForBrowser(conversationId) ?? undefined;
+    // 禁用的内置预设由侧边栏按设置即时过滤，worker 执行时再拦
     return listWorkflowPresets(workflowPresetRoots(cwd, { customDir: customWorkflowPresetDir() }));
   });
 
-  ipcMain.handle(IPC_CHANNELS.WORKFLOW_PRESETS_LIST, () =>
-    listCustomWorkflowPresets(customWorkflowPresetDir())
-  );
+  // 设置页：自定义 + 全部内置（含已禁用，开关状态在渲染侧设置里）
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_PRESETS_LIST, () => [
+    ...listCustomWorkflowPresets(customWorkflowPresetDir()),
+    ...listBuiltinWorkflowPresets(),
+  ]);
 
   ipcMain.handle(IPC_CHANNELS.WORKFLOW_PRESETS_READ, (_event, id: unknown) =>
     typeof id === 'string' ? readCustomWorkflowPreset(customWorkflowPresetDir(), id) : null

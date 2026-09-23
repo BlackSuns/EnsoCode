@@ -564,6 +564,7 @@ export class SessionSupervisor {
   private readonly evictionTimer: ReturnType<typeof setInterval>;
   private approvalReviewer: SpawnModelConfig | undefined;
   private maxActiveCoworkers = DEFAULT_MAX_ACTIVE_COWORKERS;
+  private disabledWorkflowPresets: string[] = [];
   /** 父会话通知(合并投递):闲则注入合成提示唤醒,忙则挂 pending 搭下次工具结果 */
   private readonly notifier = new ParentNotifier((sessionId, text) => {
     this.deliverNotification(sessionId, text);
@@ -863,6 +864,10 @@ export class SessionSupervisor {
     }
     if (command.type === 'set-max-active-coworkers') {
       this.maxActiveCoworkers = command.limit;
+      return;
+    }
+    if (command.type === 'set-disabled-workflow-presets') {
+      this.disabledWorkflowPresets = command.ids;
       return;
     }
     const identity =
@@ -1924,8 +1929,9 @@ export class SessionSupervisor {
             createWorkflowTool({
               invoke: (request, signal) => agentControl.invoke(request, signal),
               // 远程会话的 cwd 在远端，本地只读设置、全局与内置预设（与 Main 列表口径一致）
-              loadPreset: (id) => loadWorkflowPreset(id, workflowRoots),
-              presets: listWorkflowPresets(workflowRoots),
+              loadPreset: (id) =>
+                loadWorkflowPreset(id, workflowRoots, this.disabledWorkflowPresets),
+              presets: listWorkflowPresets(workflowRoots, this.disabledWorkflowPresets),
               emit: (run) => {
                 const managed = managedRef ?? this.sessions.get(sessionId);
                 if (!managed) return;

@@ -71,6 +71,7 @@ import {
   type ModelThinkingLevelOverride,
 } from '@shared/types/llm';
 import type { AgentDispatchTask } from '@shared/types/mentions';
+import { parseDisabledWorkflowPresets } from '@shared/types/workflow';
 import { parseWindowsLocalShell } from '@shared/windowsLocalShell';
 import { app, type UtilityProcess, utilityProcess } from 'electron';
 import { ENSO_SYSTEM_PROMPT } from '../../agent/ensoPrompt';
@@ -193,6 +194,7 @@ export function startAgentWorker(): void {
     for (const command of queued) child.postMessage(command);
     pushApprovalReviewer();
     pushMaxActiveCoworkers();
+    pushDisabledWorkflowPresets();
   });
   child.on('message', (raw) => {
     const event = parseAgentWorkerEvent(raw);
@@ -1315,6 +1317,14 @@ export function pushMaxActiveCoworkers(): void {
   worker.postMessage({
     type: 'set-max-active-coworkers',
     limit: normalizeMaxActiveCoworkers(readSettingsState()?.maxActiveCoworkers),
+  } satisfies AgentCommand);
+}
+
+export function pushDisabledWorkflowPresets(): void {
+  if (!worker || !workerReady) return;
+  worker.postMessage({
+    type: 'set-disabled-workflow-presets',
+    ids: parseDisabledWorkflowPresets(readSettingsState()?.disabledWorkflowPresets),
   } satisfies AgentCommand);
 }
 

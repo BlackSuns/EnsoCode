@@ -157,6 +157,7 @@ function PresetList({ conversationId }: { conversationId: string }) {
   const { t } = useI18n();
   const [presets, setPresets] = useState<WorkflowPresetSummary[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+  const disabled = useSettingsStore((state) => state.disabledWorkflowPresets);
   const load = useCallback(() => {
     let cancelled = false;
     window.electronAPI.assets
@@ -172,6 +173,10 @@ function PresetList({ conversationId }: { conversationId: string }) {
     };
   }, [conversationId]);
   useEffect(load, [load]);
+  // 开关状态在渲染侧设置里，切换即时生效；worker 执行时同样拦截已禁用的内置预设
+  const visible = presets.filter(
+    (preset) => preset.source !== 'builtin' || !disabled.includes(preset.id)
+  );
   return (
     <section>
       <div className="mb-1.5 flex items-center gap-2">
@@ -202,7 +207,7 @@ function PresetList({ conversationId }: { conversationId: string }) {
         </Button>
       </div>
       <ul className="space-y-1.5">
-        {presets.map((preset) => (
+        {visible.map((preset) => (
           <PresetRow
             key={`${preset.source}:${preset.id}`}
             conversationId={conversationId}

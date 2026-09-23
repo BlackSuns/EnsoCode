@@ -31,6 +31,20 @@ export interface WorkflowMemberGroup {
 
 export type WorkflowPresetSource = 'project' | 'custom' | 'global' | 'builtin';
 
+const WORKFLOW_PRESET_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const MAX_DISABLED_WORKFLOW_PRESETS = 64;
+
+export function isWorkflowPresetId(id: string): boolean {
+  return WORKFLOW_PRESET_ID_RE.test(id);
+}
+
+/** 设置里禁用的内置预设 id：跨进程边界收窄，坏值丢弃 */
+export function parseDisabledWorkflowPresets(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value.filter((id): id is string => typeof id === 'string' && isWorkflowPresetId(id));
+  return [...new Set(ids)].slice(0, MAX_DISABLED_WORKFLOW_PRESETS);
+}
+
 export interface WorkflowPresetArg {
   key: string;
   label: string;

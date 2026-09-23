@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type {
-  WorkflowPresetArg,
-  WorkflowPresetDraft,
-  WorkflowPresetSaveResult,
-  WorkflowPresetSource,
-  WorkflowPresetSummary,
+import {
+  isWorkflowPresetId,
+  type WorkflowPresetArg,
+  type WorkflowPresetDraft,
+  type WorkflowPresetSaveResult,
+  type WorkflowPresetSource,
+  type WorkflowPresetSummary,
 } from '@shared/types/workflow';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
@@ -19,15 +20,10 @@ export interface WorkflowPresetRoot {
   source: Exclude<WorkflowPresetSource, 'builtin'>;
 }
 
-const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ARG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const HEADER_RE = /^\/\*---\r?\n([\s\S]*?)\r?\n---\*\//;
 const MAX_FILE_BYTES = 64 * 1024;
 const MAX_ARGS = 8;
-
-export function isWorkflowPresetId(id: string): boolean {
-  return ID_RE.test(id);
-}
 
 function text(value: unknown, max: number): string | null {
   if (typeof value !== 'string') return null;
@@ -120,17 +116,22 @@ function rootIds(root: WorkflowPresetRoot): string[] {
 
 export function loadWorkflowPreset(
   id: string,
-  roots: readonly WorkflowPresetRoot[]
+  roots: readonly WorkflowPresetRoot[],
+  disabledBuiltins: readonly string[] = []
 ): WorkflowPreset | null {
   if (!isWorkflowPresetId(id)) return null;
   for (const root of roots) {
     const preset = readPresetFile(root, id);
     if (preset) return preset;
   }
+  if (disabledBuiltins.includes(id)) return null;
   return builtinPresets().find((preset) => preset.id === id) ?? null;
 }
 
-export function listWorkflowPresets(roots: readonly WorkflowPresetRoot[]): WorkflowPresetSummary[] {
+export function listWorkflowPresets(
+  roots: readonly WorkflowPresetRoot[],
+  disabledBuiltins: readonly string[] = []
+): WorkflowPresetSummary[] {
   const seen = new Set<string>();
   const list: WorkflowPresetSummary[] = [];
   const add = (preset: WorkflowPreset | null) => {
@@ -139,8 +140,13 @@ export function listWorkflowPresets(roots: readonly WorkflowPresetRoot[]): Workf
     list.push(summary(preset));
   };
   for (const root of roots) for (const id of rootIds(root)) add(readPresetFile(root, id));
-  for (const preset of builtinPresets()) add(preset);
+  for (const preset of builtinPresets()) if (!disabledBuiltins.includes(preset.id)) add(preset);
   return list;
+}
+
+/** 设置页展示内置预设（含已禁用的），不带脚本正文 */
+export function listBuiltinWorkflowPresets(): WorkflowPresetSummary[] {
+  return builtinPresets().map(summary);
 }
 
 function summary(preset: WorkflowPreset): WorkflowPresetSummary {

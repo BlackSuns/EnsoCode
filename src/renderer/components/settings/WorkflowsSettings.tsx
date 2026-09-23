@@ -18,8 +18,10 @@ import {
 } from '@/components/ui/dialog';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useI18n } from '@/i18n';
+import { useSettingsStore } from '@/stores/settings';
 
 const NEW_DRAFT: WorkflowPresetDraft = {
   name: '',
@@ -229,12 +231,16 @@ function WorkflowPresetDialog({
 
 export function WorkflowsSettings() {
   const { t } = useI18n();
-  const [presets, setPresets] = React.useState<WorkflowPresetSummary[]>([]);
+  const [all, setAll] = React.useState<WorkflowPresetSummary[]>([]);
   const [editing, setEditing] = React.useState<string | 'new' | null>(null);
+  const disabled = useSettingsStore((state) => state.disabledWorkflowPresets);
+  const toggleWorkflowPreset = useSettingsStore((state) => state.toggleWorkflowPreset);
   const reload = React.useCallback(() => {
-    void window.electronAPI.workflowPresets.list().then(setPresets);
+    void window.electronAPI.workflowPresets.list().then(setAll);
   }, []);
   React.useEffect(reload, [reload]);
+  const presets = all.filter((preset) => preset.source !== 'builtin');
+  const builtins = all.filter((preset) => preset.source === 'builtin');
 
   return (
     <div className="space-y-6">
@@ -256,52 +262,93 @@ export function WorkflowsSettings() {
         </Button>
       </div>
 
-      {presets.length === 0 ? (
-        <div className="rounded-md border border-dashed px-3 py-8 text-center">
-          <Workflow className="mx-auto h-5 w-5 text-muted-foreground" />
-          <p className="mt-3 font-medium text-sm">{t('No workflow presets yet')}</p>
-        </div>
-      ) : (
-        <div className="space-y-1">
-          {presets.map((preset) => (
-            <div
-              key={preset.id}
-              className="group flex items-center justify-between gap-3 rounded-md px-3 py-2 transition-colors hover:bg-accent/50"
-              data-settings-row={`workflows.${preset.id}`}
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm">{preset.name}</span>
-                  <Badge variant="secondary" className="shrink-0 font-mono text-[11px]">
-                    {preset.id}
-                  </Badge>
+      <div className="space-y-2">
+        <h4 className="font-medium text-muted-foreground text-xs">{t('Custom presets')}</h4>
+        {presets.length === 0 ? (
+          <div className="rounded-md border border-dashed px-3 py-8 text-center">
+            <Workflow className="mx-auto h-5 w-5 text-muted-foreground" />
+            <p className="mt-3 font-medium text-sm">{t('No custom workflow presets yet')}</p>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {presets.map((preset) => (
+              <div
+                key={preset.id}
+                className="group flex items-center justify-between gap-3 rounded-md px-3 py-2 transition-colors hover:bg-accent/50"
+                data-settings-row={`workflows.${preset.id}`}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{preset.name}</span>
+                    <Badge variant="secondary" className="shrink-0 font-mono text-[11px]">
+                      {preset.id}
+                    </Badge>
+                  </div>
+                  <p className="truncate text-muted-foreground text-xs">{preset.description}</p>
                 </div>
-                <p className="truncate text-muted-foreground text-xs">{preset.description}</p>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-label={t('Edit')}
+                    onClick={() => setEditing(preset.id)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                    aria-label={t('Delete')}
+                    onClick={() =>
+                      void window.electronAPI.workflowPresets.delete(preset.id).then(reload)
+                    }
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
-                  aria-label={t('Edit')}
-                  onClick={() => setEditing(preset.id)}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                  aria-label={t('Delete')}
-                  onClick={() =>
-                    void window.electronAPI.workflowPresets.delete(preset.id).then(reload)
-                  }
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {builtins.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="font-medium text-muted-foreground text-xs">{t('Built-in presets')}</h4>
+          <div className="space-y-1">
+            {builtins.map((preset) => (
+              <div
+                key={preset.id}
+                className="flex items-center justify-between gap-3 rounded-md px-3 py-2 transition-colors hover:bg-accent/50"
+                data-settings-row={`workflows.builtin.${preset.id}`}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{t(preset.name)}</span>
+                    <Badge variant="secondary" className="shrink-0 font-mono text-[11px]">
+                      {preset.id}
+                    </Badge>
+                  </div>
+                  <p className="text-muted-foreground text-xs">{t(preset.description)}</p>
+                  {preset.args.length > 0 && (
+                    <p className="mt-0.5 text-muted-foreground text-xs">
+                      {t('Arguments')}:{' '}
+                      {preset.args
+                        .map((arg) => `${t(arg.label)}${arg.required ? ' *' : ''}`)
+                        .join(' · ')}
+                    </p>
+                  )}
+                </div>
+                <Switch
+                  aria-label={t(preset.name)}
+                  checked={!disabled.includes(preset.id)}
+                  onCheckedChange={(checked) => toggleWorkflowPreset(preset.id, checked)}
+                />
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
