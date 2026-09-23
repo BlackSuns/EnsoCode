@@ -580,8 +580,9 @@ function buildMessageTimeline(
         return;
       }
       if (text || images.length > 0) {
-        const hasNextReply =
-          messageIndex + 1 < messages.length && messages[messageIndex + 1].role !== 'user';
+        let next = messageIndex + 1;
+        while (messages[next]?.role === 'system') next++;
+        const hasNextReply = next < messages.length && messages[next].role !== 'user';
         const isLastTurn = messageIndex === lastUserMessageIndex;
         const canCollapse = hasNextReply && !(running && isLastTurn);
         const userItem: Extract<TimelineItem, { kind: 'user' }> = {

@@ -37,5 +37,6 @@ export function silentTurnKind(
   messages: ProjectedMessage[] | undefined
 ): SilentTurnKind | undefined {
   if (!isSilentAssistantTurn(messages?.at(-1))) return undefined;
-  return messages?.at(-2)?.role === 'toolResult' ? 'post-tool' : 'empty';
+  const previous = messages?.findLast((m, i) => i < messages.length - 1 && m.role !== 'system');
+  return previous?.role === 'toolResult' ? 'post-tool' : 'empty';
 }

@@ -76,6 +76,7 @@ import {
   buildApprovalReviewUserPrompt,
   computeApprovalActionHash,
   normalizeReviewDecision,
+  recentReviewMessages,
 } from './approvalReview';
 import { AskManager, createAskTool } from './ask';
 import { ensureAssistantUsage } from './assistantUsage';
@@ -3418,18 +3419,11 @@ export class SessionSupervisor {
         error.name = 'AbortError';
         throw error;
       }
-      const recentMessages =
-        [...this.sessions.values()]
-          .find((session) =>
-            session.gate.snapshot().some((item) => item.requestId === info.requestId)
-          )
-          ?.messages.slice(-8)
-          .map((message) => ({
-            role: message.role,
-            content: message.content
-              .map((part) => (part.type === 'text' ? part.text : ''))
-              .join('\n'),
-          })) ?? [];
+      const recentMessages = recentReviewMessages(
+        [...this.sessions.values()].find((session) =>
+          session.gate.snapshot().some((item) => item.requestId === info.requestId)
+        )?.messages ?? []
+      );
       const message = await runtime.completeSimple(
         model,
         {
