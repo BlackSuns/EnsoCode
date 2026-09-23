@@ -56,6 +56,14 @@ const checks = {
     peer.close();
     return 'loaded';
   },
+  'pi-tui native': async () => {
+    const { getNativeClipboard } = await appImport('@earendil-works/pi-tui');
+    // Linux 原生剪贴板依赖 X11 DISPLAY，CI 无头环境按设计返回 undefined
+    if (process.platform === 'linux' && !process.env.DISPLAY) return 'skipped (no DISPLAY)';
+    const helper = getNativeClipboard();
+    if (typeof helper?.getText !== 'function') throw new Error('native clipboard helper missing');
+    return 'loaded';
+  },
   ripgrep: () =>
     execFileSync(unpacked(appRequire('@vscode/ripgrep').rgPath), ['--version'])
       .toString()
