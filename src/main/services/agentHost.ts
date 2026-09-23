@@ -142,13 +142,22 @@ export function setAgentEventListener(
   onEvent = listener;
 }
 
+/** worker 数据根（ENSO_AGENT_DATA_DIR）；worker 在其下读 workflows/ 等 Main 写入的内容。 */
+export function agentDataDir(): string {
+  return path.join(app.getPath('userData'), 'agent');
+}
+
+export function customWorkflowPresetDir(): string {
+  return path.join(agentDataDir(), 'workflows');
+}
+
 export function startAgentWorker(): void {
   if (worker) return;
   const child = utilityProcess.fork(agentWorkerPath, [], {
     serviceName: 'enso-agent-worker',
     env: {
       ...process.env,
-      ENSO_AGENT_DATA_DIR: path.join(app.getPath('userData'), 'agent'),
+      ENSO_AGENT_DATA_DIR: agentDataDir(),
       PI_CODING_AGENT_DIR: path.join(app.getPath('userData'), 'agent', 'pi-agent'),
       ENSO_RTK_PATH: bundledRtkPath({
         packaged: app.isPackaged,

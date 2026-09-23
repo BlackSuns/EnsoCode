@@ -29,6 +29,34 @@ export interface WorkflowMemberGroup {
   members: WorkflowMemberSnapshot[];
 }
 
+export type WorkflowPresetSource = 'project' | 'custom' | 'global' | 'builtin';
+
+export interface WorkflowPresetArg {
+  key: string;
+  label: string;
+  default?: string;
+  required?: boolean;
+}
+
+/** 侧边栏展示用；脚本正文只在 worker 执行时按 id 读取，不经 renderer。 */
+export interface WorkflowPresetSummary {
+  id: string;
+  source: WorkflowPresetSource;
+  name: string;
+  description: string;
+  args: WorkflowPresetArg[];
+}
+
+/** 设置页编辑的表单内容；脚本不含注释头，保存时由 Main 序列化成预设文件。 */
+export interface WorkflowPresetDraft {
+  name: string;
+  description: string;
+  args: WorkflowPresetArg[];
+  script: string;
+}
+
+export type WorkflowPresetSaveResult = { ok: true; id: string } | { ok: false; error: string };
+
 export function groupWorkflowMembers(
   members: readonly WorkflowMemberSnapshot[]
 ): WorkflowMemberGroup[] {

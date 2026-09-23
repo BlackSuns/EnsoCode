@@ -365,6 +365,9 @@ export const IPC_PRODUCT_COVERAGE = {
   ),
   ASSETS_COLLECT_IMPORT: excluded('Second phase of the reviewed asset import flow.'),
   ASSETS_LIST_PROJECT_SKILLS: surfaces('skills.list'),
+  ASSETS_LIST_WORKFLOW_PRESETS: excluded(
+    'Side panel workflow preset list; runs go through conversations.send.'
+  ),
   ASSETS_SKILL_OCCUPANCY: excluded('Settings occupancy estimate from local skill files.'),
   ASSETS_INSTRUCTION_OCCUPANCY: excluded('Settings occupancy estimate from instruction files.'),
   ASSETS_MCP_OCCUPANCY: excluded('Settings occupancy estimate from MCP listTools.'),
@@ -373,6 +376,10 @@ export const IPC_PRODUCT_COVERAGE = {
   INSTRUCTIONS_WRITE: surfaces('instructions.edit-local-copy'),
   INSTRUCTIONS_WRITE_SOURCE: surfaces('instructions.overwrite-source'),
   INSTRUCTIONS_DELETE: surfaces('instructions.remove'),
+  WORKFLOW_PRESETS_LIST: excluded('Settings workflow preset editor list.'),
+  WORKFLOW_PRESETS_READ: excluded('Settings workflow preset editor load.'),
+  WORKFLOW_PRESETS_SAVE: excluded('Settings workflow preset editor save.'),
+  WORKFLOW_PRESETS_DELETE: excluded('Settings workflow preset editor delete.'),
   PRESETS_SYSTEM_PROMPT_READ: excluded('Settings-only preset editor content read.'),
   PRESETS_SYSTEM_PROMPT_WRITE: excluded('Settings-only preset editor content write.'),
   AGENT_SPAWN: excluded('Lazy worker lifecycle command behind conversation send.'),

@@ -89,6 +89,7 @@ export const IPC_CHANNELS = {
   ASSETS_SCAN_LOCAL: 'assets:scan-local',
   ASSETS_COLLECT_IMPORT: 'assets:collect-import',
   ASSETS_LIST_PROJECT_SKILLS: 'assets:list-project-skills',
+  ASSETS_LIST_WORKFLOW_PRESETS: 'assets:list-workflow-presets',
   ASSETS_SKILL_OCCUPANCY: 'assets:skill-occupancy',
   ASSETS_INSTRUCTION_OCCUPANCY: 'assets:instruction-occupancy',
   ASSETS_MCP_OCCUPANCY: 'assets:mcp-occupancy',
@@ -106,6 +107,11 @@ export const IPC_CHANNELS = {
   INSTRUCTIONS_WRITE: 'instructions:write',
   INSTRUCTIONS_WRITE_SOURCE: 'instructions:write-source',
   INSTRUCTIONS_DELETE: 'instructions:delete',
+  // Settings-managed workflow presets (userData/agent/workflows)
+  WORKFLOW_PRESETS_LIST: 'workflow-presets:list',
+  WORKFLOW_PRESETS_READ: 'workflow-presets:read',
+  WORKFLOW_PRESETS_SAVE: 'workflow-presets:save',
+  WORKFLOW_PRESETS_DELETE: 'workflow-presets:delete',
 
   // Preset custom system prompt content (UUID-backed external files)
   PRESETS_SYSTEM_PROMPT_READ: 'presets:system-prompt-read',

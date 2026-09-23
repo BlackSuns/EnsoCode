@@ -1,6 +1,7 @@
 import { formatUiElementRefLine, parseUiElementRefLine } from '@shared/browser/designMode';
 import type { AttachedImage } from '@shared/types/agent';
 import type { AgentTypeMentionCandidate, MentionCandidate } from '@shared/types/mentions';
+import { parseWorkflowPresetMessage } from '@shared/workflowPresetMessage';
 
 export interface ComposerPayload {
   text: string;
@@ -189,6 +190,8 @@ export function cleanTitleSummarySource(text: string): string {
  * 引用块折叠成 @标题；空则兜底 '[image]'。
  */
 export function extractRepresentativeTitle(text: string): string {
+  const workflow = parseWorkflowPresetMessage(text);
+  if (workflow) return workflow.name.slice(0, 40);
   const displayed = mentionDisplayText(text);
   const lines = displayed
     .split('\n')

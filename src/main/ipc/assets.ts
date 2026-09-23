@@ -2,7 +2,16 @@ import type { InstructionEntry, McpServerEntry, SkillEntry } from '@shared/types
 import { IPC_CHANNELS } from '@shared/types';
 import { ipcMain } from 'electron';
 import { snapshotBuiltinOccupancyTools } from '../../agent/builtinOccupancy';
-import { readSettingsState } from '../services/agentHost';
+import {
+  deleteCustomWorkflowPreset,
+  listCustomWorkflowPresets,
+  listWorkflowPresets,
+  parseWorkflowPresetDraft,
+  readCustomWorkflowPreset,
+  saveCustomWorkflowPreset,
+  workflowPresetRoots,
+} from '../../agent/workflowPresets';
+import { customWorkflowPresetDir, readSettingsState } from '../services/agentHost';
 import {
   instructionReader,
   occupancyForBuiltinTools,
@@ -13,6 +22,7 @@ import {
 } from '../services/assetOccupancy';
 import { collectAssetImport, scanLocalAssets } from '../services/assetScan';
 import { listProjectSkills } from '../services/assetScan/skills';
+import { resolveLocalCwdForBrowser } from '../services/browserFileRoot';
 import {
   deleteInstruction,
   readInstruction,
@@ -85,6 +95,33 @@ export function registerAssetHandlers(): void {
       includeHarness: readSettingsState()?.loadHarnessAssets === true,
     });
   });
+
+  ipcMain.handle(IPC_CHANNELS.ASSETS_LIST_WORKFLOW_PRESETS, (_event, conversationId: unknown) => {
+    if (typeof conversationId !== 'string' || !conversationId) return [];
+    // 与 worker 执行同口径：本地会话含项目根（worktree 感知），远程只列设置、全局与内置
+    const cwd = resolveLocalCwdForBrowser(conversationId) ?? undefined;
+    return listWorkflowPresets(workflowPresetRoots(cwd, { customDir: customWorkflowPresetDir() }));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_PRESETS_LIST, () =>
+    listCustomWorkflowPresets(customWorkflowPresetDir())
+  );
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_PRESETS_READ, (_event, id: unknown) =>
+    typeof id === 'string' ? readCustomWorkflowPreset(customWorkflowPresetDir(), id) : null
+  );
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_PRESETS_SAVE, (_event, draft: unknown, id: unknown) => {
+    const parsed = parseWorkflowPresetDraft(draft);
+    if (!parsed || (id !== undefined && typeof id !== 'string')) {
+      return { ok: false, error: 'Invalid workflow preset' };
+    }
+    return saveCustomWorkflowPreset(customWorkflowPresetDir(), parsed, id);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_PRESETS_DELETE, (_event, id: unknown) =>
+    typeof id === 'string' ? deleteCustomWorkflowPreset(customWorkflowPresetDir(), id) : false
+  );
 
   ipcMain.handle(IPC_CHANNELS.ASSETS_SKILL_OCCUPANCY, (_event, ids: unknown) =>
     occupancyForSkills(parseOccupancyIds(ids), asSkills(settingsState().skills))

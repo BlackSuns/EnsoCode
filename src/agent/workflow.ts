@@ -4,6 +4,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { AgentControlToolRequest, AgentControlToolResponse } from '@shared/types/agent';
 import type { WorkflowMemberSnapshot, WorkflowRunSnapshot } from '@shared/types/workflow';
 import { JSException, type JSValueHandle, QuickJS } from 'quickjs-wasi';
+import { resolveWorkflowPresetArgs, type WorkflowPreset } from './workflowPresets';
 
 const require = createRequire(import.meta.url);
 let wasmModule: Promise<WebAssembly.Module> | undefined;
@@ -24,6 +25,7 @@ const LOG_LIMIT = 20;
 export interface WorkflowToolDeps {
   invoke(request: AgentControlToolRequest, signal?: AbortSignal): Promise<AgentControlToolResponse>;
   emit(run: WorkflowRunSnapshot): void;
+  loadPreset?: (id: string) => WorkflowPreset | null;
   randomUuid?: () => string;
 }
 
@@ -462,12 +464,14 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
     label: 'Workflow',
     description:
       'Run a JavaScript workflow that fans work out across subagents. Use only when the user asks for a workflow or a large multi-agent fan-out. ' +
+      'Pass either preset (id of a saved workflow the user named) or script + meta. ' +
       'The script is plain JavaScript with top-level await and must return a JSON value. Hooks: agent(prompt, opts?), parallel(thunks), pipeline(items, ...stages), phase(title), log(message), args. ' +
       'A failed child resolves to null. Bad hook arguments fail the whole run. The script cannot use filesystem, network, timers, or Node APIs. Status is shown in the side panel.',
     promptSnippet:
       'workflow: write a JavaScript orchestration script that fans subagents out. Use only for an explicit workflow request or a large fan-out. One or two delegations should use subagent.',
     promptGuidelines: [
       'Use workflow only when the user asks for a workflow or for large multi-agent orchestration.',
+      'Use preset only with an id the user gave you; never guess preset ids or rewrite a preset as a script.',
       'script is plain JavaScript, not TypeScript, with top-level await. End with return <json>.',
       'agent() options are only label, phase, model, agentType, and schema. Anything else fails the run.',
       'Child failure returns null. Do not treat null as success without checking it.',
@@ -475,18 +479,22 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
     parameters: {
       type: 'object',
       additionalProperties: false,
-      required: ['script', 'meta'],
+      required: [],
       properties: {
+        preset: {
+          type: 'string',
+          description: 'Id of a saved workflow preset to run instead of script + meta.',
+        },
         script: {
           type: 'string',
           description:
-            'Plain JavaScript body. Top-level await is allowed. End with return <json-value>.',
+            'Plain JavaScript body. Top-level await is allowed. End with return <json-value>. Required without preset.',
         },
         meta: {
           type: 'object',
           additionalProperties: false,
           required: ['name', 'description'],
-          description: 'Workflow identity. Plain JSON, never code.',
+          description: 'Workflow identity. Plain JSON, never code. Required without preset.',
           properties: {
             name: { type: 'string', description: 'Short kebab-case workflow name.' },
             description: { type: 'string', description: 'One-line description of the workflow.' },
@@ -501,17 +509,29 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
     } as unknown as ToolDefinition['parameters'],
     async execute(_toolCallId, params, signal) {
       const record = (params ?? {}) as Record<string, unknown>;
-      const script = typeof record.script === 'string' ? record.script : '';
-      const meta = parseMeta(record.meta);
-      if (!script.trim() || !meta)
-        throw new Error('workflow requires script, meta.name, and meta.description');
       if (record.args !== undefined && !isRecord(record.args)) {
         throw new Error('workflow args must be a JSON object');
       }
+      const presetId = typeof record.preset === 'string' ? record.preset.trim() : '';
+      let script = typeof record.script === 'string' ? record.script : '';
+      let meta = parseMeta(record.meta);
+      let args: Record<string, unknown> = isRecord(record.args) ? record.args : {};
+      if (presetId) {
+        if (script.trim()) throw new Error('workflow accepts either preset or script, not both');
+        const preset = deps.loadPreset?.(presetId) ?? null;
+        if (!preset) throw new Error(`unknown workflow preset: ${presetId}`);
+        const resolved = resolveWorkflowPresetArgs(preset, args);
+        if (!resolved.ok) throw new Error(resolved.error);
+        script = preset.script;
+        meta = { name: preset.name, description: preset.description };
+        args = resolved.args;
+      }
+      if (!script.trim() || !meta)
+        throw new Error('workflow requires preset, or script with meta.name and meta.description');
       const state = new WorkflowRunState(deps.randomUuid?.() ?? crypto.randomUUID(), meta);
       let result: Awaited<ReturnType<typeof runScript>>;
       try {
-        result = await runScript(deps, state, script, record.args ?? {}, signal);
+        result = await runScript(deps, state, script, args, signal);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         state.finish(signal?.aborted ? 'cancelled' : 'failed', message);

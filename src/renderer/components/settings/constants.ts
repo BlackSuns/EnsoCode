@@ -11,6 +11,7 @@ export type SettingsCategory =
   | 'instructions'
   | 'presets'
   | 'agents'
+  | 'workflows'
   | 'tools'
   | 'memory'
   | 'phone'

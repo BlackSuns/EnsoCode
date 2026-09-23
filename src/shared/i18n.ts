@@ -1105,6 +1105,37 @@ export const zhTranslations: Record<string, string> = {
   'Run a JavaScript workflow that fans work out across subagents. Live status appears in the side panel.':
     '运行一段扇出子代理的 JavaScript 工作流。实时状态显示在右侧栏。',
   'No workflow runs': '还没有工作流',
+  Run: '运行',
+  'Workflow preset': '预设工作流',
+  'Manage workflow presets': '管理工作流预设',
+  Workflows: '工作流',
+  'Preset workflows you can run from the Workflow side panel':
+    '可在侧边栏「工作流」面板中运行的预设',
+  'Project .agents/workflows files take precedence over these; ~/.agents/workflows and built-in presets come after.':
+    '同名时项目 .agents/workflows 下的文件优先于这里，其次是 ~/.agents/workflows 和内置预设。',
+  'Add workflow preset': '新增工作流预设',
+  'Edit workflow preset': '编辑工作流预设',
+  'No workflow presets yet': '还没有工作流预设',
+  Label: '显示名',
+  'Default value': '默认值',
+  Required: '必填',
+  'Add argument': '添加参数',
+  Script: '脚本',
+  'Plain JavaScript with top-level await; end with return. Available: agent(prompt, opts), parallel, pipeline, phase, log, args.':
+    '纯 JavaScript，支持顶层 await，以 return 结束。可用：agent(prompt, opts)、parallel、pipeline、phase、log、args。',
+  'Workflow preset not found': '工作流预设不存在',
+  'Workflow preset is larger than 64 KB': '工作流预设超过 64 KB',
+  'Invalid workflow preset':
+    '工作流预设无效：检查参数名（字母、数字、下划线），且各字段不能包含 */',
+  'Parallel review': '并行审查',
+  'Review a change set in parallel along several dimensions with read-only reviewers.':
+    '用只读审查代理按多个维度并行审查一组改动。',
+  'Review scope': '审查范围',
+  'Dimensions (comma separated)': '审查维度（逗号分隔）',
+  'Multi-angle investigation': '多角度调研',
+  'Investigate one question from implementation, tests and docs in parallel with read-only scouts.':
+    '用只读侦察代理从实现、测试、文档三个角度并行调研同一个问题。',
+  Question: '问题',
   Parallel: '并行',
   '{{count}} agents': '{{count}} 个子代理',
   'One-shot subagent: delegate a self-contained task and return a final report (parallel or async)':

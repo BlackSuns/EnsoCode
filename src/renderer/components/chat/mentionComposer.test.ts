@@ -1,4 +1,5 @@
 import type { AgentTypeCandidate } from '@shared/builtinAgents';
+import { buildWorkflowPresetMessage } from '@shared/workflowPresetMessage';
 import { describe, expect, it } from 'vitest';
 import {
   flattenMentionGroups,
@@ -713,6 +714,15 @@ describe('mentionPopupLayout', () => {
   describe('extractRepresentativeTitle：提取首条消息的代表行作为暂存标题', () => {
     it('普通单行直接作为标题（截断40字符）', () => {
       expect(extractRepresentativeTitle('普通消息')).toBe('普通消息');
+    });
+
+    it('预设工作流消息取显示名，不露出块标记', () => {
+      const text = buildWorkflowPresetMessage({
+        id: 'multi-angle-investigation',
+        name: '多角度调研',
+        args: { question: 'q' },
+      });
+      expect(extractRepresentativeTitle(text)).toBe('多角度调研');
     });
 
     it('跳过首行的「从这里继续:」，取后续真实用户输入', () => {

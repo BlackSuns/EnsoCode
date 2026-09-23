@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createWorkflowTool, workflowChildOutcome } from './workflow';
+import { loadWorkflowPreset } from './workflowPresets';
 
 describe('workflowChildOutcome', () => {
   it('成功子代理取文本，失败、超时和中断都不是成功', () => {
@@ -24,6 +25,7 @@ describe('workflow tool', () => {
       required: string[];
       additionalProperties: boolean;
       properties: {
+        preset: { type: string };
         script: { type: string };
         meta: { type: string; required: string[]; properties: { name: { type: string } } };
         args: { type: string };
@@ -31,7 +33,8 @@ describe('workflow tool', () => {
     };
     expect(parameters.type).toBe('object');
     expect(parameters.additionalProperties).toBe(false);
-    expect(parameters.required).toEqual(['script', 'meta']);
+    expect(parameters.required).toEqual([]);
+    expect(parameters.properties.preset.type).toBe('string');
     expect(parameters.properties.script.type).toBe('string');
     expect(parameters.properties.meta.type).toBe('object');
     expect(parameters.properties.meta.required).toEqual(['name', 'description']);
@@ -169,6 +172,92 @@ describe('workflow tool', () => {
     expect(emit.mock.calls.at(-1)?.[0]).toMatchObject({
       status: 'failed',
       error: expect.stringMatching(/not supported/),
+    });
+  });
+
+  describe('preset', () => {
+    const saved = {
+      id: 'echo',
+      source: 'project' as const,
+      name: 'Echo preset',
+      description: 'Return the resolved args',
+      args: [
+        { key: 'target', label: 'Target', default: 'HEAD' },
+        { key: 'focus', label: 'Focus', required: true },
+      ],
+      script: 'return args;',
+    };
+    const make = () => {
+      const emit = vi.fn();
+      const loadPreset = vi.fn((id: string) => (id === 'echo' ? saved : null));
+      const tool = createWorkflowTool({
+        invoke: vi.fn(),
+        emit,
+        loadPreset,
+        randomUuid: () => 'wf-p',
+      });
+      const run = (params: Record<string, unknown>) =>
+        tool.execute('call-p', params, undefined, undefined, {} as never);
+      return { emit, run };
+    };
+
+    it('按 id 运行预设脚本，补默认参数并用预设元数据展示', async () => {
+      const { emit, run } = make();
+      const result = await run({ preset: 'echo', args: { focus: 'perf' } });
+      expect(result.details).toMatchObject({ result: { target: 'HEAD', focus: 'perf' } });
+      expect(emit.mock.calls.at(-1)?.[0]).toMatchObject({
+        name: 'Echo preset',
+        description: 'Return the resolved args',
+        status: 'completed',
+      });
+    });
+
+    it('未知预设、同时给脚本、缺必填参数都在启动前拒绝', async () => {
+      const { emit, run } = make();
+      await expect(run({ preset: 'nope' })).rejects.toThrow(/unknown workflow preset/);
+      await expect(
+        run({ preset: 'echo', script: 'return 1;', args: { focus: 'x' } })
+      ).rejects.toThrow(/either preset or script/);
+      await expect(run({ preset: 'echo' })).rejects.toThrow(/focus/);
+      expect(emit).not.toHaveBeenCalled();
+    });
+
+    it('内置预设在沙箱里按默认参数扇出只读子代理', async () => {
+      const invoke = vi.fn(async (request) => {
+        if (request.operation === 'report') return { ok: true as const, value: { text: 'none' } };
+        return {
+          ok: true as const,
+          value: {
+            agentId: `child-${request.description}`,
+            runId: request.description,
+            report: { runs: [{ status: 'succeeded' }], timedOut: false, interrupted: false },
+          },
+        };
+      });
+      const tool = createWorkflowTool({
+        invoke,
+        emit: vi.fn(),
+        loadPreset: (id) => loadWorkflowPreset(id, []),
+      });
+      const result = await tool.execute(
+        'call-b',
+        { preset: 'parallel-review' },
+        undefined,
+        undefined,
+        {} as never
+      );
+      expect(result.details).toMatchObject({
+        agentsStarted: 3,
+        result: [
+          { dimension: 'correctness', findings: 'none' },
+          { dimension: 'security', findings: 'none' },
+          { dimension: 'performance', findings: 'none' },
+        ],
+      });
+      const spawns = invoke.mock.calls
+        .map(([request]) => request)
+        .filter((r) => r.operation === 'spawn');
+      expect(spawns.every((r) => r.agentType === 'reviewer')).toBe(true);
     });
   });
 });
