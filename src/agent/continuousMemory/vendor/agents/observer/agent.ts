@@ -185,8 +185,7 @@ ${conversation}`;
 	];
 
 	const context: AgentContext = {
-		systemPrompt: OBSERVER_SYSTEM,
-		messages: [],
+		messages: [{ role: "system", content: OBSERVER_SYSTEM, timestamp: Date.now() }],
 		tools: [recordObservations as AgentTool<any>],
 	};
 
@@ -205,9 +204,10 @@ ${conversation}`;
 		...(reasoning && thinkingLevel !== "off" ? { reasoning: thinkingLevel } : {}),
 		...(effectiveMaxTurns !== undefined
 			? {
-				shouldStopAfterTurn: () => {
-					turnCount++;
-					return turnCount >= effectiveMaxTurns;
+				finishTurn: (turn: { message: { stopReason?: string } }) => {
+					if (turn.message.stopReason === "error" || turn.message.stopReason === "aborted") return;
+					turnCount += 1;
+					return turnCount >= effectiveMaxTurns ? { action: "end" as const } : undefined;
 				},
 			}
 			: {}),

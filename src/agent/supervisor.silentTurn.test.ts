@@ -95,8 +95,32 @@ function session(options: Record<string, unknown>) {
   };
   const agent = {
     state: agentState,
+    prepareRequest: undefined as
+      | ((request: {
+          context: { messages: Array<{ role?: string; content?: unknown }> };
+        }) =>
+          | { context?: { messages?: Array<{ role?: string; content?: unknown }> } }
+          | undefined
+          | Promise<{
+              context?: { messages?: Array<{ role?: string; content?: unknown }> };
+            } | undefined>)
+      | undefined,
     continue: vi.fn(async () => {
-      agent.promptAtContinue = agentState.systemPrompt;
+      const request: {
+        context: { messages: Array<{ role?: string; content?: unknown }> };
+      } = {
+        context: {
+          messages: [
+            { role: 'system', content: agentState.systemPrompt },
+            ...(agentState.messages as Array<{ role?: string; content?: unknown }>),
+          ],
+        },
+      };
+      const update = await agent.prepareRequest?.(request);
+      const messages = update?.context?.messages ?? request.context.messages;
+      const system = messages.find((message) => message.role === 'system');
+      agent.promptAtContinue =
+        typeof system?.content === 'string' ? system.content : agentState.systemPrompt;
     }),
     promptAtContinue: undefined as string | undefined,
   };

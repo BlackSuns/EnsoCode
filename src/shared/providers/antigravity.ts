@@ -16,6 +16,8 @@ import { type OauthUsageWindow, sanitizeOauthLabel } from '@shared/types';
 import { startOauthCallbackServer } from './callbackServer';
 import {
   createEventStream,
+  currentSystemPrompt,
+  currentTools,
   emptyUsage,
   type PiAssistantMessage,
   type PiContentBlock,
@@ -1074,7 +1076,7 @@ interface GeminiPart {
   thought?: boolean;
   thoughtSignature?: string;
   inlineData?: { mimeType: string; data: string };
-  functionCall?: { name: string; args: Record<string, unknown>; id?: string };
+  functionCall?: { name: string; args: PiToolCall['arguments']; id?: string };
   functionResponse?: {
     name: string;
     response: Record<string, unknown>;
@@ -1146,6 +1148,8 @@ export function convertMessages(model: PiModel, context: PiContext): GeminiConte
       if (parts.length > 0) contents.push({ role: 'model', parts });
       continue;
     }
+
+    if (message.role !== 'toolResult') continue;
 
     const textResult = message.content
       .filter((item): item is PiTextContent => item.type === 'text')
@@ -1383,11 +1387,12 @@ export function buildRequest(
     labels: envelope.labels,
     generationConfig,
   };
-  if (context.systemPrompt?.trim()) {
+  const prompt = currentSystemPrompt(context).trim();
+  if (prompt) {
     // 真实客户端把 systemInstruction 标成 role: user
-    request.systemInstruction = { role: 'user', parts: [{ text: context.systemPrompt }] };
+    request.systemInstruction = { role: 'user', parts: [{ text: prompt }] };
   }
-  const tools = convertTools(context.tools);
+  const tools = convertTools(currentTools(context));
   if (tools) request.tools = tools;
   if (options?.toolChoice === 'none') {
     request.toolConfig = { functionCallingConfig: { mode: 'NONE' } };

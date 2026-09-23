@@ -1,3 +1,4 @@
+import { normalizeContext } from '@earendil-works/pi-ai';
 import { OAUTH_LABEL_MAX_LENGTH } from '@shared/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -562,7 +563,7 @@ describe('streamSimple（假 fetch，不发真实网络）', () => {
 
     const stream = antigravityProviderConfig().streamSimple?.(
       model,
-      { messages: [] },
+      normalizeContext({ messages: [] }),
       {
         apiKey,
         fetch: fake.fetch,
@@ -608,10 +609,10 @@ describe('streamSimple（假 fetch，不发真实网络）', () => {
     );
     const stream = antigravityProviderConfig().streamSimple?.(
       model,
-      {
+      normalizeContext({
         messages: [{ role: 'user', content: 'hi', timestamp: 0 }],
         tools: [{ name: 'read', description: '读文件', parameters: { type: 'object' } as never }],
-      },
+      }),
       { apiKey, fetch: fake.fetch }
     );
     if (!stream) throw new Error('streamSimple 未注册');
@@ -643,7 +644,7 @@ describe('streamSimple（假 fetch，不发真实网络）', () => {
     const fake = fakeFetch('');
     const stream = antigravityProviderConfig().streamSimple?.(
       model,
-      { messages: [] },
+      normalizeContext({ messages: [] }),
       {
         apiKey: JSON.stringify({ access: 'tok', refresh: 'r', expires: 1, projectId: 'p' }),
         fetch: fake.fetch,
@@ -670,7 +671,7 @@ describe('streamSimple（假 fetch，不发真实网络）', () => {
 
     const stream = antigravityProviderConfig().streamSimple?.(
       model,
-      { messages: [] },
+      normalizeContext({ messages: [] }),
       {
         apiKey,
         fetch: impl,
@@ -692,7 +693,7 @@ describe('streamSimple（假 fetch，不发真实网络）', () => {
     );
     const stream = antigravityProviderConfig().streamSimple?.(
       model,
-      { messages: [] },
+      normalizeContext({ messages: [] }),
       {
         apiKey,
         fetch: fake.fetch,
@@ -857,7 +858,7 @@ describe('buildRequest 的 model 字段用解析后的 wire id', () => {
   };
 
   it('high 档发 gemini-3-flash-agent 而不是逻辑 id', () => {
-    const request = buildRequest(logicalModel, { messages: [] }, 'projects/p', {
+    const request = buildRequest(logicalModel, normalizeContext({ messages: [] }), 'projects/p', {
       reasoning: 'high',
     });
     expect(request.model).toBe('gemini-3-flash-agent');
@@ -881,7 +882,7 @@ describe('buildRequest 的 model 字段用解析后的 wire id', () => {
       api: flash38.api ?? ('google-antigravity-cca' as const),
       baseUrl: flash38.baseUrl ?? 'https://daily-cloudcode-pa.googleapis.com',
     };
-    const request = buildRequest(model, { messages: [] }, 'projects/p', {
+    const request = buildRequest(model, normalizeContext({ messages: [] }), 'projects/p', {
       reasoning: 'minimal',
     });
     expect(request.model).toBe('gemini-3.8-flash-low');
@@ -904,7 +905,7 @@ describe('buildRequest 的 model 字段用解析后的 wire id', () => {
         api: flash25.api ?? ('google-antigravity-cca' as const),
         baseUrl: flash25.baseUrl ?? 'https://daily-cloudcode-pa.googleapis.com',
       },
-      { messages: [] },
+      normalizeContext({ messages: [] }),
       'projects/p',
       {
         reasoning: 'xhigh',
@@ -919,7 +920,12 @@ describe('buildRequest 的 model 字段用解析后的 wire id', () => {
   });
 
   it('不给档位时发 requestModelId', () => {
-    const request = buildRequest(logicalModel, { messages: [] }, 'projects/p', undefined);
+    const request = buildRequest(
+      logicalModel,
+      normalizeContext({ messages: [] }),
+      'projects/p',
+      undefined
+    );
     expect(request.model).toBe('gemini-3.5-flash-extra-low');
   });
 
@@ -932,7 +938,12 @@ describe('buildRequest 的 model 字段用解析后的 wire id', () => {
       // 逻辑模型故意给一个比 wire profile 大的值，验证按 wire 取
       maxTokens: 200_000,
     };
-    const request = buildRequest(claude, { messages: [] }, 'projects/p', undefined);
+    const request = buildRequest(
+      claude,
+      normalizeContext({ messages: [] }),
+      'projects/p',
+      undefined
+    );
     expect(request.model).toBe('claude-opus-4-6-thinking');
     const generationConfig = request.request.generationConfig as { maxOutputTokens: number };
     expect(generationConfig.maxOutputTokens).toBe(
@@ -942,7 +953,12 @@ describe('buildRequest 的 model 字段用解析后的 wire id', () => {
 
   it('没有 wire profile 的 wire id 沿用逻辑模型上限', () => {
     const flashLite = { ...logicalModel, id: 'gemini-3.1-flash-lite', maxTokens: 65_535 };
-    const request = buildRequest(flashLite, { messages: [] }, 'projects/p', undefined);
+    const request = buildRequest(
+      flashLite,
+      normalizeContext({ messages: [] }),
+      'projects/p',
+      undefined
+    );
     expect(request.model).toBe('gemini-3.1-flash-lite');
     expect(ANTIGRAVITY_WIRE_MAX_OUTPUT_TOKENS['gemini-3.1-flash-lite']).toBeUndefined();
     const generationConfig = request.request.generationConfig as { maxOutputTokens: number };
@@ -968,7 +984,7 @@ describe('buildRequest 的 model 字段用解析后的 wire id', () => {
         api: raw.api ?? ('google-antigravity-cca' as const),
         baseUrl: raw.baseUrl ?? 'https://daily-cloudcode-pa.googleapis.com',
       },
-      { messages: [] },
+      normalizeContext({ messages: [] }),
       'projects/p',
       { reasoning: 'low' }
     );
@@ -1238,7 +1254,7 @@ describe('Antigravity 请求信封会话隔离', () => {
     maxTokens: 65_535,
   };
   const envelope = (sessionId?: string) =>
-    buildRequest(model, { messages: [] }, 'projects/test', {
+    buildRequest(model, normalizeContext({ messages: [] }), 'projects/test', {
       sessionId,
     });
 

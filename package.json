@@ -33,14 +33,14 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.14.0",
-    "@earendil-works/pi-agent-core": "0.85.1",
-    "@earendil-works/pi-ai": "0.85.1",
-    "@earendil-works/pi-coding-agent": "^0.85.1",
-    "@earendil-works/pi-tui": "0.85.1",
+    "@earendil-works/pi-agent-core": "0.87.1",
+    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@earendil-works/pi-tui": "0.87.1",
     "@electron-toolkit/utils": "^4.0.0",
     "@huggingface/tokenizers": "0.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@rahularya01/pi-cursor": "1.4.34",
+    "@rahularya01/pi-cursor": "1.4.36",
     "@vscode/ripgrep": "1.17.0",
     "better-sqlite3": "^13.0.3",
     "electron-updater": "^6.8.9",
@@ -134,7 +134,7 @@
       "workerd"
     ],
     "patchedDependencies": {
-      "@rahularya01/pi-cursor@1.4.34": "patches/@rahularya01__pi-cursor@1.4.34.patch"
+      "@rahularya01/pi-cursor@1.4.36": "patches/@rahularya01__pi-cursor@1.4.36.patch"
     }
   },
   "optionalDependencies": {

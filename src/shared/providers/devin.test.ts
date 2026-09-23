@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { normalizeContext } from '@earendil-works/pi-ai';
 import { describe, expect, it } from 'vitest';
 import {
   buildDevinAuthUrl,
@@ -207,7 +208,7 @@ describe('Devin streamSimple（假 fetch）', () => {
 
     const stream = devinProviderConfig().streamSimple?.(
       model,
-      {
+      normalizeContext({
         systemPrompt: 'sys',
         messages: [
           { role: 'user', content: 'hi', timestamp: 0 },
@@ -230,7 +231,7 @@ describe('Devin streamSimple（假 fetch）', () => {
           },
         ],
         tools: [{ name: 'read', description: '读文件', parameters: { type: 'object' } as never }],
-      },
+      }),
       { apiKey: 'session-token', fetch: fetchImpl }
     );
     if (!stream) throw new Error('streamSimple 未注册');

@@ -64,6 +64,7 @@ import { type EditMode, resolveEditMode } from '@shared/types/editMode';
 import { providerIdOfAccountKey } from '@shared/types/oauthProviders';
 import type { WindowsLocalShell } from '@shared/windowsLocalShell';
 import { version } from '../../package.json';
+import { AgentControlInvoker } from './agentControl';
 import {
   createApplyPatchTool,
   createRemoteApplyPatchIo,
@@ -102,7 +103,6 @@ import {
   cancelContinuousMemory,
   continuousMemoryInlineExtension,
 } from './continuousMemory/extension';
-import { AgentControlInvoker } from './agentControl';
 import { CURSOR_PROVIDER_ID, loadCursorProvider } from './cursor/loadProvider';
 import { attachCursorBridgeToSession, isCursorModel } from './cursor/sessionBridge';
 import { resolveCustomModelCompat, selectCatalogEntryForCompat } from './customModelCompat';
@@ -728,7 +728,7 @@ export class SessionSupervisor {
     managed.ensoApp?.cancelAll('Session released');
     managed.browser?.cancelAll('Session released');
     managed.memory?.cancelAll('Session released');
-      managed.agentControl?.close('Session released');
+    managed.agentControl?.close('Session released');
     try {
       await managed.session.abort();
     } catch {}
@@ -1091,9 +1091,10 @@ export class SessionSupervisor {
         if (managed.session.isStreaming || managed.status === 'running') return;
         const agent = managed.session.agent;
         const messages = agent.state.messages;
-        if (messages.at(-1)?.role === 'assistant') {
-          // 与 pi _prepareRetry 相同：错误 assistant 留在 session 历史，从模型上下文摘掉再 continue
-          agent.state.messages = messages.slice(0, -1);
+        const failed = messages.at(-1);
+        if (failed?.role === 'assistant') {
+          // 0.87 起下次请求以 SessionManager 投影为准，只改 state.messages 会被盖回去
+          omitFromModelContext(managed.session, failed);
         }
         if (agent.state.messages.at(-1)?.role === 'assistant') return;
         ensureAssistantUsage(agent.state.messages as unknown[]);
@@ -1852,11 +1853,16 @@ export class SessionSupervisor {
     };
     // 子代理：同 worker 子会话，复用 runtime/model/审批门/MCP 连接；不含 subagent/coworker（防递归）。
     // 隔离沙箱 / 探后折叠跟父会话同一开关，catalog 用子自己的工具集。
-    const agentControl = new AgentControlInvoker(identity, (event) => this.options.emit(event), randomUUID, () => {
-      const managed = managedRef ?? this.sessions.get(sessionId);
-      if (!managed) throw new Error('Agent control session is not ready.');
-      return ++managed.seq;
-    });
+    const agentControl = new AgentControlInvoker(
+      identity,
+      (event) => this.options.emit(event),
+      randomUUID,
+      () => {
+        const managed = managedRef ?? this.sessions.get(sessionId);
+        if (!managed) throw new Error('Agent control session is not ready.');
+        return ++managed.seq;
+      }
+    );
     const unifiedSubagentTool = createUnifiedSubagentTool({
       agentTypes,
       models: subagentModels,
@@ -2878,27 +2884,23 @@ export class SessionSupervisor {
     const agent = managed.session.agent;
     if (!agent) return false;
     const transcript = agent.state.messages;
-    if (transcript.at(-1)?.role !== 'assistant') return false;
-    agent.state.messages = transcript.slice(0, -1);
-    const tail = agent.state.messages.at(-1)?.role;
+    const empty = transcript.at(-1);
+    if (empty?.role !== 'assistant') return false;
+    const tail = transcript.at(-2)?.role;
     if (tail !== 'user' && tail !== 'toolResult') {
-      agent.state.messages = transcript;
       return false;
     }
+    omitFromModelContext(managed.session, empty);
     this.reconcileMessages(managed, this.transcript(managed));
     managed.silentTurnNudgeUsed = true;
     managed.silentTurnRecovering = true;
     managed.silentTurnKind = kind;
     ensureAssistantUsage(agent.state.messages as unknown[]);
-    const promptBefore = agent.state.systemPrompt;
     const nudge = kind === 'post-tool' ? POST_TOOL_EMPTY_NUDGE : SILENT_TURN_NUDGE;
-    const promptWithNudge = `${promptBefore}\n\n${nudge}`;
-    agent.state.systemPrompt = promptWithNudge;
+    const restoreNudge = installOneShotSystemNudge(agent, nudge);
     const restore = () => {
       managed.silentTurnRecovering = false;
-      if (agent.state.systemPrompt === promptWithNudge) {
-        agent.state.systemPrompt = promptBefore;
-      }
+      restoreNudge();
     };
     try {
       void agent
@@ -3744,6 +3746,48 @@ const slugify = (value: string): string =>
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+/** 错误/空 assistant 留在 jsonl，但从下次 provider 投影里拿掉。 */
+function omitFromModelContext(
+  session: AgentSession,
+  message: AgentSession['agent']['state']['messages'][number]
+): void {
+  const entry = [...session.sessionManager.getBranch()]
+    .reverse()
+    .find((item) => item.type === 'message' && item.message === message);
+  if (entry) {
+    session.sessionManager.appendContextEdit(entry.id, null);
+    session.refreshContext();
+  }
+  const messages = session.agent.state.messages;
+  if (messages.at(-1) === message) {
+    session.agent.state.messages = messages.slice(0, -1);
+  }
+}
+
+/** 只影响这一次 continue 的系统提示，不写回只读 state.systemPrompt。 */
+function installOneShotSystemNudge(agent: AgentSession['agent'], nudge: string): () => void {
+  const previous = agent.prepareRequest;
+  agent.prepareRequest = async (request, signal) => {
+    const update = await previous?.(request, signal);
+    const context = update?.context ?? request.context;
+    const messages = context.messages.slice();
+    const first = messages[0];
+    if (first?.role === 'system') {
+      const content =
+        typeof first.content === 'string'
+          ? `${first.content}\n\n${nudge}`
+          : [...first.content, { type: 'text' as const, text: `\n\n${nudge}` }];
+      messages[0] = { ...first, content };
+    } else {
+      messages.unshift({ role: 'system', content: nudge, timestamp: Date.now() });
+    }
+    return { ...update, context: { ...context, messages } };
+  };
+  return () => {
+    agent.prepareRequest = previous;
+  };
+}
 
 function liveCompletionText(partial: unknown): { text: string; thinking: string } {
   if (!partial || typeof partial !== 'object') return { text: '', thinking: '' };

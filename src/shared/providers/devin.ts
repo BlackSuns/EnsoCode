@@ -37,6 +37,8 @@ import {
 } from './devin/proto';
 import {
   createEventStream,
+  currentSystemPrompt,
+  currentTools,
   emptyUsage,
   type PiAssistantMessage,
   type PiContext,
@@ -476,13 +478,12 @@ function deterministicUuid(seed: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
-function parseJsonObject(text: string | undefined): Record<string, unknown> {
+function parseJsonObject(text: string | undefined): PiToolCall['arguments'] {
   if (!text) return {};
   try {
     const parsed = JSON.parse(text) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed as PiToolCall['arguments'];
   } catch {
     return {};
   }
@@ -597,7 +598,7 @@ function buildDevinChatRequest(
   const stopPatterns = DEVIN_DEFAULT_STOP_PATTERNS;
   return create(GetChatMessageRequestSchema, {
     metadata: cascadeMetadata(apiKey, userJwt),
-    prompt: context.systemPrompt?.trim() ?? '',
+    prompt: currentSystemPrompt(context).trim(),
     chatMessagePrompts: buildChatMessagePrompts(context, cascadeId, model),
     chatModelUid: model.id,
     requestType: ChatMessageRequestType.CASCADE,
@@ -620,7 +621,7 @@ function buildDevinChatRequest(
       stopPatterns,
       fimEotProbThreshold: 1,
     }),
-    tools: (context.tools ?? []).map((tool) =>
+    tools: currentTools(context).map((tool) =>
       create(ChatToolDefinitionSchema, {
         name: tool.name,
         description: tool.description || '',

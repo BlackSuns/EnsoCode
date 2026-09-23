@@ -26,7 +26,7 @@ describe('replacePersonaParagraph', () => {
       skills: [],
     });
 
-    expect(prompt.startsWith(`${DEFAULT_PERSONA_PROMPT}\n\nAvailable tools:`)).toBe(true);
+    expect(prompt.startsWith(`${DEFAULT_PERSONA_PROMPT}\n\n<tools>`)).toBe(true);
     expect(replacePersonaParagraph(prompt, 'CUSTOM PERSONA')).toBe(
       `CUSTOM PERSONA${prompt.slice(DEFAULT_PERSONA_PROMPT.length)}`
     );

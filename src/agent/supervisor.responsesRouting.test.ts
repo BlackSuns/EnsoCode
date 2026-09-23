@@ -6,6 +6,7 @@ import {
   InMemoryCredentialStore,
   InMemoryModelsStore,
   type Model,
+  normalizeContext,
   type SimpleStreamOptions,
 } from '@earendil-works/pi-ai';
 import { streamSimple as serializeResponses } from '@earendil-works/pi-ai/api/openai-responses';
@@ -266,7 +267,10 @@ describe('Responses 请求出口的摘要 routing key', () => {
     };
     // A positive control also proves the fake SSE is accepted by the unmodified Pi parser.
     expectSummary(
-      await serializeResponses(model, context, { ...options, apiKey: API_KEY }).result()
+      await serializeResponses(model, normalizeContext(context), {
+        ...options,
+        apiKey: API_KEY,
+      }).result()
     );
     expectSummary(await runtime.streamSimple(model, context, options).result());
     expect(requests).toHaveLength(2);

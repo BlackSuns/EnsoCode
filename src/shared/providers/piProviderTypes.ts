@@ -1,11 +1,11 @@
 /**
  * pi provider 扩展点的类型与事件流。
  *
- * 为什么全部靠结构化提取：`@earendil-works/pi-ai` 只作为 pi-coding-agent 的传递依赖
- * 躺在 `.pnpm` 里，不在依赖树顶层，`import type ... from '@earendil-works/pi-ai'` 解析不到。
- * 所以所有 provider 相关类型都从 `ModelRuntime` 的公开签名上剥出来，
- * 与 `src/main/services/oauthProviders.ts` 里提取 auth 交互类型是同一套做法。
+ * provider 相关类型从 `ModelRuntime` 的公开签名上剥出来。
+ * 0.87 起请求上下文是 transcript：系统提示和工具声明在 system message 里，
+ * 用 pi-ai 的回放函数读取，不能再读 `context.systemPrompt` / `context.tools`。
  */
+import { getCurrentSystemPrompt, getCurrentTools } from '@earendil-works/pi-ai';
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
 
 export type ProviderConfigInput = Parameters<ModelRuntime['registerProvider']>[1];
@@ -34,7 +34,15 @@ export type PiContentBlock = PiAssistantMessage['content'][number];
 export type PiTextContent = Extract<PiContentBlock, { type: 'text' }>;
 export type PiThinkingContent = Extract<PiContentBlock, { type: 'thinking' }>;
 export type PiToolCall = Extract<PiContentBlock, { type: 'toolCall' }>;
-export type PiTool = NonNullable<PiContext['tools']>[number];
+export type PiTool = ReturnType<typeof getCurrentTools>[number];
+
+export function currentSystemPrompt(context: PiContext): string {
+  return getCurrentSystemPrompt(context.messages);
+}
+
+export function currentTools(context: PiContext): PiTool[] {
+  return getCurrentTools(context.messages);
+}
 export type PiUsage = PiAssistantMessage['usage'];
 export type PiStopReason = PiAssistantMessage['stopReason'];
 

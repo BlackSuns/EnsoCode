@@ -1,4 +1,4 @@
-import type { Context, Model, Provider } from '@earendil-works/pi-ai';
+import { type Model, normalizeContext, type Provider } from '@earendil-works/pi-ai';
 import { stream } from '@earendil-works/pi-ai/api/openai-responses';
 import { describe, expect, it } from 'vitest';
 import { withOpenAIResponsesRouting } from './openaiResponsesRouting';
@@ -20,9 +20,9 @@ const model = {
   maxTokens: 4096,
 } as Model<'openai-responses'>;
 
-const context: Context = {
+const context = normalizeContext({
   messages: [{ role: 'user', content: 'Summarize the cactus.', timestamp: 1 }],
-};
+});
 
 function responsesSse(trailing: '\n\n' | '\n' | ''): string {
   const part = { type: 'output_text', text: SUMMARY, annotations: [] };
@@ -121,7 +121,7 @@ describe('withSseEofFlush', () => {
     const provider = {
       stream(
         nextModel: Model<'openai-responses'>,
-        nextContext: Context,
+        nextContext: typeof context,
         options?: { fetch?: typeof fetch }
       ) {
         return stream(nextModel, nextContext, {
