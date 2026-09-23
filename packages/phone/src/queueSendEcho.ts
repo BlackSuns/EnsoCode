@@ -64,10 +64,13 @@ export function appendEchoMessages(
 export function retainQueueSendEchoes(
   echoes: readonly QueueSendEcho[],
   sessionId: string,
-  userTexts: readonly string[]
+  userTexts: readonly string[],
+  /** turnSettled：本会话刚从运行中收束。此时已有新 user 落地的回显一律收掉，兜底文本对不上 */
+  opts?: { turnSettled?: boolean }
 ): QueueSendEcho[] {
   return echoes.filter((echo) => {
     if (echo.sessionId !== sessionId) return true;
+    if (opts?.turnSettled && userTexts.length > echo.priorUserCount) return false;
     if (echo.text) {
       return userTexts.filter((entry) => sameText(echo.text, entry)).length <= echo.priorMatches;
     }
