@@ -172,7 +172,7 @@ function WorkflowPresetDialog({
 
   return (
     <Dialog open={target !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-4xl">
         <DialogHeader>
           <DialogTitle>
             {target === 'new' ? t('Add workflow preset') : t('Edit workflow preset')}

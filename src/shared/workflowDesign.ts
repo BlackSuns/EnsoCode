@@ -70,17 +70,34 @@ export function parseWorkflowDesign(value: unknown): WorkflowDesign | null {
   return steps <= MAX_STEPS ? { phases } : null;
 }
 
-/** `{{args.key}}` 代入参数，`{{prev}}` 代入上一阶段输出；字面量一律 JSON 编码 */
-function promptExpression(prompt: string): string {
-  const parts: string[] = [];
+export type PromptPart =
+  | { kind: 'text'; text: string }
+  | { kind: 'arg'; key: string }
+  | { kind: 'prev' };
+
+/** 识别 `{{args.key}}` 与 `{{prev}}`；脚本生成和节点预览共用这一口径 */
+export function splitPromptPlaceholders(prompt: string): PromptPart[] {
+  const parts: PromptPart[] = [];
   let last = 0;
   for (const match of prompt.matchAll(PLACEHOLDER_RE)) {
-    if (match.index > last) parts.push(JSON.stringify(prompt.slice(last, match.index)));
-    parts.push(match[1] ? `String(args.${match[1]} ?? '')` : 'prev');
+    if (match.index > last) parts.push({ kind: 'text', text: prompt.slice(last, match.index) });
+    parts.push(match[1] ? { kind: 'arg', key: match[1] } : { kind: 'prev' });
     last = match.index + match[0].length;
   }
-  if (last < prompt.length || parts.length === 0) parts.push(JSON.stringify(prompt.slice(last)));
-  return parts.join(' + ');
+  if (last < prompt.length) parts.push({ kind: 'text', text: prompt.slice(last) });
+  return parts;
+}
+
+/** 参数代入、上一阶段输出代入；字面量一律 JSON 编码 */
+function promptExpression(prompt: string): string {
+  const parts = splitPromptPlaceholders(prompt).map((part) =>
+    part.kind === 'text'
+      ? JSON.stringify(part.text)
+      : part.kind === 'arg'
+        ? `String(args.${part.key} ?? '')`
+        : 'prev'
+  );
+  return parts.length > 0 ? parts.join(' + ') : '""';
 }
 
 function stepCall({ label, agentType, prompt }: WorkflowDesignStep): string {

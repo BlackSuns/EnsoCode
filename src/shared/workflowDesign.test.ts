@@ -5,6 +5,7 @@ import {
   insertPlaceholder,
   parseWorkflowDesign,
   placeholderTokens,
+  splitPromptPlaceholders,
 } from './workflowDesign';
 
 const design = (): WorkflowDesign => ({
@@ -87,5 +88,18 @@ describe('insertPlaceholder', () => {
       cursor: 11,
     });
     expect(insertPlaceholder('abc', 2, 1, 'X').text).toBe('abXc');
+  });
+});
+
+describe('splitPromptPlaceholders', () => {
+  it('按占位符切成文本/参数/上一阶段片段，与脚本生成的识别口径一致', () => {
+    expect(splitPromptPlaceholders('Look {{ args.topic }} and {{prev}}!{{args.bad key}}')).toEqual([
+      { kind: 'text', text: 'Look ' },
+      { kind: 'arg', key: 'topic' },
+      { kind: 'text', text: ' and ' },
+      { kind: 'prev' },
+      { kind: 'text', text: '!{{args.bad key}}' },
+    ]);
+    expect(splitPromptPlaceholders('')).toEqual([]);
   });
 });
