@@ -119,9 +119,7 @@ describe('loadCursorProvider', () => {
     );
     expectCursorPayload(runtimePayload);
 
-    // 登录或刷新凭据后扩展会重复双注册，兼容适配必须随之重新安装。
-    //
-    // Login and credential refresh repeat both registrations, so the adapter must be reinstalled.
+    // 登录或刷新凭据后扩展会重复双注册，适配必须随之重新安装
     expect(registration.repeat).toBeTypeOf('function');
     registration.repeat?.();
     expectCursorPayload(

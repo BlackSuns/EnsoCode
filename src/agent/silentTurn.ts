@@ -1,10 +1,6 @@
 import type { ProjectedMessage } from '@shared/types/agent';
 
-/**
- * 空轮次恢复时仅附加到本次恢复模型请求上下文，恢复轮结束或取消后即撤。
- *
- * Add only to model requests in the recovery turn, then clear it when that turn ends or is aborted.
- */
+/** 空轮次恢复时只追加到恢复轮的模型请求，恢复轮结束或取消即撤。 */
 export const SILENT_TURN_NUDGE = [
   'The previous assistant reply was empty: no visible text and no tool call.',
   'Continue the same user request. Call tools if work is needed, or write the answer in the reply.',

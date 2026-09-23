@@ -4,11 +4,7 @@ export function estimateStringTokens(text: string): number {
 	return Math.ceil(text.length / 4);
 }
 
-/**
- * 系统消息属于框架上下文，不作为持续记忆的对话来源。
- *
- * System messages are framework context, not conversation sources for continuous memory.
- */
+/** 系统消息是框架上下文，不算持续记忆的对话来源 */
 export function isSystemMessageEntry(entry: { type: string; message?: unknown }): boolean {
 	if (entry.type !== "message" || !entry.message || typeof entry.message !== "object") return false;
 	return (entry.message as { role?: unknown }).role === "system";

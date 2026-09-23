@@ -124,9 +124,7 @@ function indexLedger(entries: Entry[]): {
 
 function resolveObservationSources(entries: Entry[], observation: Observation, location: ObservationLedgerLocation): RecalledObservation {
 	const byId = new Map(entries.map((entry) => [entry.id, entry]));
-	// 旧记忆可能引用 system entry；预期过滤不能让同组有效证据被标记为缺失。
-	//
-	// Legacy memories may cite system entries; expected filtering must not mark valid sibling evidence as missing.
+	// 旧记忆可能引用 system entry：直接滤掉，不算缺失，免得同组有效证据被标成 partial
 	const sourceEntryIds = uniqueStrings(observation.sourceEntryIds).filter((id) => {
 		const entry = byId.get(id);
 		return !entry || !isSystemMessageEntry(entry);
