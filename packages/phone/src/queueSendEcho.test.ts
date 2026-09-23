@@ -58,4 +58,17 @@ describe('PWA 排队消息马上发送：乐观上墙', () => {
     const echo = captureQueueSendEcho([{ id: 'q1', text }], 's1', 'q1', []);
     expect(retainQueueSendEchoes([echo!], 's1', [truncated])).toEqual([]);
   });
+
+  it('文本对不上时：轮次收束且已有新 user 落地才收掉；中断收束（尚无新 user）保留', () => {
+    const echo = captureQueueSendEcho([{ id: 'q1', text: '原文' }], 's1', 'q1', ['old']);
+    const other = { ...echo!, sessionId: 's2' };
+    expect(retainQueueSendEchoes([echo!], 's1', ['old', '改写'])).toEqual([echo]);
+    expect(retainQueueSendEchoes([echo!, other], 's1', ['old'], { turnSettled: true })).toEqual([
+      echo,
+      other,
+    ]);
+    expect(
+      retainQueueSendEchoes([echo!, other], 's1', ['old', '改写'], { turnSettled: true })
+    ).toEqual([other]);
+  });
 });

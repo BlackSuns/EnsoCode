@@ -358,11 +358,16 @@ export function App() {
     });
   }, []);
 
+  const lastRunRef = useRef<{ id: string; running: boolean } | null>(null);
   useEffect(() => {
     if (!activeId) return;
     const texts = userTextsOf(view ? [...view.messages.values()] : []);
+    const running = view?.status === 'running';
+    const last = lastRunRef.current;
+    const turnSettled = last?.id === activeId && last.running && !running;
+    lastRunRef.current = { id: activeId, running };
     setQueueEchoes((prev) => {
-      const next = retainQueueSendEchoes(prev, activeId, texts);
+      const next = retainQueueSendEchoes(prev, activeId, texts, { turnSettled });
       return next.length === prev.length && next.every((echo, index) => echo === prev[index])
         ? prev
         : next;
