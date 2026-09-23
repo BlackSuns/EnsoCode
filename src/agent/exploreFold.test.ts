@@ -38,6 +38,21 @@ describe('applyExploreFold', () => {
     const messages = [msg('user', 'a'), msg('assistant', 'b')];
     expect(applyExploreFold(messages, [])).toBe(messages);
   });
+
+  it('折叠区间内的 system 消息（工具/提示增量）保留在报告之前', () => {
+    const system = msg('system', '');
+    const messages: LlmMessage[] = [
+      msg('user', 'look around'),
+      msg('assistant', 'marking', { toolCalls: [{ name: 'explore_mark' }] }),
+      msg('toolResult', 'marked'),
+      system,
+      msg('assistant', 'folding', { toolCalls: [{ name: 'explore_fold' }] }),
+      msg('toolResult', 'folded'),
+    ];
+    const folded = applyExploreFold(messages, [{ from: 1, to: 5, report: 'r' }]);
+    expect(folded.map((m) => m.role)).toEqual(['user', 'system', 'user']);
+    expect(folded[1]).toBe(system);
+  });
 });
 
 describe('createExploreFoldState', () => {
