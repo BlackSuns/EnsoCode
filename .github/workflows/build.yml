@@ -9,27 +9,30 @@ on:
 permissions:
   contents: write
 
+# 缓存按 ref 隔离：tag 触发时只能读 main 上的缓存，tag 上存下的下一个 tag 读不到。
+# 所以这里只读不存，main 上的 pnpm-store-* 由 relay-go / deploy-relay 负责写入。
 jobs:
   # 先构建 Vite 产物，共享给所有平台
   build-app:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Get pnpm store directory
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
+      - name: Restore pnpm cache
+        uses: actions/cache/restore@v5
         with:
           path: ${{ env.STORE_PATH }}
           key: pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -44,7 +47,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Upload build output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: app-build
           path: out/
@@ -62,40 +65,22 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download build output
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: app-build
           path: out/
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Get pnpm store directory
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-${{ matrix.arch }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-${{ matrix.arch }}-pnpm-
-
-      - name: Cache Electron
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/Library/Caches/electron
-            ~/Library/Caches/electron-builder
-          key: ${{ runner.os }}-${{ matrix.arch }}-electron-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-${{ matrix.arch }}-electron-
+        uses: pnpm/action-setup@v5
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -123,7 +108,7 @@ jobs:
           rm $RUNNER_TEMP/certificate.p12
 
       - name: Build macOS (${{ matrix.arch }})
-        run: npx electron-builder --mac --${{ matrix.arch }}
+        run: npx electron-builder --mac --${{ matrix.arch }} --publish onTag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -131,7 +116,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload latest-mac.yml
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: latest-mac-${{ matrix.arch }}
           path: dist/latest-mac.yml
@@ -143,41 +128,22 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download build output
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: app-build
           path: out/
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-
-      - name: Cache Electron
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/AppData/Local/electron/Cache
-            ~/AppData/Local/electron-builder/Cache
-          key: ${{ runner.os }}-electron-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-electron-
+        uses: pnpm/action-setup@v5
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -185,14 +151,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Windows
-        run: npx electron-builder --win --x64
+        run: npx electron-builder --win --x64 --publish onTag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # 非 tag 触发时 electron-builder 不发布，产物只留在 runner 上；
       # 传上来才能直接下载试装，不必为了拿个安装包去发版
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: windows-installer
           path: |
@@ -205,40 +171,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download build output
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: app-build
           path: out/
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Get pnpm store directory
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
+      - name: Restore pnpm cache
+        uses: actions/cache/restore@v5
         with:
           path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-
-      - name: Cache Electron
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/electron
-            ~/.cache/electron-builder
-          key: ${{ runner.os }}-electron-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-electron-
+          key: pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -246,7 +204,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Linux
-        run: npx electron-builder --linux --x64
+        run: npx electron-builder --linux --x64 --publish onTag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -255,18 +213,19 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache-dependency-path: packages/relay-go/go.sum
@@ -274,8 +233,8 @@ jobs:
       - name: Get pnpm store directory
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
+      - name: Restore pnpm cache
+        uses: actions/cache/restore@v5
         with:
           path: ${{ env.STORE_PATH }}
           key: pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -314,7 +273,7 @@ jobs:
           sha256sum enso-relay-linux-amd64 enso-relay-linux-arm64 > enso-relay-checksums.txt
 
       - name: Upload relay binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: enso-relay
           path: packages/relay-go/dist/enso-relay-*
@@ -328,12 +287,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Download latest-mac.yml artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: latest-mac-*
           path: mac-yml-artifacts
@@ -346,9 +305,7 @@ jobs:
           echo "=== ARM64 YML ===" && cat "$ARM64_YML"
           echo -e "\n=== X64 YML ===" && cat "$X64_YML"
 
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-
+          # 用 runner 镜像自带的 yq，不在发版时拉未锁定版本的 latest
           ARM64_JSON=$(yq -o=json "$ARM64_YML")
           X64_JSON=$(yq -o=json "$X64_YML")
 
@@ -366,7 +323,7 @@ jobs:
           gh release upload "$TAG" latest-mac.yml --clobber
 
       - name: Download relay binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: enso-relay
           path: relay-artifacts
