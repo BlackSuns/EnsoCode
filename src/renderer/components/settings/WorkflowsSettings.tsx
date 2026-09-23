@@ -264,7 +264,7 @@ function WorkflowPresetDialog({
                 <WorkflowDesigner
                   design={draft.design}
                   agentTypes={agentTypes}
-                  argKeys={draft.args.map((arg) => arg.key.trim()).filter(Boolean)}
+                  args={draft.args}
                   onChange={setDesign}
                 />
               ) : (

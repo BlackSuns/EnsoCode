@@ -1135,8 +1135,10 @@ export const zhTranslations: Record<string, string> = {
   Prompt: '提示词',
   'Add parallel step': '添加并行步骤',
   'Add phase': '添加阶段',
-  'Steps in a phase run in parallel; phases run in order. In prompts, {{argToken}} inserts an argument and {{prevToken}} inserts the previous phase output.':
-    '同一阶段内的步骤并行执行，阶段之间依次执行。提示词里用 {{argToken}} 引用参数，用 {{prevToken}} 引用上一阶段的输出。',
+  'Steps in a phase run in parallel; phases run in order. Use Insert argument in a prompt to reference an argument or the previous phase output.':
+    '同一阶段内的步骤并行执行，阶段之间依次执行。提示词下方的「插入参数」可引用参数或上一阶段的输出。',
+  'Insert argument': '插入参数',
+  'Previous phase output': '上一阶段输出',
   'This preset is plain code and cannot be shown in the designer. Using the designer replaces the current script.':
     '该预设是纯代码，无法在设计器中显示。改用设计器会替换当前脚本。',
   'Use the designer': '改用设计器',

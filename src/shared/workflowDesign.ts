@@ -3,12 +3,41 @@ import type { WorkflowDesign, WorkflowDesignPhase, WorkflowDesignStep } from './
 /** 与 workflow 运行时 MAX_AGENTS 一致 */
 const MAX_STEPS = 32;
 const AGENT_TYPE_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+const ARG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const PLACEHOLDER_RE = /\{\{\s*(?:args\.([A-Za-z_][A-Za-z0-9_]{0,31})|(prev))\s*\}\}/g;
 
 function text(value: unknown, max: number): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed && trimmed.length <= max ? trimmed : null;
+}
+
+export type PlaceholderToken =
+  | { kind: 'arg'; key: string; token: string }
+  | { kind: 'prev'; token: string };
+
+/** 可插入提示词的占位符；第一个阶段没有上一阶段输出 */
+export function placeholderTokens(
+  argKeys: readonly string[],
+  phaseIndex: number
+): PlaceholderToken[] {
+  const tokens: PlaceholderToken[] = [...new Set(argKeys)]
+    .filter((key) => ARG_KEY_RE.test(key))
+    .map((key) => ({ kind: 'arg', key, token: `{{args.${key}}}` }));
+  if (phaseIndex > 0) tokens.push({ kind: 'prev', token: '{{prev}}' });
+  return tokens;
+}
+
+/** 在光标/选区处插入，返回插入后的光标位置 */
+export function insertPlaceholder(
+  value: string,
+  selectionStart: number,
+  selectionEnd: number,
+  token: string
+): { text: string; cursor: number } {
+  const start = Math.min(Math.max(selectionStart, 0), value.length);
+  const end = Math.min(Math.max(selectionEnd, start), value.length);
+  return { text: value.slice(0, start) + token + value.slice(end), cursor: start + token.length };
 }
 
 function parseStep(value: unknown): WorkflowDesignStep | null {

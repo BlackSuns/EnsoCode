@@ -2,11 +2,18 @@ import type {
   WorkflowDesign,
   WorkflowDesignPhase,
   WorkflowDesignStep,
+  WorkflowPresetArg,
 } from '@shared/types/workflow';
-import { ArrowDown, ArrowUp, Plus, Trash2, X } from 'lucide-react';
+import {
+  insertPlaceholder,
+  type PlaceholderToken,
+  placeholderTokens,
+} from '@shared/workflowDesign';
+import { ArrowDown, ArrowUp, Braces, Plus, Trash2, X } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu';
 import {
   Select,
   SelectItem,
@@ -36,21 +43,89 @@ function move<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
+/** 提示词框 + 「插入参数」菜单：占位符插在光标处，插入后光标落在占位符之后 */
+function PromptField({
+  value,
+  tokens,
+  args,
+  onChange,
+}: {
+  value: string;
+  tokens: PlaceholderToken[];
+  args: WorkflowPresetArg[];
+  onChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+  const textarea = () => wrapRef.current?.querySelector('textarea') ?? null;
+  const insert = (token: string) => {
+    const el = textarea();
+    const end = value.length;
+    const next = insertPlaceholder(
+      value,
+      el?.selectionStart ?? end,
+      el?.selectionEnd ?? end,
+      token
+    );
+    onChange(next.text);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(next.cursor, next.cursor);
+    });
+  };
+  const labelOf = (token: PlaceholderToken) =>
+    token.kind === 'prev'
+      ? t('Previous phase output')
+      : args.find((arg) => arg.key.trim() === token.key)?.label.trim() || token.key;
+
+  return (
+    <div ref={wrapRef} className="space-y-1">
+      <Textarea
+        rows={3}
+        className="text-xs"
+        placeholder={t('Prompt')}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <Menu>
+        <MenuTrigger
+          disabled={tokens.length === 0}
+          className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+        >
+          <Braces className="h-3.5 w-3.5" />
+          {t('Insert argument')}
+        </MenuTrigger>
+        <MenuPopup align="start" zIndex={Z_INDEX.DROPDOWN_IN_MODAL} finalFocus={textarea}>
+          {tokens.map((token) => (
+            <MenuItem key={token.token} onClick={() => insert(token.token)}>
+              {labelOf(token)}
+              <span className="ml-auto pl-4 font-mono text-muted-foreground text-xs">
+                {token.token}
+              </span>
+            </MenuItem>
+          ))}
+        </MenuPopup>
+      </Menu>
+    </div>
+  );
+}
+
 export function WorkflowDesigner({
   design,
   agentTypes,
-  argKeys,
+  args,
   onChange,
 }: {
   design: WorkflowDesign;
   agentTypes: string[];
-  argKeys: string[];
+  args: WorkflowPresetArg[];
   onChange: (design: WorkflowDesign) => void;
 }) {
   const { t } = useI18n();
   const phases = design.phases;
   const total = phases.reduce((sum, phase) => sum + phase.steps.length, 0);
   const defaultType = agentTypes.includes('scout') ? 'scout' : '';
+  const argKeys = args.map((arg) => arg.key.trim());
 
   const setPhases = (next: WorkflowDesignPhase[]) => onChange({ phases: next });
   const patchPhase = (index: number, next: Partial<WorkflowDesignPhase>) =>
@@ -158,12 +233,11 @@ export function WorkflowDesigner({
                       <X />
                     </Button>
                   </div>
-                  <Textarea
-                    rows={3}
-                    className="text-xs"
-                    placeholder={t('Prompt')}
+                  <PromptField
                     value={step.prompt}
-                    onChange={(e) => patchStep(pi, si, { prompt: e.target.value })}
+                    tokens={placeholderTokens(argKeys, pi)}
+                    args={args}
+                    onChange={(prompt) => patchStep(pi, si, { prompt })}
                   />
                 </div>
               ))}
@@ -193,14 +267,7 @@ export function WorkflowDesigner({
       </Button>
       <p className="text-muted-foreground text-xs">
         {t(
-          'Steps in a phase run in parallel; phases run in order. In prompts, {{argToken}} inserts an argument and {{prevToken}} inserts the previous phase output.',
-          {
-            argToken:
-              argKeys.length > 0
-                ? argKeys.map((key) => `{{args.${key}}}`).join(' ')
-                : '{{args.key}}',
-            prevToken: '{{prev}}',
-          }
+          'Steps in a phase run in parallel; phases run in order. Use Insert argument in a prompt to reference an argument or the previous phase output.'
         )}
       </p>
     </div>

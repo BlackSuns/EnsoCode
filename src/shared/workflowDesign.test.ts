@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkflowDesign } from './types/workflow';
-import { generateWorkflowScript, parseWorkflowDesign } from './workflowDesign';
+import {
+  generateWorkflowScript,
+  insertPlaceholder,
+  parseWorkflowDesign,
+  placeholderTokens,
+} from './workflowDesign';
 
 const design = (): WorkflowDesign => ({
   phases: [
@@ -51,5 +56,36 @@ describe('generateWorkflowScript', () => {
     expect(
       () => new Function('args', 'agent', 'parallel', 'phase', `return (async () => {${script}})`)
     ).not.toThrow();
+  });
+});
+
+describe('placeholderTokens', () => {
+  it('只列合法参数；首个阶段没有上一阶段输出', () => {
+    expect(placeholderTokens(['topic', '', 'bad key', 'scope'], 0)).toEqual([
+      { kind: 'arg', key: 'topic', token: '{{args.topic}}' },
+      { kind: 'arg', key: 'scope', token: '{{args.scope}}' },
+    ]);
+    expect(placeholderTokens([], 1)).toEqual([{ kind: 'prev', token: '{{prev}}' }]);
+  });
+});
+
+describe('insertPlaceholder', () => {
+  it('插入到光标处、替换选区，并返回插入后的光标位置', () => {
+    expect(insertPlaceholder('Look at  now', 8, 8, '{{args.topic}}')).toEqual({
+      text: 'Look at {{args.topic}} now',
+      cursor: 22,
+    });
+    expect(insertPlaceholder('Look at X now', 8, 9, '{{prev}}')).toEqual({
+      text: 'Look at {{prev}} now',
+      cursor: 16,
+    });
+  });
+
+  it('越界或反向的选区被夹紧，不丢原文', () => {
+    expect(insertPlaceholder('abc', 99, 99, '{{prev}}')).toEqual({
+      text: 'abc{{prev}}',
+      cursor: 11,
+    });
+    expect(insertPlaceholder('abc', 2, 1, 'X').text).toBe('abXc');
   });
 });
