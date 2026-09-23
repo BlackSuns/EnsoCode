@@ -1134,7 +1134,7 @@ export interface TurnPerf {
 
 /** 单条 assistant step 的计时打点（worker 侧填，随 message-upsert 下发） */
 export interface MessageTiming {
-  /** step 开始：message_start 到达时刻 */
+  /** step 开始：发起模型请求的 turn_start 时刻（缺省为 message_start） */
   stepStartMs: number;
   /** 首 token：首个 message_update 时刻 */
   firstTokenMs?: number;

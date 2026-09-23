@@ -249,6 +249,8 @@ interface ManagedSession {
   silentTurnKind?: SilentTurnKind;
   runawayGuard?: RunawayGuard;
   timings: (MessageTiming | undefined)[];
+  /** 最近一次 turn_start 时刻；pi 在发起每次模型请求前触发，下一条 assistant message_start 消费 */
+  requestStartMs?: number;
   toolStartAt: Map<string, number>;
   toolDurations: Map<string, number>;
   gate: ApprovalGate;
@@ -2667,11 +2669,16 @@ export class SessionSupervisor {
         this.emitStatus(managed);
         this.emitSessionMeta(managed);
         return;
+      case 'turn_start':
+        managed.requestStartMs = Date.now();
+        return;
       case 'message_start': {
         const index = managed.messages.length;
         const message = projectMessage(event.message);
         if (message?.role === 'assistant') {
-          managed.timings[index] = { stepStartMs: Date.now() };
+          // pi-ai 收到响应头才推 start，紧接首个 delta；从 turn_start 起算才含等待首 token 的时间
+          managed.timings[index] = { stepStartMs: managed.requestStartMs ?? Date.now() };
+          managed.requestStartMs = undefined;
         }
         this.upsertLocalMessage(managed, message);
         return;

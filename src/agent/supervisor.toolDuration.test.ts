@@ -260,4 +260,40 @@ describe('SessionSupervisor tool duration', () => {
     expect((lastUpsert(events, 'write-1').message as ProjectedMessage).toolDurationMs).toBe(200);
     await supervisor.shutdown();
   });
+
+  it('assistant step 从 turn_start 起算，TTFT 含等待响应头的时间', async () => {
+    const events: AgentWorkerEvent[] = [];
+    const supervisor = new SessionSupervisor({
+      emit: (event) => events.push(event),
+      agentDir: '/tmp/agent',
+      sessionDir: mkdtempSync(path.join(tmpdir(), 'enso-step-timing-')),
+    });
+    supervisor.handleCommand({ type: 'spawn-parent', identity: parent, cwd: '/workspace', model });
+    await vi.runAllTimersAsync();
+    await waitFor(events, 'parent-ready');
+    const parentSession = mocks.sessions[0] as ReturnType<typeof session>;
+    const text = { role: 'assistant', content: [{ type: 'text', text: 'hi' }] };
+
+    parentSession.emit({ type: 'turn_start' });
+    // pi-ai 收到响应头后才推 start，紧接着就是首个 delta
+    vi.setSystemTime(1_002_000);
+    parentSession.emit({ type: 'message_start', message: { role: 'assistant', content: [] } });
+    vi.setSystemTime(1_002_010);
+    parentSession.emit({ type: 'message_update', message: text });
+    vi.setSystemTime(1_003_000);
+    parentSession.emit({ type: 'message_end', message: text });
+
+    const upsert = events
+      .filter(
+        (event): event is Extract<AgentWorkerEvent, { type: 'message-upsert' }> =>
+          event.type === 'message-upsert' && event.message.role === 'assistant'
+      )
+      .at(-1);
+    expect(upsert?.message.timing).toMatchObject({
+      stepStartMs: 1_000_000,
+      firstTokenMs: 1_002_010,
+      completedMs: 1_003_000,
+    });
+    await supervisor.shutdown();
+  });
 });
