@@ -1,6 +1,6 @@
 import type { AgentControlToolRequest, AgentControlToolResponse } from '@shared/types/agent';
 import { describe, expect, it, vi } from 'vitest';
-import { createWorkflowTool, workflowChildOutcome } from './workflow';
+import { createWorkflowTool, WORKFLOW_STOPPED_BY_USER, workflowChildOutcome } from './workflow';
 import { loadWorkflowPreset } from './workflowPresets';
 
 type FakeSpawn = { prompt: string; description: string };
@@ -228,34 +228,34 @@ describe('workflow tool', () => {
     const make = (hold: Promise<void>, status: 'succeeded' | 'failed' = 'succeeded') => {
       const emit = vi.fn();
       const notify = vi.fn();
-      const backgroundRuns = new Map<string, AbortController>();
+      const activeRuns = new Map<string, AbortController>();
       const children = fakeChildren(() => ({ runId: 'child-run', status, text: 'found it' }), hold);
       const tool = createWorkflowTool({
         invoke: children.invoke,
         emit,
         notify,
-        backgroundRuns,
+        activeRuns,
         randomUuid: () => 'wf-bg',
       });
       const run = (params: Record<string, unknown>, signal?: AbortSignal) =>
         tool.execute('call-bg', params, signal, undefined, {} as never);
-      return { emit, notify, backgroundRuns, run, ...children };
+      return { emit, notify, activeRuns, run, ...children };
     };
 
     it('background:true 立即返回 runId，跑完经通知把结果送回主 agent', async () => {
       const gate = deferred();
-      const { emit, notify, backgroundRuns, run } = make(gate.promise);
+      const { emit, notify, activeRuns, run } = make(gate.promise);
       const result = await run({ ...script, background: true });
       expect(result.details).toMatchObject({ runId: 'wf-bg', background: true });
       expect(JSON.stringify(result.content)).toMatch(/wf-bg/);
-      expect(backgroundRuns.has('wf-bg')).toBe(true);
+      expect(activeRuns.has('wf-bg')).toBe(true);
       expect(notify).not.toHaveBeenCalled();
       gate.release();
       await until(() => notify.mock.calls.length > 0);
       expect(notify).toHaveBeenCalledTimes(1);
       expect(notify.mock.calls[0]?.[0]).toMatch(/wf-bg[\s\S]*completed[\s\S]*"found it"/);
       expect(notify.mock.calls[0]?.[1]).toBe(false);
-      expect(backgroundRuns.size).toBe(0);
+      expect(activeRuns.size).toBe(0);
       expect(emit.mock.calls.at(-1)?.[0]).toMatchObject({ runId: 'wf-bg', status: 'completed' });
     });
 
@@ -273,16 +273,42 @@ describe('workflow tool', () => {
 
     it('stop 取消后台运行并停掉在跑的子代理，模型已知情不再通知', async () => {
       const gate = deferred();
-      const { emit, notify, backgroundRuns, run, invoke, stopped } = make(gate.promise);
+      const { emit, notify, activeRuns, run, invoke, stopped } = make(gate.promise);
       await run({ ...script, background: true });
       await until(() => invoke.mock.calls.some(([request]) => request.operation === 'wait'));
       const stoppedResult = await run({ stop: 'wf-bg' });
       expect(JSON.stringify(stoppedResult.content)).toMatch(/stopped/i);
       await until(() => emit.mock.calls.at(-1)?.[0].status === 'cancelled');
       expect(stopped).toEqual(['child-run']);
-      expect(backgroundRuns.size).toBe(0);
+      expect(activeRuns.size).toBe(0);
       await new Promise((r) => setTimeout(r, 20));
       expect(notify).not.toHaveBeenCalled();
+    });
+
+    it('用户从侧边栏停止后台运行：停掉子代理并告诉主 agent 别重跑', async () => {
+      const gate = deferred();
+      const { emit, notify, activeRuns, run, invoke, stopped } = make(gate.promise);
+      await run({ ...script, background: true });
+      await until(() => invoke.mock.calls.some(([request]) => request.operation === 'wait'));
+      activeRuns.get('wf-bg')?.abort(WORKFLOW_STOPPED_BY_USER);
+      await until(() => notify.mock.calls.length > 0);
+      expect(stopped).toEqual(['child-run']);
+      expect(notify.mock.calls[0]?.[0]).toMatch(/stopped by the user[\s\S]*do not restart/i);
+      expect(emit.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'cancelled' });
+      expect(activeRuns.size).toBe(0);
+    });
+
+    it('同步运行也登记在 activeRuns，用户停止后工具返回说明原因', async () => {
+      const gate = deferred();
+      const { activeRuns, run, invoke, stopped } = make(gate.promise);
+      const pending = run(script);
+      await until(() => invoke.mock.calls.some(([request]) => request.operation === 'wait'));
+      activeRuns.get('wf-bg')?.abort(WORKFLOW_STOPPED_BY_USER);
+      const result = await pending;
+      expect((result as { isError?: boolean }).isError).toBe(true);
+      expect(JSON.stringify(result.content)).toMatch(/stopped by the user/i);
+      expect(stopped).toEqual(['child-run']);
+      expect(activeRuns.size).toBe(0);
     });
 
     it('stop 未知 runId、未接入通知时的 background 都在启动前拒绝', async () => {

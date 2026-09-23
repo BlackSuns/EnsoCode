@@ -31,8 +31,8 @@ export interface WorkflowToolDeps {
   emit(run: WorkflowRunSnapshot): void;
   /** 后台运行结束时回投主 agent；未提供则不支持 background */
   notify?: (text: string, urgent: boolean) => void;
-  /** 本会话在跑的后台运行，会话释放时由宿主统一 abort */
-  backgroundRuns?: Map<string, AbortController>;
+  /** 本会话在跑的运行（同步与后台）；宿主据此响应用户停止、会话释放时统一 abort */
+  activeRuns?: Map<string, AbortController>;
   loadPreset?: (id: string) => WorkflowPreset | null;
   /** 会话建立时的可用预设快照，写进工具说明供模型挑选 */
   presets?: readonly WorkflowPresetSummary[];
@@ -499,6 +499,10 @@ async function runScript(
   }
 }
 
+/** 用户从侧边栏停止时的 abort reason，据此告诉模型不要重跑 */
+export const WORKFLOW_STOPPED_BY_USER = 'workflow-stopped-by-user';
+const USER_STOP_TEXT = 'was stopped by the user — do not restart it';
+
 export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
   const settle = async (
     state: WorkflowRunState,
@@ -593,10 +597,10 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
       const record = (params ?? {}) as Record<string, unknown>;
       const stopId = typeof record.stop === 'string' ? record.stop.trim() : '';
       if (stopId) {
-        const controller = deps.backgroundRuns?.get(stopId);
+        const controller = deps.activeRuns?.get(stopId);
         if (!controller) throw new Error(`no running background workflow: ${stopId}`);
         // 先摘除再 abort：收尾时发现已不在表里，就不再通知（模型已由本次返回知情）
-        deps.backgroundRuns?.delete(stopId);
+        deps.activeRuns?.delete(stopId);
         controller.abort();
         return {
           content: [{ type: 'text', text: `workflow ${stopId} stopped` }],
@@ -604,7 +608,7 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
         };
       }
       const background = record.background === true;
-      if (background && (!deps.notify || !deps.backgroundRuns)) {
+      if (background && (!deps.notify || !deps.activeRuns)) {
         throw new Error('background workflows are unavailable in this session');
       }
       if (record.args !== undefined && !isRecord(record.args)) {
@@ -629,19 +633,28 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
       const state = new WorkflowRunState(deps.randomUuid?.() ?? crypto.randomUUID(), meta);
       const runId = state.snapshot.runId;
       const name = meta.name;
-      if (background && deps.notify && deps.backgroundRuns) {
-        const { notify, backgroundRuns } = deps;
-        const controller = new AbortController();
-        backgroundRuns.set(runId, controller);
+      const controller = new AbortController();
+      const activeRuns = deps.activeRuns;
+      activeRuns?.set(runId, controller);
+      // 仍在表里 = 不是模型自己 stop 的（stop 会先摘除），收尾需要告知结果
+      const release = () => {
+        if (activeRuns?.get(runId) !== controller) return false;
+        activeRuns.delete(runId);
+        return true;
+      };
+      const byUser = () => controller.signal.reason === WORKFLOW_STOPPED_BY_USER;
+      if (background && deps.notify) {
+        const { notify } = deps;
         void settle(state, script, args, controller.signal).then((result) => {
-          if (backgroundRuns.get(runId) !== controller) return;
-          backgroundRuns.delete(runId);
+          if (!release()) return;
           notify(
             result.ok
               ? `Background run ${runId}: ${completedText(name, state, result.value)}`
-              : `Background workflow "${name}" (runId ${runId}) ${
-                  controller.signal.aborted ? 'was cancelled' : 'failed'
-                }: ${result.error}`,
+              : byUser()
+                ? `Background workflow "${name}" (runId ${runId}) ${USER_STOP_TEXT}.`
+                : `Background workflow "${name}" (runId ${runId}) ${
+                    controller.signal.aborted ? 'was cancelled' : 'failed'
+                  }: ${result.error}`,
             !result.ok
           );
         });
@@ -655,11 +668,21 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
           details: { runId, background: true },
         };
       }
-      const result = await settle(state, script, args, signal);
+      const result = await settle(
+        state,
+        script,
+        args,
+        signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+      ).finally(release);
       if (!result.ok) {
-        if (result.thrown !== undefined) throw result.thrown;
+        if (result.thrown !== undefined && !byUser()) throw result.thrown;
         return {
-          content: [{ type: 'text', text: result.error }],
+          content: [
+            {
+              type: 'text',
+              text: byUser() ? `workflow "${name}" ${USER_STOP_TEXT}` : result.error,
+            },
+          ],
           details: { runId, agentsStarted: state.agentsStarted },
           isError: true,
         };

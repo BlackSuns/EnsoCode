@@ -646,6 +646,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_TASK_STOP, sessionId, taskId),
     stopSubagent: (sessionId: string, agentId: string): Promise<AgentActionResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SUBAGENT_STOP, sessionId, agentId),
+    stopWorkflow: (sessionId: string, runId: string): Promise<AgentActionResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_WORKFLOW_STOP, sessionId, runId),
     /** 手动压缩上下文；忙碌时 worker 自行排队，进度经 compaction 事件回来 */
     compact: (sessionId: string, instructions?: string): Promise<AgentActionResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_COMPACT, sessionId, instructions),

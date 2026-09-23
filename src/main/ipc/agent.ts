@@ -86,6 +86,7 @@ import {
   sendAgentCommand,
   stopBackgroundTask,
   stopSubagent,
+  stopWorkflow,
   summarizeConversationTitle,
 } from '../services/agentHost';
 import { pickBrowserFileRoot, setBrowserFileRootResolver } from '../services/browserFileRoot';
@@ -1586,6 +1587,17 @@ export function registerAgentHandlers(): void {
         return { ok: false, error: 'invalid task stop or stale generation' };
       }
       return stopBackgroundTask(identity, taskId);
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_WORKFLOW_STOP,
+    (_event, sessionId: unknown, runId: unknown): AgentActionResult => {
+      const identity = exactIdentity(sessionId);
+      if (!identity || !isNonEmptyString(runId) || runId.length > 80) {
+        return { ok: false, error: 'invalid workflow stop or stale generation' };
+      }
+      return stopWorkflow(identity, runId);
     }
   );
 

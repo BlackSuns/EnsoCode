@@ -177,7 +177,7 @@ import { createEnsoAppTool, EnsoAppInvoker } from './tools/ensoApp';
 import { createEnsoCapabilitiesTool } from './tools/ensoCapabilities';
 import { createMemoryTools, MemoryInvoker } from './tools/memory';
 import { transcriptMessages } from './transcript';
-import { createWorkflowTool } from './workflow';
+import { createWorkflowTool, WORKFLOW_STOPPED_BY_USER } from './workflow';
 import { listWorkflowPresets, loadWorkflowPreset, workflowPresetRoots } from './workflowPresets';
 import { WorkspaceSwitchGate, workspaceBranchContextExtension } from './workspaceSwitch';
 import { withWritePreflight, withWriteScope } from './writeScope';
@@ -268,7 +268,7 @@ interface ManagedSession {
   compactionNoticeAt?: number;
   subagents: Map<string, SubagentInfo>;
   subagentAborts: Map<string, () => void>;
-  /** 后台 workflow 运行；会话释放时统一 abort */
+  /** 在跑的 workflow（同步与后台）；用户停止与会话释放时 abort */
   workflowRuns?: Map<string, AbortController>;
   factory?: SessionFactory;
   parentId?: string;
@@ -1214,6 +1214,11 @@ export class SessionSupervisor {
         });
         return;
       }
+      case 'workflow-stop':
+        this.must(command.identity)
+          .workflowRuns?.get(command.runId)
+          ?.abort(WORKFLOW_STOPPED_BY_USER);
+        return;
       case 'task-stop':
         this.must(command.identity);
         this.bgTasks.stop(command.taskId);
@@ -1938,7 +1943,7 @@ export class SessionSupervisor {
               loadPreset: (id) =>
                 loadWorkflowPreset(id, workflowRoots, this.disabledWorkflowPresets),
               presets: listWorkflowPresets(workflowRoots, this.disabledWorkflowPresets),
-              backgroundRuns: workflowRuns,
+              activeRuns: workflowRuns,
               notify: (text, urgent) => this.notifier.notify(sessionId, text, { urgent }),
               emit: (run) => {
                 const managed = managedRef ?? this.sessions.get(sessionId);

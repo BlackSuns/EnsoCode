@@ -1035,6 +1035,7 @@ export type AgentCommand =
       error?: string;
     }
   | { type: 'task-stop'; identity: SessionIdentity; taskId: string }
+  | { type: 'workflow-stop'; identity: SessionIdentity; runId: string }
   | { type: 'subagent-stop'; identity: SessionIdentity; agentId: string }
   | {
       type: 'rewind';
@@ -2696,6 +2697,13 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
         : isNonEmptyString(value.error) && value.result === undefined;
       return shapeOk ? (value as unknown as AgentCommand) : null;
     }
+    case 'workflow-stop':
+      return hasExactKeys(value, ['type', 'identity', 'runId']) &&
+        parseAnySessionIdentity(value.identity) &&
+        isNonEmptyString(value.runId) &&
+        value.runId.length <= 80
+        ? (value as unknown as AgentCommand)
+        : null;
     case 'task-stop':
       return hasExactKeys(value, ['type', 'identity', 'taskId']) &&
         parseAnySessionIdentity(value.identity) &&

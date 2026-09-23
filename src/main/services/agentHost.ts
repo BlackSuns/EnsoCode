@@ -1044,6 +1044,13 @@ export function stopBackgroundTask(
   return sendAgentCommand({ type: 'task-stop', identity, taskId });
 }
 
+export function stopWorkflow(
+  identity: SessionIdentity,
+  runId: string
+): { ok: boolean; error?: string } {
+  return sendAgentCommand({ type: 'workflow-stop', identity, runId });
+}
+
 export function stopSubagent(
   identity: SessionIdentity,
   agentId: string

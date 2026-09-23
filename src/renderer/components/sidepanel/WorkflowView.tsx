@@ -8,7 +8,7 @@ import {
   type WorkflowRunStatus,
 } from '@shared/types/workflow';
 import { buildWorkflowPresetMessage } from '@shared/workflowPresetMessage';
-import { Eraser, Play, RefreshCw, Settings2 } from 'lucide-react';
+import { Eraser, Play, RefreshCw, Settings2, Square } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -299,6 +299,21 @@ export function WorkflowView({ conversationId }: { conversationId: string }) {
               <span className={cn('h-2 w-2 shrink-0 rounded-full', STATUS_CLASS[run.status])} />
               <h3 className="min-w-0 flex-1 truncate text-sm font-medium">{run.name}</h3>
               <span className="text-xs text-muted-foreground">{t(run.status)}</span>
+              {run.status === 'running' ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label={t('Stop')}
+                  title={t('Stop')}
+                  onClick={() =>
+                    void window.electronAPI.agent.stopWorkflow(conversationId, run.runId)
+                  }
+                >
+                  <Square />
+                </Button>
+              ) : null}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">{run.description}</p>
             <p className="mt-2 text-xs text-muted-foreground">

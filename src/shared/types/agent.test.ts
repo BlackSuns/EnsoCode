@@ -492,6 +492,17 @@ describe('parent/child commands', () => {
     expect(parseAgentCommand({ ...base, rolePrompt: 1 })).toBeNull();
   });
 
+  it('workflow-stop 必须 exact identity + 合法 runId', () => {
+    const command = { type: 'workflow-stop', identity: parent, runId: 'run-1' };
+    expect(parseAgentCommand(command)).toEqual(command);
+    expect(
+      parseAgentCommand({ ...command, identity: { ...parent, generation: 'old' } })
+    ).toBeNull();
+    expect(parseAgentCommand({ ...command, runId: '' })).toBeNull();
+    expect(parseAgentCommand({ ...command, runId: 'x'.repeat(81) })).toBeNull();
+    expect(parseAgentCommand({ ...command, extra: 1 })).toBeNull();
+  });
+
   it('subagent-stop 必须 exact identity + 非空 agentId', () => {
     const command = { type: 'subagent-stop', identity: parent, agentId: 'agent-1' };
     expect(parseAgentCommand(command)).toEqual(command);
