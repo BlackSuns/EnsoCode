@@ -33,6 +33,8 @@ export function stripForeignPrebuildDirs(
   arch: string
 ): string[];
 
+export function ensurePtyHelpersExecutable(prebuildsDir: string): string[];
+
 export function afterPack(context: AfterPackContext): Promise<void>;
 
 export default afterPack;

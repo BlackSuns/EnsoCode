@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 /** electron-builder Arch enum: ia32, x64, armv7l, arm64, universal */
@@ -46,6 +46,19 @@ export function stripForeignPrebuildDirs(prebuildsDir, platform, arch) {
   return removed;
 }
 
+/** node-pty 1.1.0 发布包里 prebuilds 的 spawn-helper 是 644，posix_spawnp 会直接失败 */
+export function ensurePtyHelpersExecutable(prebuildsDir) {
+  if (!existsSync(prebuildsDir)) return [];
+  const fixed = [];
+  for (const name of readdirSync(prebuildsDir)) {
+    const helper = path.join(prebuildsDir, name, 'spawn-helper');
+    if (!existsSync(helper)) continue;
+    chmodSync(helper, statSync(helper).mode | 0o755);
+    fixed.push(helper);
+  }
+  return fixed;
+}
+
 function archName(arch) {
   if (typeof arch === 'string') return arch;
   return ARCH_NAME[arch] ?? String(arch);
@@ -60,7 +73,9 @@ export async function afterPack(context) {
     'node_modules'
   );
   stripForeignSqlitePrebuilds(path.join(modules, 'better-sqlite3', 'prebuilds'), platform, arch);
-  stripForeignPrebuildDirs(path.join(modules, 'node-pty', 'prebuilds'), platform, arch);
+  const ptyPrebuilds = path.join(modules, 'node-pty', 'prebuilds');
+  stripForeignPrebuildDirs(ptyPrebuilds, platform, arch);
+  ensurePtyHelpersExecutable(ptyPrebuilds);
   const tuiNative = path.join(modules, '@earendil-works', 'pi-tui', 'native');
   if (existsSync(tuiNative)) {
     for (const name of readdirSync(tuiNative)) {
