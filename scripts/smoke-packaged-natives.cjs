@@ -1,0 +1,79 @@
+// 用打包产物自带的 Electron 以 node 模式真实加载每个原生依赖、执行每个内置二进制。
+// 用法：ELECTRON_RUN_AS_NODE=1 <打包后的可执行文件> scripts/smoke-packaged-natives.cjs <resources 目录>
+const { execFileSync } = require('node:child_process');
+const { mkdtempSync, rmSync } = require('node:fs');
+const { createRequire } = require('node:module');
+const os = require('node:os');
+const path = require('node:path');
+
+const resources = path.resolve(process.argv[2] ?? '');
+const appRequire = createRequire(path.join(resources, 'app.asar', 'package.json'));
+const unpacked = (file) => file.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
+const isWindows = process.platform === 'win32';
+
+const checks = {
+  'better-sqlite3 + sqlite-vec': () => {
+    const Database = appRequire('better-sqlite3');
+    const db = new Database(':memory:');
+    db.loadExtension(unpacked(appRequire('sqlite-vec').getLoadablePath()));
+    return db.prepare('select vec_version() as v').get().v;
+  },
+  'classic-level': async () => {
+    const { Level } = await import(appRequire.resolve('level'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'enso-smoke-level-'));
+    try {
+      const db = new Level(dir);
+      await db.put('k', 'v');
+      const value = await db.get('k');
+      await db.close();
+      return value;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+  'node-pty': () =>
+    new Promise((resolve, reject) => {
+      const pty = appRequire('node-pty');
+      const [file, args] = isWindows
+        ? ['cmd.exe', ['/c', 'echo pty-ok']]
+        : ['/bin/echo', ['pty-ok']];
+      const term = pty.spawn(file, args, { cols: 80, rows: 24 });
+      let output = '';
+      term.onData((data) => {
+        output += data;
+      });
+      term.onExit(({ exitCode }) =>
+        exitCode === 0 && output.includes('pty-ok')
+          ? resolve('pty-ok')
+          : reject(new Error(`exit ${exitCode}: ${output}`))
+      );
+    }),
+  'node-datachannel': async () => {
+    const ndc = await import(appRequire.resolve('node-datachannel'));
+    const peer = new ndc.PeerConnection('smoke', { iceServers: [] });
+    peer.close();
+    return 'loaded';
+  },
+  ripgrep: () =>
+    execFileSync(unpacked(appRequire('@vscode/ripgrep').rgPath), ['--version'])
+      .toString()
+      .split('\n')[0],
+  rtk: () =>
+    execFileSync(path.join(resources, 'rtk', isWindows ? 'rtk.exe' : 'rtk'), ['--version'])
+      .toString()
+      .trim(),
+};
+
+(async () => {
+  let failed = false;
+  for (const [name, check] of Object.entries(checks)) {
+    try {
+      console.log(`ok   ${name}: ${await check()}`);
+    } catch (error) {
+      failed = true;
+      console.error(`FAIL ${name}: ${error instanceof Error ? error.stack : error}`);
+    }
+  }
+  console.log(`arch ${process.arch}, electron ${process.versions.electron}`);
+  process.exit(failed ? 1 : 0);
+})();

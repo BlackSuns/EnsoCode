@@ -33,6 +33,19 @@ export function stripForeignSqlitePrebuilds(prebuildsDir, platform, arch) {
   return removed;
 }
 
+/** 按 `<platform>-<arch>/` 分目录的预编译只留目标一份，交叉打包时别架构的 .node 不混进包 */
+export function stripForeignPrebuildDirs(prebuildsDir, platform, arch) {
+  if (!existsSync(prebuildsDir)) return [];
+  const keep = `${platform}-${arch}`;
+  const removed = [];
+  for (const name of readdirSync(prebuildsDir)) {
+    if (name === keep) continue;
+    rmSync(path.join(prebuildsDir, name), { recursive: true, force: true });
+    removed.push(name);
+  }
+  return removed;
+}
+
 function archName(arch) {
   if (typeof arch === 'string') return arch;
   return ARCH_NAME[arch] ?? String(arch);
@@ -42,13 +55,18 @@ export async function afterPack(context) {
   const platform = context.electronPlatformName;
   const arch = archName(context.arch);
   const productFilename = context.packager.appInfo.productFilename;
-  const prebuildsDir = path.join(
+  const modules = path.join(
     unpackedAppDir(context.appOutDir, platform, productFilename),
-    'node_modules',
-    'better-sqlite3',
-    'prebuilds'
+    'node_modules'
   );
-  stripForeignSqlitePrebuilds(prebuildsDir, platform, arch);
+  stripForeignSqlitePrebuilds(path.join(modules, 'better-sqlite3', 'prebuilds'), platform, arch);
+  stripForeignPrebuildDirs(path.join(modules, 'node-pty', 'prebuilds'), platform, arch);
+  const tuiNative = path.join(modules, '@earendil-works', 'pi-tui', 'native');
+  if (existsSync(tuiNative)) {
+    for (const name of readdirSync(tuiNative)) {
+      stripForeignPrebuildDirs(path.join(tuiNative, name, 'prebuilds'), platform, arch);
+    }
+  }
 }
 
 export default afterPack;

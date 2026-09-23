@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   afterPack,
   hostPrebuildName,
+  stripForeignPrebuildDirs,
   stripForeignSqlitePrebuilds,
   unpackedAppDir,
 } from './stripPackagedNatives.mjs';
@@ -56,20 +57,40 @@ describe('stripPackagedNatives', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'enso-missing-'));
     dirs.push(root);
     expect(stripForeignSqlitePrebuilds(path.join(root, 'nope'), 'darwin', 'arm64')).toEqual([]);
+    expect(stripForeignPrebuildDirs(path.join(root, 'nope'), 'darwin', 'x64')).toEqual([]);
+  });
+
+  it('keeps only the target <platform>-<arch> prebuild directory', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'enso-pty-'));
+    dirs.push(root);
+    for (const name of ['darwin-arm64', 'darwin-x64', 'win32-x64', 'win32-arm64']) {
+      mkdirSync(path.join(root, name));
+      writeFileSync(path.join(root, name, 'pty.node'), 'x');
+    }
+    expect(stripForeignPrebuildDirs(root, 'darwin', 'x64').sort()).toEqual([
+      'darwin-arm64',
+      'win32-arm64',
+      'win32-x64',
+    ]);
+    expect(readdirSync(root)).toEqual(['darwin-x64']);
   });
 
   it('afterPack strips foreign prebuilds from the mac unpacked tree', async () => {
     const appOutDir = mkdtempSync(path.join(tmpdir(), 'enso-appout-'));
     dirs.push(appOutDir);
-    const prebuilds = path.join(
-      unpackedAppDir(appOutDir, 'darwin', 'EnsoCode'),
-      'node_modules',
-      'better-sqlite3',
-      'prebuilds'
-    );
+    const modules = path.join(unpackedAppDir(appOutDir, 'darwin', 'EnsoCode'), 'node_modules');
+    const prebuilds = path.join(modules, 'better-sqlite3', 'prebuilds');
+    const ptyPrebuilds = path.join(modules, 'node-pty', 'prebuilds');
+    const tuiNative = path.join(modules, '@earendil-works', 'pi-tui', 'native');
     mkdirSync(prebuilds, { recursive: true });
     writeFileSync(path.join(prebuilds, 'darwin-arm64.node'), 'keep');
     writeFileSync(path.join(prebuilds, 'linux-x64.node'), 'drop');
+    mkdirSync(path.join(ptyPrebuilds, 'darwin-arm64'), { recursive: true });
+    mkdirSync(path.join(ptyPrebuilds, 'darwin-x64'), { recursive: true });
+    for (const dir of ['darwin/prebuilds/darwin-arm64', 'darwin/prebuilds/darwin-x64']) {
+      mkdirSync(path.join(tuiNative, dir), { recursive: true });
+    }
+    mkdirSync(path.join(tuiNative, 'win32', 'prebuilds', 'win32-x64'), { recursive: true });
     await afterPack({
       appOutDir,
       electronPlatformName: 'darwin',
@@ -77,5 +98,8 @@ describe('stripPackagedNatives', () => {
       packager: { appInfo: { productFilename: 'EnsoCode' } },
     });
     expect(readdirSync(prebuilds)).toEqual(['darwin-arm64.node']);
+    expect(readdirSync(ptyPrebuilds)).toEqual(['darwin-arm64']);
+    expect(readdirSync(path.join(tuiNative, 'darwin', 'prebuilds'))).toEqual(['darwin-arm64']);
+    expect(readdirSync(path.join(tuiNative, 'win32', 'prebuilds'))).toEqual([]);
   });
 });
