@@ -76,6 +76,20 @@ describe('stripPackagedNatives', () => {
     expect(readdirSync(root)).toEqual(['darwin-x64']);
   });
 
+  it('多架构目录（x64+arm64）对其中任一架构都保留', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'enso-multiarch-'));
+    dirs.push(root);
+    for (const name of ['darwin-x64+arm64', 'linux-x64', 'win32-x64', 'android-arm64']) {
+      mkdirSync(path.join(root, name));
+    }
+    expect(stripForeignPrebuildDirs(root, 'darwin', 'arm64').sort()).toEqual([
+      'android-arm64',
+      'linux-x64',
+      'win32-x64',
+    ]);
+    expect(readdirSync(root)).toEqual(['darwin-x64+arm64']);
+  });
+
   it('给 node-pty 预编译的 spawn-helper 补执行位（npm 包里是 644）', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'enso-pty-helper-'));
     dirs.push(root);
@@ -96,6 +110,7 @@ describe('stripPackagedNatives', () => {
     const prebuilds = path.join(modules, 'better-sqlite3', 'prebuilds');
     const ptyPrebuilds = path.join(modules, 'node-pty', 'prebuilds');
     const tuiNative = path.join(modules, '@earendil-works', 'pi-tui', 'native');
+    const levelPrebuilds = path.join(modules, 'classic-level', 'prebuilds');
     mkdirSync(prebuilds, { recursive: true });
     writeFileSync(path.join(prebuilds, 'darwin-arm64.node'), 'keep');
     writeFileSync(path.join(prebuilds, 'linux-x64.node'), 'drop');
@@ -106,6 +121,9 @@ describe('stripPackagedNatives', () => {
       mkdirSync(path.join(tuiNative, dir), { recursive: true });
     }
     mkdirSync(path.join(tuiNative, 'win32', 'prebuilds', 'win32-x64'), { recursive: true });
+    for (const dir of ['darwin-x64+arm64', 'linux-x64', 'win32-x64']) {
+      mkdirSync(path.join(levelPrebuilds, dir), { recursive: true });
+    }
     await afterPack({
       appOutDir,
       electronPlatformName: 'darwin',
@@ -119,5 +137,6 @@ describe('stripPackagedNatives', () => {
     );
     expect(readdirSync(path.join(tuiNative, 'darwin', 'prebuilds'))).toEqual(['darwin-arm64']);
     expect(readdirSync(path.join(tuiNative, 'win32', 'prebuilds'))).toEqual([]);
+    expect(readdirSync(levelPrebuilds)).toEqual(['darwin-x64+arm64']);
   });
 });

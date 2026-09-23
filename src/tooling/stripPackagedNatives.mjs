@@ -33,13 +33,15 @@ export function stripForeignSqlitePrebuilds(prebuildsDir, platform, arch) {
   return removed;
 }
 
-/** 按 `<platform>-<arch>/` 分目录的预编译只留目标一份，交叉打包时别架构的 .node 不混进包 */
+/** 按 `<platform>-<arch>[+<arch>]/` 分目录的预编译只留目标一份，交叉打包时别架构的 .node 不混进包 */
 export function stripForeignPrebuildDirs(prebuildsDir, platform, arch) {
   if (!existsSync(prebuildsDir)) return [];
-  const keep = `${platform}-${arch}`;
+  const prefix = `${platform}-`;
+  const keep = (name) =>
+    name.startsWith(prefix) && name.slice(prefix.length).split('+').includes(arch);
   const removed = [];
   for (const name of readdirSync(prebuildsDir)) {
-    if (name === keep) continue;
+    if (keep(name)) continue;
     rmSync(path.join(prebuildsDir, name), { recursive: true, force: true });
     removed.push(name);
   }
@@ -76,6 +78,7 @@ export async function afterPack(context) {
   const ptyPrebuilds = path.join(modules, 'node-pty', 'prebuilds');
   stripForeignPrebuildDirs(ptyPrebuilds, platform, arch);
   ensurePtyHelpersExecutable(ptyPrebuilds);
+  stripForeignPrebuildDirs(path.join(modules, 'classic-level', 'prebuilds'), platform, arch);
   const tuiNative = path.join(modules, '@earendil-works', 'pi-tui', 'native');
   if (existsSync(tuiNative)) {
     for (const name of readdirSync(tuiNative)) {
