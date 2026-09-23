@@ -1,5 +1,5 @@
 import type { Message, TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
-import { estimateStringTokens } from "./tokens.js";
+import { estimateStringTokens, isSystemMessageEntry } from "./tokens.js";
 
 function pad(n: number): string {
 	return n.toString().padStart(2, "0");
@@ -72,6 +72,7 @@ function textOnly(content: unknown): string {
 export function serializeConversation(messages: Message[]): string {
 	return messages
 		.map((msg): string | null => {
+			if (isSystemMessageEntry({ type: "message", message: msg })) return null;
 			const time = formatTimestamp(msg.timestamp);
 			if (msg.role === "user") {
 				const text = textOnly(msg.content);
@@ -187,7 +188,11 @@ function truncateSourceBlockToTokenBudget(label: string, rendered: string, maxTo
 }
 
 function isSourceRenderableEntry(entry: RenderableEntry): boolean {
-	return entry.type === "message" || entry.type === "custom_message" || entry.type === "branch_summary";
+	return (
+		(entry.type === "message" && !isSystemMessageEntry(entry)) ||
+		entry.type === "custom_message" ||
+		entry.type === "branch_summary"
+	);
 }
 
 /**
@@ -237,6 +242,7 @@ export function serializeSourceAddressedBranchEntries(
 
 function renderRecallMessage(entry: RenderableEntry): string | null {
 	if (!entry.message || typeof entry.message !== "object") return null;
+	if (isSystemMessageEntry(entry)) return null;
 	const msg = entry.message as Message;
 	const time = formatRecallTimestamp(msg.timestamp, entry.timestamp);
 	if (msg.role === "user") {

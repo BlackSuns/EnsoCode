@@ -1,4 +1,4 @@
-import { estimateEntryTokens } from "../tokens.js";
+import { estimateEntryTokens, isSystemMessageEntry } from "../tokens.js";
 import {
 	OM_OBSERVATIONS_DROPPED,
 	OM_OBSERVATIONS_RECORDED,
@@ -10,7 +10,7 @@ import {
 const SOURCE_ENTRY_TYPES = new Set(["message", "custom_message", "branch_summary"]);
 
 export function isSourceEntry(entry: Entry): boolean {
-	return SOURCE_ENTRY_TYPES.has(entry.type);
+	return SOURCE_ENTRY_TYPES.has(entry.type) && !isSystemMessageEntry(entry);
 }
 
 export function entryIndexById(entries: Entry[]): Map<string, number> {
