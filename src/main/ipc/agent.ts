@@ -604,7 +604,7 @@ function agentControlContext(
   const root = 'parent' in identity ? identity.parent : identity;
   const conversation = sourceAuthority?.conversation(root.sessionId);
   const project = conversation ? sourceAuthority?.project(conversation.projectId) : undefined;
-  if (!project || project.state !== 'active') return undefined;
+  if (project?.state !== 'active') return undefined;
   return {
     owner: { ownerId: root.sessionId, projectId: project.projectId, kind: 'chatSession' },
     actor: {

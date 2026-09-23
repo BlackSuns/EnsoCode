@@ -156,7 +156,6 @@ import {
   withAgentRead,
 } from './structuredYield';
 import { createUnifiedSubagentTool, lastAssistantText } from './subagent';
-import { pruneCompletedSubagentDetails } from './subagentRetention';
 import { SystemReminderRegistry } from './systemReminder';
 import {
   buildInitialTitleUserText,
@@ -2572,31 +2571,6 @@ export class SessionSupervisor {
     );
   }
 
-  /**
-   * 阻塞至 coworker 当前轮结束(无论由主 agent 还是用户 tab 触发);空闲则立即返回最近一轮摘要。
-   * 传 gate 时(重)跑验收。父 abort 只提前返回。
-   */
-  private async coworkerWait(
-    coworkerId: string,
-    opts: { signal?: AbortSignal; gate?: string } = {}
-  ): Promise<string> {
-    const managed = this.mustCurrent(coworkerId);
-    if (managed.status === 'running' || managed.roundPending) {
-      managed.parentWaiting = true;
-      try {
-        await this.waitRoundEnd(managed, opts.signal);
-      } finally {
-        managed.parentWaiting = false;
-      }
-      if (opts.signal?.aborted) {
-        return '(wait interrupted — coworker keeps running; use coworker wait/send to follow up)';
-      }
-    } else if (!managed.lastRoundSummary) {
-      return '(no round completed yet — coworker is idle)';
-    }
-    return `${await this.coworkerRoundSummary(managed, opts.gate)}\n\n${COWORKER_FOLLOW_UP_HINT}`;
-  }
-
   private createPeerMessageTool(parentId: string, from: string) {
     return createMessageCoworkerTool({
       from,
@@ -2610,17 +2584,6 @@ export class SessionSupervisor {
         if (target) this.notifier.notify(target.id, text);
       },
     });
-  }
-
-  private mustCoworker(identity: SessionIdentity, name: string): CoworkerInfo {
-    const parent = this.must(identity);
-    const info = parent.coworkers.get(name);
-    if (!info) {
-      throw new Error(
-        `unknown coworker "${name}". Hired: [${[...parent.coworkers.keys()].join(', ')}]`
-      );
-    }
-    return info;
   }
 
   private async runParentGate(managed: ManagedSession, gateCommand: string): Promise<string> {
@@ -3792,13 +3755,6 @@ function consumeRole(managed: { pendingRole?: string }, text: string): string {
   managed.pendingRole = undefined;
   return `<role>\n${role}\n</role>\n\n${text}`;
 }
-
-const slugify = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 32) || 'coworker';
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

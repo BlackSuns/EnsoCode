@@ -192,7 +192,6 @@ function SwitchRow({
 export function MemorySettings({ onLibraryChanged }: { onLibraryChanged?: () => void } = {}) {
   const { t } = useI18n();
   const disabledBuiltinTools = useSettingsStore((state) => state.disabledBuiltinTools);
-  const toggleBuiltinTool = useSettingsStore((state) => state.toggleBuiltinTool);
   const providers = useSettingsStore((state) => state.providers);
   const embeddingModel = useSettingsStore((state) => state.memoryEmbeddingModel);
   const setEmbeddingModel = useSettingsStore((state) => state.setMemoryEmbeddingModel);
