@@ -178,7 +178,7 @@ import { createEnsoCapabilitiesTool } from './tools/ensoCapabilities';
 import { createMemoryTools, MemoryInvoker } from './tools/memory';
 import { transcriptMessages } from './transcript';
 import { createWorkflowTool } from './workflow';
-import { loadWorkflowPreset, workflowPresetRoots } from './workflowPresets';
+import { listWorkflowPresets, loadWorkflowPreset, workflowPresetRoots } from './workflowPresets';
 import { WorkspaceSwitchGate, workspaceBranchContextExtension } from './workspaceSwitch';
 import { withWritePreflight, withWriteScope } from './writeScope';
 
@@ -1907,6 +1907,9 @@ export class SessionSupervisor {
       : undefined;
     const catalogRef: { current: Def[] } = { current: [] };
     const sandboxStore = new Map<string, unknown>();
+    const workflowRoots = workflowPresetRoots(remote ? undefined : cwd, {
+      customDir: this.options.workflowDir,
+    });
     const sessionTools = [
       ...buildCoreTools(),
       ...(browser
@@ -1921,13 +1924,8 @@ export class SessionSupervisor {
             createWorkflowTool({
               invoke: (request, signal) => agentControl.invoke(request, signal),
               // 远程会话的 cwd 在远端，本地只读设置、全局与内置预设（与 Main 列表口径一致）
-              loadPreset: (id) =>
-                loadWorkflowPreset(
-                  id,
-                  workflowPresetRoots(remote ? undefined : cwd, {
-                    customDir: this.options.workflowDir,
-                  })
-                ),
+              loadPreset: (id) => loadWorkflowPreset(id, workflowRoots),
+              presets: listWorkflowPresets(workflowRoots),
               emit: (run) => {
                 const managed = managedRef ?? this.sessions.get(sessionId);
                 if (!managed) return;

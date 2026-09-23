@@ -212,6 +212,27 @@ describe('workflow tool', () => {
       });
     });
 
+    it('可用预设写进工具说明（单行、截断），并允许模型自行挑选合适的预设', () => {
+      const noPresets = createWorkflowTool({ invoke: vi.fn(), emit: vi.fn() });
+      expect(noPresets.description).not.toMatch(/Available presets/);
+      const tool = createWorkflowTool({
+        invoke: vi.fn(),
+        emit: vi.fn(),
+        presets: [
+          { ...saved, description: `line one\nline two ${'x'.repeat(400)}` },
+          { id: 'plain', source: 'builtin', name: 'Plain', description: 'No args', args: [] },
+        ],
+      });
+      const lines = tool.description.split('\n');
+      const echo = lines.find((line) => line.startsWith('- echo:'));
+      expect(echo).toMatch(/Echo preset — line one line two x+… \(args: target="HEAD", focus\*\)$/);
+      expect(echo?.length).toBeLessThan(300);
+      expect(lines).toContain('- plain: Plain — No args');
+      const guidelines = tool.promptGuidelines?.join('\n') ?? '';
+      expect(guidelines).toMatch(/listed preset/i);
+      expect(guidelines).not.toMatch(/never guess preset ids/);
+    });
+
     it('未知预设、同时给脚本、缺必填参数都在启动前拒绝', async () => {
       const { emit, run } = make();
       await expect(run({ preset: 'nope' })).rejects.toThrow(/unknown workflow preset/);

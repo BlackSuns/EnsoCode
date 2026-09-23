@@ -2,7 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { AgentControlToolRequest, AgentControlToolResponse } from '@shared/types/agent';
-import type { WorkflowMemberSnapshot, WorkflowRunSnapshot } from '@shared/types/workflow';
+import type {
+  WorkflowMemberSnapshot,
+  WorkflowPresetSummary,
+  WorkflowRunSnapshot,
+} from '@shared/types/workflow';
 import { JSException, type JSValueHandle, QuickJS } from 'quickjs-wasi';
 import { resolveWorkflowPresetArgs, type WorkflowPreset } from './workflowPresets';
 
@@ -26,6 +30,8 @@ export interface WorkflowToolDeps {
   invoke(request: AgentControlToolRequest, signal?: AbortSignal): Promise<AgentControlToolResponse>;
   emit(run: WorkflowRunSnapshot): void;
   loadPreset?: (id: string) => WorkflowPreset | null;
+  /** 会话建立时的可用预设快照，写进工具说明供模型挑选 */
+  presets?: readonly WorkflowPresetSummary[];
   randomUuid?: () => string;
 }
 
@@ -42,6 +48,29 @@ function childIdOf(value: unknown): string | undefined {
 function clip(value: string, max: number): string {
   const text = value.trim();
   return text.length > max ? text.slice(0, max) : text;
+}
+
+const MAX_LISTED_PRESETS = 20;
+
+function oneLine(value: string, max: number): string {
+  const text = value.replace(/\s+/g, ' ').trim();
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function presetCatalog(presets: readonly WorkflowPresetSummary[] | undefined): string {
+  if (!presets?.length) return '';
+  const lines = presets.slice(0, MAX_LISTED_PRESETS).map((preset) => {
+    const args = preset.args.map((arg) =>
+      arg.required
+        ? `${arg.key}*`
+        : arg.default !== undefined
+          ? `${arg.key}=${JSON.stringify(arg.default)}`
+          : arg.key
+    );
+    const head = `- ${preset.id}: ${oneLine(preset.name, 60)} — ${oneLine(preset.description, 160)}`;
+    return args.length > 0 ? `${head} (args: ${args.join(', ')})` : head;
+  });
+  return `\nAvailable presets (pass the id as preset and string values in args; * = required):\n${lines.join('\n')}`;
 }
 
 export function workflowChildOutcome(
@@ -464,14 +493,15 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
     label: 'Workflow',
     description:
       'Run a JavaScript workflow that fans work out across subagents. Use only when the user asks for a workflow or a large multi-agent fan-out. ' +
-      'Pass either preset (id of a saved workflow the user named) or script + meta. ' +
+      'Pass either preset (id of a saved workflow) or script + meta. ' +
       'The script is plain JavaScript with top-level await and must return a JSON value. Hooks: agent(prompt, opts?), parallel(thunks), pipeline(items, ...stages), phase(title), log(message), args. ' +
-      'A failed child resolves to null. Bad hook arguments fail the whole run. The script cannot use filesystem, network, timers, or Node APIs. Status is shown in the side panel.',
+      'A failed child resolves to null. Bad hook arguments fail the whole run. The script cannot use filesystem, network, timers, or Node APIs. Status is shown in the side panel.' +
+      presetCatalog(deps.presets),
     promptSnippet:
-      'workflow: write a JavaScript orchestration script that fans subagents out. Use only for an explicit workflow request or a large fan-out. One or two delegations should use subagent.',
+      'workflow: run a saved preset or write a JavaScript orchestration script that fans subagents out. Use for an explicit workflow request, a large fan-out, or a task a listed preset clearly fits. One or two delegations should use subagent.',
     promptGuidelines: [
-      'Use workflow only when the user asks for a workflow or for large multi-agent orchestration.',
-      'Use preset only with an id the user gave you; never guess preset ids or rewrite a preset as a script.',
+      'Use workflow when the user asks for a workflow, for large multi-agent orchestration, or when a listed preset clearly fits the task.',
+      'Prefer a listed preset over writing an equivalent script; pass its id and args. Use only listed preset ids or ids the user gave you, and never rewrite a preset as a script.',
       'script is plain JavaScript, not TypeScript, with top-level await. End with return <json>.',
       'agent() options are only label, phase, model, agentType, and schema. Anything else fails the run.',
       'Child failure returns null. Do not treat null as success without checking it.',
