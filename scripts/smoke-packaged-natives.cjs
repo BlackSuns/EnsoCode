@@ -5,9 +5,11 @@ const { mkdtempSync, rmSync } = require('node:fs');
 const { createRequire } = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 const resources = path.resolve(process.argv[2] ?? '');
 const appRequire = createRequire(path.join(resources, 'app.asar', 'package.json'));
+const appImport = (name) => import(pathToFileURL(appRequire.resolve(name)).href);
 const unpacked = (file) => file.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
 const isWindows = process.platform === 'win32';
 
@@ -19,7 +21,7 @@ const checks = {
     return db.prepare('select vec_version() as v').get().v;
   },
   'classic-level': async () => {
-    const { Level } = await import(appRequire.resolve('level'));
+    const { Level } = await appImport('level');
     const dir = mkdtempSync(path.join(os.tmpdir(), 'enso-smoke-level-'));
     try {
       const db = new Level(dir);
@@ -49,7 +51,7 @@ const checks = {
       );
     }),
   'node-datachannel': async () => {
-    const ndc = await import(appRequire.resolve('node-datachannel'));
+    const ndc = await appImport('node-datachannel');
     const peer = new ndc.PeerConnection('smoke', { iceServers: [] });
     peer.close();
     return 'loaded';

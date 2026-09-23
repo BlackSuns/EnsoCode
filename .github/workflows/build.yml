@@ -56,6 +56,7 @@ jobs:
   build-mac:
     needs: build-app
     strategy:
+      fail-fast: false
       matrix:
         arch: [arm64, x64]
     # x64 也在 Apple 芯片上交叉打包：Intel runner 各阶段慢 2–4 倍。
