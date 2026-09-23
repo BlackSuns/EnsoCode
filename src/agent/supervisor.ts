@@ -55,7 +55,6 @@ import type {
   SessionSnapshot,
   SlashCommand,
   SpawnModelConfig,
-  SubagentInfo,
   SubagentModelOption,
   ThinkingLevel,
 } from '@shared/types/agent';
@@ -265,8 +264,6 @@ interface ManagedSession {
   compaction?: 'queued' | 'running';
   /** 绝对消息 index 口径：压完那刻 messages.length（须在 reconcileMessages 之后取） */
   compactionNoticeAt?: number;
-  subagents: Map<string, SubagentInfo>;
-  subagentAborts: Map<string, () => void>;
   /** 在跑的 workflow（同步与后台）；用户停止与会话释放时 abort */
   workflowRuns?: Map<string, AbortController>;
   factory?: SessionFactory;
@@ -682,7 +679,6 @@ export class SessionSupervisor {
         this.bgTasks.snapshot(id).some((task) => task.status === 'running'),
       hasChildren:
         managed.coworkers.size > 0 ||
-        [...managed.subagents.values()].some((s) => s.status === 'running') ||
         [...this.sessions.keys()].some((key) => key.startsWith(`${id}::`)),
     };
   }
@@ -712,8 +708,6 @@ export class SessionSupervisor {
     // 先收掉整棵子会话（coworker/child 都以 `${parentId}::` 为键前缀）
     for (const [id, child] of [...this.sessions]) {
       if (!id.startsWith(`${parentId}::`)) continue;
-      for (const abort of child.subagentAborts.values()) abort();
-      child.subagentAborts.clear();
       child.gate.cancelAll();
       child.asks.cancelAll();
       cancelContinuousMemory(child.session.sessionManager);
@@ -729,8 +723,6 @@ export class SessionSupervisor {
       this.settleRound(child);
     }
     managed.coworkers.clear();
-    for (const abort of managed.subagentAborts.values()) abort();
-    managed.subagentAborts.clear();
     for (const controller of managed.workflowRuns?.values() ?? []) controller.abort();
     managed.workflowRuns?.clear();
     managed.gate.cancelAll();
@@ -783,7 +775,6 @@ export class SessionSupervisor {
                 (managed.ensoApp?.pendingCount ?? 0) > 0 ||
                 (managed.browser?.pendingCount ?? 0) > 0 ||
                 (managed.agentControl?.pendingCount ?? 0) > 0 ||
-                [...managed.subagents.values()].some((s) => s.status === 'running') ||
                 this.bgTasks
                   .snapshot(managed.identity.sessionId)
                   .some((task) => task.status === 'running')
@@ -1222,11 +1213,10 @@ export class SessionSupervisor {
         this.must(command.identity);
         this.bgTasks.stop(command.taskId);
         return;
-      case 'subagent-stop': {
-        const managed = this.must(command.identity);
-        managed.subagentAborts.get(command.agentId)?.();
+      // 旧子代理状态链路已无来源，命令仍在共享协议里，worker 侧不再有可停的对象
+      case 'subagent-stop':
+        this.must(command.identity);
         return;
-      }
       case 'fork': {
         const managed = this.must(command.identity);
         if (managed.status !== 'idle' || managed.childIdentity) {
@@ -2115,8 +2105,6 @@ export class SessionSupervisor {
       asks: opts.asks ?? this.createAskManager(identity),
       pendingTaskReminders: [],
       roundWaiters: new Set(),
-      subagents: new Map(),
-      subagentAborts: new Map(),
       coworkers: new Map(),
       lastActivityAt: Date.now(),
       contextUsage: new UsageTracker(),
@@ -3373,9 +3361,8 @@ export class SessionSupervisor {
           ? { pendingApprovals: managed.gate.snapshot() }
           : {}),
         ...(managed.asks.snapshot().length > 0 ? { pendingAsks: managed.asks.snapshot() } : {}),
-        // 切会话/重连靠快照整段重建 TaskBar；不带这两项会把还在跑的子代理/后台任务条清空，等下一次 update 才回来
+        // 切会话/重连靠快照整段重建 TaskBar；不带它会把还在跑的后台任务条清空，等下一次 update 才回来
         ...(backgroundTasks.length > 0 ? { backgroundTasks } : {}),
-        ...(managed.subagents.size > 0 ? { subagents: [...managed.subagents.values()] } : {}),
         ...(managed.childMetadata ? { child: managed.childMetadata } : {}),
         ...(managed.customEntries.length > 0 ? { customEntries: managed.customEntries } : {}),
         ...(managed.compaction ? { compaction: managed.compaction } : {}),
