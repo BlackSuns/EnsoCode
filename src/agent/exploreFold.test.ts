@@ -1,57 +1,158 @@
 import { describe, expect, it } from 'vitest';
 import {
-  applyExploreFold,
   createExploreFoldState,
   createExploreFoldTools,
+  foldExploreContext,
   type LlmMessage,
 } from './exploreFold';
 
-const msg = (role: string, text: string, extra?: Partial<LlmMessage>): LlmMessage => ({
-  role,
-  content: text,
+const user = (text: string): LlmMessage => ({
+  role: 'user',
+  content: [{ type: 'text', text }],
+});
+const calls = (...parts: Array<[string, string, Record<string, unknown>?]>): LlmMessage => ({
+  role: 'assistant',
+  content: parts.map(([id, name, args]) => ({ type: 'toolCall', id, name, arguments: args ?? {} })),
+});
+const call = (id: string, name: string, args?: Record<string, unknown>) => calls([id, name, args]);
+const result = (toolCallId: string, extra: Partial<LlmMessage> = {}): LlmMessage => ({
+  role: 'toolResult',
+  toolCallId,
+  content: [{ type: 'text', text: 'ok' }],
+  isError: false,
   ...extra,
 });
+const reply = (text: string): LlmMessage => ({
+  role: 'assistant',
+  content: [{ type: 'text', text }],
+});
 
-describe('applyExploreFold', () => {
-  it('replaces mark→fold tool rounds with the report', () => {
-    const messages: LlmMessage[] = [
-      msg('user', 'look around'),
-      msg('assistant', 'marking', { toolCalls: [{ name: 'explore_mark' }] }),
-      msg('toolResult', 'marked'),
-      msg('assistant', 'reading', { toolCalls: [{ name: 'read' }] }),
-      msg('toolResult', 'file contents'),
-      msg('assistant', 'folding', { toolCalls: [{ name: 'explore_fold' }] }),
-      msg('toolResult', 'folded'),
-      msg('assistant', 'now implement'),
+describe('foldExploreContext', () => {
+  it('删除 mark 与 fold 之间的工具轮次，保留 mark/fold 调用及其结果', () => {
+    const messages = [
+      user('look around'),
+      call('m1', 'explore_mark', { goal: 'g' }),
+      result('m1'),
+      call('r1', 'read', { path: 'a.ts' }),
+      result('r1'),
+      call('f1', 'explore_fold', { report: 'auth is in src/auth.ts' }),
+      result('f1'),
+      reply('now implement'),
     ];
-    const folded = applyExploreFold(messages, [
-      { from: 1, to: 6, report: 'auth is in src/auth.ts' },
-    ]);
-    expect(folded.map((m) => (typeof m.content === 'string' ? m.content : ''))).toEqual([
-      'look around',
-      'Explore report:\nauth is in src/auth.ts',
-      'now implement',
-    ]);
+    const folded = foldExploreContext(messages);
+    expect(folded).toEqual([0, 1, 2, 5, 6, 7].map((i) => messages[i]));
   });
 
-  it('leaves messages unchanged when there are no folds', () => {
-    const messages = [msg('user', 'a'), msg('assistant', 'b')];
-    expect(applyExploreFold(messages, [])).toBe(messages);
-  });
-
-  it('折叠区间内的 system 消息（工具/提示增量）保留在报告之前', () => {
-    const system = msg('system', '');
-    const messages: LlmMessage[] = [
-      msg('user', 'look around'),
-      msg('assistant', 'marking', { toolCalls: [{ name: 'explore_mark' }] }),
-      msg('toolResult', 'marked'),
+  it('区间内的 system 消息（工具/提示增量）保留', () => {
+    const system: LlmMessage = { role: 'system', content: '' };
+    const messages = [
+      user('go'),
+      call('m1', 'explore_mark'),
+      result('m1'),
+      call('r1', 'read'),
+      result('r1'),
       system,
-      msg('assistant', 'folding', { toolCalls: [{ name: 'explore_fold' }] }),
-      msg('toolResult', 'folded'),
+      call('f1', 'explore_fold'),
+      result('f1'),
     ];
-    const folded = applyExploreFold(messages, [{ from: 1, to: 5, report: 'r' }]);
-    expect(folded.map((m) => m.role)).toEqual(['user', 'system', 'user']);
-    expect(folded[1]).toBe(system);
+    expect(foldExploreContext(messages)).toEqual([0, 1, 2, 5, 6, 7].map((i) => messages[i]));
+  });
+
+  it('mark / fold 与其它工具并行调用时，同批调用与结果都保留', () => {
+    const messages = [
+      user('go'),
+      calls(['m1', 'explore_mark'], ['r0', 'read']),
+      result('m1'),
+      result('r0'),
+      call('r1', 'read'),
+      result('r1'),
+      calls(['r2', 'read'], ['f1', 'explore_fold']),
+      result('r2'),
+      result('f1'),
+    ];
+    expect(foldExploreContext(messages)).toEqual([0, 1, 2, 3, 6, 7, 8].map((i) => messages[i]));
+  });
+
+  it('mark 后直接 fold、或二者同批调用时不变', () => {
+    const adjacent = [
+      user('go'),
+      call('m1', 'explore_mark'),
+      result('m1'),
+      call('f1', 'explore_fold'),
+      result('f1'),
+    ];
+    expect(foldExploreContext(adjacent)).toBe(adjacent);
+    const sameMessage = [
+      user('go'),
+      calls(['m1', 'explore_mark'], ['f1', 'explore_fold']),
+      result('m1'),
+      result('f1'),
+    ];
+    expect(foldExploreContext(sameMessage)).toBe(sameMessage);
+  });
+
+  it('fold 失败、尚无结果或 mark 失败时不折叠', () => {
+    const body = [call('r1', 'read'), result('r1')];
+    const failedFold = [
+      user('go'),
+      call('m1', 'explore_mark'),
+      result('m1'),
+      ...body,
+      call('f1', 'explore_fold'),
+      result('f1', { isError: true }),
+    ];
+    expect(foldExploreContext(failedFold)).toBe(failedFold);
+    const pendingFold = [
+      user('go'),
+      call('m1', 'explore_mark'),
+      result('m1'),
+      ...body,
+      call('f1', 'explore_fold'),
+    ];
+    expect(foldExploreContext(pendingFold)).toBe(pendingFold);
+    const failedMark = [
+      user('go'),
+      call('m1', 'explore_mark'),
+      result('m1', { isError: true }),
+      ...body,
+      call('f1', 'explore_fold'),
+      result('f1'),
+    ];
+    expect(foldExploreContext(failedMark)).toBe(failedMark);
+  });
+
+  it('区间跨过用户消息时不折叠，避免吞掉用户输入', () => {
+    const messages = [
+      user('go'),
+      call('m1', 'explore_mark'),
+      result('m1'),
+      reply('forgot to fold'),
+      user('continue'),
+      call('f1', 'explore_fold'),
+      result('f1'),
+    ];
+    expect(foldExploreContext(messages)).toBe(messages);
+  });
+
+  it('多段 mark→fold 各自折叠', () => {
+    const messages = [
+      user('go'),
+      call('m1', 'explore_mark'),
+      result('m1'),
+      call('r1', 'read'),
+      result('r1'),
+      call('f1', 'explore_fold'),
+      result('f1'),
+      call('m2', 'explore_mark'),
+      result('m2'),
+      call('r2', 'read'),
+      result('r2'),
+      call('f2', 'explore_fold'),
+      result('f2'),
+    ];
+    expect(foldExploreContext(messages)).toEqual(
+      [0, 1, 2, 5, 6, 7, 8, 11, 12].map((i) => messages[i])
+    );
   });
 });
 
@@ -61,8 +162,7 @@ describe('createExploreFoldState', () => {
     expect(() => state.fold('x')).toThrow(/no active explore_mark/i);
     state.mark('goal');
     expect(() => state.mark('again')).toThrow(/already active/i);
-    const fold = state.fold('report');
-    expect(fold.report).toBe('report');
+    expect(state.fold(' report ')).toBe('report');
   });
 });
 
