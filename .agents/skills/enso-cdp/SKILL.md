@@ -27,6 +27,8 @@ node scripts/cdp.mjs drag '<fromJS>' '<toJS>'       # 受信任鼠标拖拽（fr
 
 合成事件（eval 里 dispatchEvent）`isTrusted=false` 且不过 IME/焦点管线；排查“真实键盘行为”用 `keys`/`type`。
 
+`keys Enter` 只发 `rawKeyDown`/`keyUp`，不产生字符事件，**不会触发 `<form>` 的隐式提交**；验表单回车要手发 `Input.dispatchKeyEvent {type:'keyDown', text:'\r', key:'Enter', windowsVirtualKeyCode:13}`，或直接点提交按钮。
+
 ## 鼠标拖拽 / 点击（Input.dispatchMouseEvent）
 
 **窗口必须可见**：`document.visibilityState === 'hidden'`（窗口被遮挡/后台/另一 Space）时，
@@ -50,9 +52,12 @@ osascript -e 'tell application "System Events" to set frontmost of (first proces
 ```bash
 node scripts/mk-env.mjs /tmp/enso-x 2      # 2 个 fake provider（凭证尾号可区分）
 node <repo>/scripts/fake-provider-issue-27.mjs &   # 8899；支持 [[tool:name {json}]] 指令
-ENSO_USER_DATA_DIR=/tmp/enso-x pnpm dev
+ENSO_USER_DATA_DIR=/tmp/enso-x ENSO_CDP_PORT=9333 pnpm dev
+ENSO_CDP_PORT=9333 node scripts/cdp.mjs pages
 curl -s http://127.0.0.1:8899/__requests   # 每个请求实际带的凭证尾号
 ```
+
+**隔离验证必须错开 CDP 端口**：用户自己的 dev 实例（真实 userData）常驻 9222，第二个实例绑不上端口也不报错，`cdp.mjs` 会静默连到用户实例，写操作直接落进真实数据。动手前先 `lsof -nP -iTCP:<port> -sTCP:LISTEN` 确认 PID 属于隔离实例（`ps -E -p <pid>` 能看到 `ENSO_USER_DATA_DIR`）。
 
 常用 store 入口（eval 里）：`window.__stores.sessions.getState()` / `window.__stores.settings.getState()`；`window.electronAPI.*` 是 preload API。
 
