@@ -12,6 +12,7 @@ import {
   type SubagentInfo,
   shouldApplyDispatchMainEvent,
 } from '@shared/types/agent';
+import { truncatedProjectionHead } from '@shared/projectedText';
 import { extractEdits, extractWriteContent } from './timeline';
 
 /**
@@ -54,6 +55,8 @@ function sameUserText(optimistic: string, delivered: string): boolean {
   const plain = stripRolePrefix(delivered);
   if (optimistic === delivered || optimistic === plain) return true;
   if (optimistic === plain.replace(IMAGE_HINTS, '')) return true;
+  const head = truncatedProjectionHead(delivered);
+  if (head !== null && optimistic.startsWith(stripRolePrefix(head))) return true;
   const slash = SKILL_SLASH.exec(optimistic);
   const block = SKILL_BLOCK.exec(delivered);
   if (!slash || !block) return false;
