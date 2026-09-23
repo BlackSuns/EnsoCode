@@ -72,7 +72,7 @@ receipt 事件同理：发的是**绑定上下文的 `context.turnId`**（= 派�
 ## 对 pi 私有 API 的依赖要登记
 
 目前有一处：`src/agent/supervisor.ts` 的 `materializeSessionFile()` 调用
-`SessionManager._rewriteFile()`。
+`SessionManager._rewriteFile()`，并在成功重写后同步其私有 `flushed` 标记。
 
 **为什么需要**：pi 的 `_persist` 在会话出现第一条 assistant 消息前一个字节不写
 （避免留空会话文件），而纯派发的父容器按设计永远不跑主 coding 回合、永远没有
@@ -82,6 +82,10 @@ assistant 消息。不干预的后果是父会话文件从未创建，重启后 
 **升级 pi 时必须复检这一处**。回归测试（`src/agent/sessionPersistence.test.ts`）故意包含
 一条**上游行为基线断言**——“pi 当前在没有 assistant 消息时不落盘”；上游改了这个
 启发式，该断言会先飘红提醒复检适配层是否还需要。
+
+Pi 0.87.1 的 `_rewriteFile()` 不设置 `flushed`；不显式同步时，首条 assistant
+会以 `wx` 创建已有文件并抛出 `EEXIST`。回归还须覆盖物化后追加首条 assistant、
+重开 JSONL 后消息仍存在。只有重写成功后才能设置该标记。
 
 新增此类依赖前先找公开 API；确实没有时，三件事缺一不可：
 

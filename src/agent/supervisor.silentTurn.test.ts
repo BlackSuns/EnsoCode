@@ -3,14 +3,26 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AgentWorkerEvent } from '@shared/types/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { POST_TOOL_EMPTY_NUDGE, SILENT_TURN_NUDGE } from './silentTurn';
+import type { SilentTurnKind } from './silentTurn';
 
 const mocks = vi.hoisted(() => ({
   sessions: [] as Array<Record<string, unknown>>,
   managers: [] as Array<Record<string, unknown>>,
   mcpToolsFor: vi.fn(),
   createAgentSession: vi.fn(),
+  recoveryCallbacks: [] as Array<(kind: SilentTurnKind) => void>,
 }));
+
+vi.mock('./sessionAdapter', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./sessionAdapter')>();
+  return {
+    ...original,
+    silentTurnRecoveryExtension(onRecovery: (kind: SilentTurnKind) => void) {
+      mocks.recoveryCallbacks.push(onRecovery);
+      return original.silentTurnRecoveryExtension(onRecovery);
+    },
+  };
+});
 
 vi.mock('./cursor/loadProvider', () => ({
   CURSOR_PROVIDER_ID: 'cursor',
@@ -27,6 +39,7 @@ vi.mock('./mcp', () => ({
 vi.mock('@earendil-works/pi-coding-agent', async (importOriginal) => {
   const original = await importOriginal<Record<string, unknown>>();
   class Loader {
+    constructor(readonly options: { extensionFactories?: Array<{ name?: string }> }) {}
     async reload() {}
     getSkills() {
       return { skills: [] };
@@ -91,36 +104,24 @@ function session(options: Record<string, unknown>) {
   const listeners = new Set<(event: { type: string; [key: string]: unknown }) => void>();
   const agentState = {
     messages: [] as unknown[],
-    systemPrompt: 'base system',
+    get systemPrompt() {
+      const extra = this.messages.flatMap((message) =>
+        typeof message === 'object' &&
+        message !== null &&
+        'role' in message &&
+        message.role === 'system' &&
+        'content' in message &&
+        typeof message.content === 'string'
+          ? [message.content]
+          : []
+      );
+      return ['base system', ...extra].join('\n\n');
+    },
   };
   const agent = {
     state: agentState,
-    prepareRequest: undefined as
-      | ((request: {
-          context: { messages: Array<{ role?: string; content?: unknown }> };
-        }) =>
-          | { context?: { messages?: Array<{ role?: string; content?: unknown }> } }
-          | undefined
-          | Promise<{
-              context?: { messages?: Array<{ role?: string; content?: unknown }> };
-            } | undefined>)
-      | undefined,
     continue: vi.fn(async () => {
-      const request: {
-        context: { messages: Array<{ role?: string; content?: unknown }> };
-      } = {
-        context: {
-          messages: [
-            { role: 'system', content: agentState.systemPrompt },
-            ...(agentState.messages as Array<{ role?: string; content?: unknown }>),
-          ],
-        },
-      };
-      const update = await agent.prepareRequest?.(request);
-      const messages = update?.context?.messages ?? request.context.messages;
-      const system = messages.find((message) => message.role === 'system');
-      agent.promptAtContinue =
-        typeof system?.content === 'string' ? system.content : agentState.systemPrompt;
+      agent.promptAtContinue = agentState.systemPrompt;
     }),
     promptAtContinue: undefined as string | undefined,
   };
@@ -171,12 +172,13 @@ async function waitFor(events: AgentWorkerEvent[], type: AgentWorkerEvent['type'
   throw new Error(`timed out waiting for ${type}`);
 }
 
-describe('SessionSupervisor silent turn recovery', () => {
+describe('SessionSupervisor terminal turn handling', () => {
   let sessionDir = '';
 
   beforeEach(() => {
     mocks.sessions.length = 0;
     mocks.managers.length = 0;
+    mocks.recoveryCallbacks.length = 0;
     mocks.createAgentSession.mockReset();
     mocks.mcpToolsFor.mockReset().mockResolvedValue([]);
     sessionDir = mkdtempSync(path.join(tmpdir(), 'enso-silent-'));
@@ -209,58 +211,6 @@ describe('SessionSupervisor silent turn recovery', () => {
     await waitFor(events, 'parent-ready');
     return { events, supervisor, parentSession: mocks.sessions[0] as ReturnType<typeof session> };
   }
-
-  it('空回复不 settle，摘掉空 assistant 后 continue 一次，并把 nudge 写进当次 systemPrompt', async () => {
-    const { events, supervisor, parentSession } = await spawn();
-    parentSession.emit({ type: 'agent_start' });
-    await settle();
-    parentSession.messages.push(
-      { role: 'user', content: [{ type: 'text', text: 'go' }] },
-      { role: 'assistant', content: [] }
-    );
-    const mark = events.length;
-    parentSession.emit({ type: 'agent_end', willRetry: false });
-    await settle();
-    await settle();
-    const after = events.slice(mark);
-
-    expect(parentSession.agent.continue).toHaveBeenCalledTimes(1);
-    expect(parentSession.agent.promptAtContinue).toContain(SILENT_TURN_NUDGE);
-    expect(parentSession.agent.state.systemPrompt).toBe('base system');
-    expect(after.some((event) => event.type === 'turn-completed')).toBe(false);
-    expect(after.some((event) => event.type === 'turn-failed')).toBe(false);
-    expect(after.some((event) => event.type === 'status' && event.status === 'idle')).toBe(false);
-    expect(after.some((event) => event.type === 'messages-truncated')).toBe(true);
-    expect(parentSession.messages).toEqual([
-      { role: 'user', content: [{ type: 'text', text: 'go' }] },
-    ]);
-
-    await supervisor.shutdown();
-  });
-
-  it('恢复后再空回复只 continue 一次，第二次按完成收口', async () => {
-    const { events, supervisor, parentSession } = await spawn();
-    parentSession.emit({ type: 'agent_start' });
-    await settle();
-    parentSession.messages.push(
-      { role: 'user', content: [{ type: 'text', text: 'go' }] },
-      { role: 'assistant', content: [] }
-    );
-    parentSession.emit({ type: 'agent_end', willRetry: false });
-    await settle();
-    await settle();
-    expect(parentSession.agent.continue).toHaveBeenCalledTimes(1);
-
-    parentSession.messages.push({ role: 'assistant', content: [] });
-    parentSession.emit({ type: 'agent_end', willRetry: false });
-    await settle();
-    await settle();
-
-    expect(parentSession.agent.continue).toHaveBeenCalledTimes(1);
-    expect(events.some((event) => event.type === 'turn-completed')).toBe(true);
-
-    await supervisor.shutdown();
-  });
 
   it('有正文或 toolCall 的轮次不触发恢复', async () => {
     const { events, supervisor, parentSession } = await spawn();
@@ -304,82 +254,28 @@ describe('SessionSupervisor silent turn recovery', () => {
     await supervisor.shutdown();
   });
 
-  it('下一轮新的 agent_start 后空回复可以再恢复一次', async () => {
+  it('已注册恢复 hook，工具后恢复仍为空时失败而非完成', async () => {
     const { events, supervisor, parentSession } = await spawn();
+    const loader = parentSession.resourceLoader as {
+      options: { extensionFactories: Array<{ name?: string }> };
+    };
+    expect(
+      loader.options.extensionFactories.some((item) => item.name === 'silent-turn-recovery')
+    ).toBe(true);
+    expect(mocks.recoveryCallbacks).toHaveLength(1);
     parentSession.emit({ type: 'agent_start' });
-    await settle();
+    mocks.recoveryCallbacks[0]!('post-tool');
     parentSession.messages.push(
       { role: 'user', content: [{ type: 'text', text: 'go' }] },
+      { role: 'toolResult', content: [{ type: 'text', text: 'done' }] },
+      { role: 'assistant', content: [] },
       { role: 'assistant', content: [] }
     );
     parentSession.emit({ type: 'agent_end', willRetry: false });
     await settle();
-    await settle();
-
-    parentSession.messages.push({
-      role: 'assistant',
-      content: [{ type: 'text', text: 'recovered' }],
-    });
-    parentSession.emit({ type: 'agent_end', willRetry: false });
-    await settle();
-    await settle();
-    expect(events.some((event) => event.type === 'turn-completed')).toBe(true);
-    expect(parentSession.agent.continue).toHaveBeenCalledTimes(1);
-
-    parentSession.emit({ type: 'agent_start' });
-    await settle();
-    parentSession.messages.push(
-      { role: 'user', content: [{ type: 'text', text: 'again' }] },
-      { role: 'assistant', content: [] }
-    );
-    parentSession.emit({ type: 'agent_end', willRetry: false });
-    await settle();
-    await settle();
-    expect(parentSession.agent.continue).toHaveBeenCalledTimes(2);
-
-    await supervisor.shutdown();
-  });
-
-  it('工具成功后空回复用 post-tool nudge', async () => {
-    const { supervisor, parentSession } = await spawn();
-    parentSession.emit({ type: 'agent_start' });
-    await settle();
-    parentSession.messages.push(
-      { role: 'user', content: [{ type: 'text', text: 'go' }] },
-      { role: 'assistant', content: [{ type: 'toolCall', id: '1', name: 'read' }] },
-      { role: 'toolResult', toolCallId: '1', content: [{ type: 'text', text: 'ok' }] },
-      { role: 'assistant', content: [] }
-    );
-    parentSession.emit({ type: 'agent_end', willRetry: false });
-    await settle();
-    await settle();
-    expect(parentSession.agent.continue).toHaveBeenCalledTimes(1);
-    expect(parentSession.agent.promptAtContinue).toContain(POST_TOOL_EMPTY_NUDGE);
-    expect(parentSession.agent.promptAtContinue).not.toContain(SILENT_TURN_NUDGE);
-    await supervisor.shutdown();
-  });
-
-  it('post-tool 恢复后再空则失败，不当成功收口', async () => {
-    const { events, supervisor, parentSession } = await spawn();
-    parentSession.emit({ type: 'agent_start' });
-    await settle();
-    parentSession.messages.push(
-      { role: 'user', content: [{ type: 'text', text: 'go' }] },
-      { role: 'toolResult', toolCallId: '1', content: [{ type: 'text', text: 'ok' }] },
-      { role: 'assistant', content: [] }
-    );
-    parentSession.emit({ type: 'agent_end', willRetry: false });
-    await settle();
-    await settle();
-    expect(parentSession.agent.continue).toHaveBeenCalledTimes(1);
-
-    parentSession.messages.push({ role: 'assistant', content: [] });
-    parentSession.emit({ type: 'agent_end', willRetry: false });
-    await settle();
-    await settle();
-    expect(parentSession.agent.continue).toHaveBeenCalledTimes(1);
     expect(events.some((event) => event.type === 'turn-failed')).toBe(true);
     expect(events.some((event) => event.type === 'turn-completed')).toBe(false);
+    expect(parentSession.agent.continue).not.toHaveBeenCalled();
     await supervisor.shutdown();
   });
 });
