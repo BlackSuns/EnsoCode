@@ -1,4 +1,5 @@
 import type { AgentControlToolRequest, AgentControlToolResponse } from '@shared/types/agent';
+import { generateWorkflowScript } from '@shared/workflowDesign';
 import { describe, expect, it, vi } from 'vitest';
 import { createWorkflowTool, WORKFLOW_STOPPED_BY_USER, workflowChildOutcome } from './workflow';
 import { loadWorkflowPreset } from './workflowPresets';
@@ -503,5 +504,52 @@ describe('workflow tool', () => {
         (bare.parameters as { properties: Record<string, unknown> }).properties.model
       ).toBeUndefined();
     });
+  });
+
+  // 模板字面量语法混进参数值，确认不会被当成代码
+  const TEMPLATE_LIKE = 'x`$' + '{y}';
+
+  it('设计器生成的脚本：阶段内并行、参数代入、下一阶段拿到上一阶段带标签的输出', async () => {
+    const spawns: { prompt: string; description: string; agentType?: string }[] = [];
+    let n = 0;
+    const { invoke } = fakeChildren((spawn) => {
+      spawns.push(spawn);
+      n += 1;
+      return { runId: `r${n}`, status: n === 2 ? 'failed' : 'succeeded', text: `out${n}` };
+    });
+    const tool = createWorkflowTool({ invoke, emit: vi.fn(), randomUuid: () => 'wf' });
+    const script = generateWorkflowScript({
+      phases: [
+        {
+          title: 'Investigate',
+          steps: [
+            { label: 'code', agentType: 'scout', prompt: 'Topic "{{args.topic}}" in code' },
+            { label: 'tests', agentType: '', prompt: 'Topic {{args.missing}} in tests' },
+          ],
+        },
+        {
+          title: 'Summarize',
+          steps: [{ label: 'report', agentType: '', prompt: 'Merge:\n{{prev}}' }],
+        },
+      ],
+    });
+    const result = await tool.execute(
+      'call-1',
+      { meta: { name: 'designed', description: 'd' }, script, args: { topic: TEMPLATE_LIKE } },
+      undefined,
+      undefined,
+      {} as never
+    );
+    expect((result as { isError?: boolean }).isError).toBeUndefined();
+    expect(spawns.map((s) => s.prompt)).toEqual([
+      `Topic "${TEMPLATE_LIKE}" in code`,
+      'Topic  in tests',
+      'Merge:\n## code\n\nout1\n\n## tests\n\n(failed)',
+    ]);
+    expect(invoke.mock.calls[0]?.[0]).toMatchObject({ agentType: 'scout', description: 'code' });
+    expect(
+      invoke.mock.calls.find((c) => (c[0] as { description?: string }).description === 'tests')?.[0]
+    ).not.toHaveProperty('agentType');
+    expect(result.details).toMatchObject({ result: '## report\n\nout3' });
   });
 });

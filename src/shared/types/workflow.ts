@@ -61,12 +61,30 @@ export interface WorkflowPresetSummary {
   args: WorkflowPresetArg[];
 }
 
-/** 设置页编辑的表单内容；脚本不含注释头，保存时由 Main 序列化成预设文件。 */
+/** 设计器步骤；agentType 为空 = 运行时默认（worker） */
+export interface WorkflowDesignStep {
+  label: string;
+  agentType: string;
+  prompt: string;
+}
+
+/** 同一阶段内的步骤并行，阶段之间串行 */
+export interface WorkflowDesignPhase {
+  title: string;
+  steps: WorkflowDesignStep[];
+}
+
+export interface WorkflowDesign {
+  phases: WorkflowDesignPhase[];
+}
+
+/** 设置页编辑的表单内容；脚本不含注释头，保存时由 Main 序列化成预设文件。有 design 时脚本由它生成。 */
 export interface WorkflowPresetDraft {
   name: string;
   description: string;
   args: WorkflowPresetArg[];
   script: string;
+  design?: WorkflowDesign;
 }
 
 export type WorkflowPresetSaveResult = { ok: true; id: string } | { ok: false; error: string };

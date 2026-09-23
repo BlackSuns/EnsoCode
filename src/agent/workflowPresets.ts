@@ -9,6 +9,7 @@ import {
   type WorkflowPresetSource,
   type WorkflowPresetSummary,
 } from '@shared/types/workflow';
+import { generateWorkflowScript, parseWorkflowDesign } from '@shared/workflowDesign';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 export interface WorkflowPreset extends WorkflowPresetSummary {
@@ -165,18 +166,33 @@ export function listCustomWorkflowPresets(dir: string): WorkflowPresetSummary[] 
 
 const hasCommentEnd = (value: string | undefined): boolean => value?.includes('*/') ?? false;
 
-/** IPC 入参收窄；注释头里出现 `*\/` 会提前闭合注释，直接拒绝。 */
+/** IPC 入参收窄；注释头里出现 `*\/` 会提前闭合注释，直接拒绝。有设计时脚本以设计生成为准。 */
 export function parseWorkflowPresetDraft(raw: unknown): WorkflowPresetDraft | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
   const name = text(record.name, 80);
   const description = text(record.description, 240);
   const args = parseArgs(record.args);
-  const script = typeof record.script === 'string' ? record.script : '';
+  const design = record.design === undefined ? undefined : parseWorkflowDesign(record.design);
+  if (design === null) return null;
+  const script = design
+    ? generateWorkflowScript(design)
+    : typeof record.script === 'string'
+      ? record.script
+      : '';
   if (!name || !description || !args || !script.trim()) return null;
-  const strings = [name, description, ...args.flatMap((arg) => [arg.key, arg.label, arg.default])];
+  const designStrings = (design?.phases ?? []).flatMap((phase) => [
+    phase.title,
+    ...phase.steps.flatMap((step) => [step.label, step.agentType, step.prompt]),
+  ]);
+  const strings = [
+    name,
+    description,
+    ...args.flatMap((arg) => [arg.key, arg.label, arg.default]),
+    ...designStrings,
+  ];
   if (strings.some(hasCommentEnd)) return null;
-  return { name, description, args, script };
+  return { name, description, args, script, ...(design ? { design } : {}) };
 }
 
 export function serializeWorkflowPreset(draft: WorkflowPresetDraft): string {
@@ -184,6 +200,7 @@ export function serializeWorkflowPreset(draft: WorkflowPresetDraft): string {
     name: draft.name,
     description: draft.description,
     ...(draft.args.length > 0 ? { args: draft.args } : {}),
+    ...(draft.design ? { design: draft.design } : {}),
   };
   return `/*---\n${stringifyYaml(meta).trimEnd()}\n---*/\n${draft.script}`;
 }
@@ -241,13 +258,28 @@ export function readCustomWorkflowPreset(
   const preset = readPresetFile({ dir, source: 'custom' }, id);
   const header = preset ? HEADER_RE.exec(preset.script) : null;
   if (!preset || !header) return null;
+  const script = preset.script.slice(header[0].length).replace(/^\r?\n/, '');
+  const design = headerDesign(header[1] ?? '');
   return {
     id,
     name: preset.name,
     description: preset.description,
     args: preset.args,
-    script: preset.script.slice(header[0].length).replace(/^\r?\n/, ''),
+    script,
+    // 脚本被手改过就不再是设计产物，按纯代码预设打开
+    ...(design && generateWorkflowScript(design) === script ? { design } : {}),
   };
+}
+
+function headerDesign(yaml: string) {
+  try {
+    const meta: unknown = parseYaml(yaml);
+    return meta && typeof meta === 'object' && 'design' in meta
+      ? parseWorkflowDesign(meta.design)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function deleteCustomWorkflowPreset(dir: string, id: string): boolean {

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { generateWorkflowScript } from '@shared/workflowDesign';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   deleteCustomWorkflowPreset,
@@ -206,6 +207,44 @@ describe('parseWorkflowPresetDraft', () => {
 });
 
 describe('custom workflow presets', () => {
+  const design = {
+    phases: [
+      {
+        title: 'Check',
+        steps: [{ label: 'notes', agentType: 'scout', prompt: 'Check {{args.version}}\nnotes' }],
+      },
+    ],
+  };
+
+  it('带设计的草稿：脚本由设计重新生成，读回时设计与脚本一致', () => {
+    const parsed = parseWorkflowPresetDraft(draft({ design, script: 'tampered' }));
+    expect(parsed?.script).toBe(generateWorkflowScript(design));
+    expect(parseWorkflowPresetDraft(draft({ design: { phases: [] } }))).toBeNull();
+    const withEnd = {
+      phases: [{ title: 'a', steps: [{ label: 'b', agentType: '', prompt: '*/' }] }],
+    };
+    expect(parseWorkflowPresetDraft(draft({ design: withEnd }))).toBeNull();
+
+    const saved = saveCustomWorkflowPreset(customDir, parsed!);
+    expect(saved.ok).toBe(true);
+    expect(readCustomWorkflowPreset(customDir, 'release-check')).toEqual({
+      id: 'release-check',
+      ...draft({ design, script: generateWorkflowScript(design) }),
+    });
+    expect(
+      loadWorkflowPreset('release-check', [{ dir: customDir, source: 'custom' }])?.script
+    ).toContain(generateWorkflowScript(design));
+  });
+
+  it('脚本被手改（与设计不一致）时读回为纯代码预设', () => {
+    saveCustomWorkflowPreset(customDir, parseWorkflowPresetDraft(draft({ design }))!);
+    const file = path.join(customDir, 'release-check.js');
+    fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8')}// edited\n`);
+    const read = readCustomWorkflowPreset(customDir, 'release-check');
+    expect(read).not.toHaveProperty('design');
+    expect(read?.script.endsWith('// edited\n')).toBe(true);
+  });
+
   it('新建按名称生成 id，写成可解析、可执行的预设文件', () => {
     const saved = saveCustomWorkflowPreset(customDir, draft());
     expect(saved).toEqual({ ok: true, id: 'release-check' });

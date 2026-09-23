@@ -1,8 +1,11 @@
+import { BUILTIN_AGENT_TYPES } from '@shared/types/assets';
 import type {
+  WorkflowDesign,
   WorkflowPresetArg,
   WorkflowPresetDraft,
   WorkflowPresetSummary,
 } from '@shared/types/workflow';
+import { generateWorkflowScript, parseWorkflowDesign } from '@shared/workflowDesign';
 import { CircleAlert, Loader2, Pencil, Plus, Trash2, Workflow, X } from 'lucide-react';
 import * as React from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -19,22 +22,47 @@ import {
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs';
 import { useI18n } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
+import { CodeEditor } from './CodeEditor';
+import { WorkflowDesigner } from './WorkflowDesigner';
+
+const NEW_DESIGN: WorkflowDesign = {
+  phases: [
+    {
+      title: 'Investigate',
+      steps: [
+        {
+          label: 'code',
+          agentType: 'scout',
+          prompt: 'Investigate {{args.topic}} in the source code.',
+        },
+        { label: 'tests', agentType: 'scout', prompt: 'Investigate {{args.topic}} in the tests.' },
+      ],
+    },
+    {
+      title: 'Summarize',
+      steps: [
+        {
+          label: 'summary',
+          agentType: 'scout',
+          prompt: 'Merge these findings about {{args.topic}} into one short report:\n\n{{prev}}',
+        },
+      ],
+    },
+  ],
+};
 
 const NEW_DRAFT: WorkflowPresetDraft = {
   name: '',
   description: '',
   args: [{ key: 'topic', label: 'Topic', required: true }],
-  script: `await phase('investigate');
-const notes = await parallel([
-  () => agent('Investigate ' + args.topic + ' in the source code.', { label: 'code', agentType: 'scout' }),
-  () => agent('Investigate ' + args.topic + ' in the tests.', { label: 'tests', agentType: 'scout' }),
-]);
-return notes;
-`,
+  design: NEW_DESIGN,
+  script: generateWorkflowScript(NEW_DESIGN),
 };
+
+type EditorTab = 'design' | 'code';
 
 /** 表单里空默认值/空标签不落盘，标签缺省用 key。 */
 function normalizeArgs(args: WorkflowPresetArg[]): WorkflowPresetArg[] {
@@ -57,15 +85,33 @@ function WorkflowPresetDialog({
 }) {
   const { t } = useI18n();
   const [draft, setDraft] = React.useState<WorkflowPresetDraft>(NEW_DRAFT);
+  const [tab, setTab] = React.useState<EditorTab>('design');
+  const [epoch, setEpoch] = React.useState(0);
+  /** 手改代码脱离设计后，切回设计器可恢复这份设计 */
+  const detachedDesign = React.useRef<WorkflowDesign | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const disabledBuiltinAgentTypes = useSettingsStore((state) => state.disabledBuiltinAgentTypes);
+  const customAgentTypes = useSettingsStore((state) => state.agentTypes);
+  const agentTypes = React.useMemo(
+    () => [
+      ...BUILTIN_AGENT_TYPES.map((type) => type.name).filter(
+        (name) => !disabledBuiltinAgentTypes.includes(name)
+      ),
+      ...customAgentTypes.map((type) => type.name),
+    ],
+    [disabledBuiltinAgentTypes, customAgentTypes]
+  );
 
   React.useEffect(() => {
     setError(null);
     if (target === null) return;
+    detachedDesign.current = null;
+    setEpoch((n) => n + 1);
     if (target === 'new') {
       setDraft(NEW_DRAFT);
+      setTab('design');
       return;
     }
     let cancelled = false;
@@ -77,6 +123,8 @@ function WorkflowPresetDialog({
         if (loaded) {
           const { id: _id, ...rest } = loaded;
           setDraft(rest);
+          setTab(rest.design ? 'design' : 'code');
+          setEpoch((n) => n + 1);
         } else setError(t('Failed to read content'));
       })
       .finally(() => {
@@ -90,11 +138,20 @@ function WorkflowPresetDialog({
   const patch = (next: Partial<WorkflowPresetDraft>) => setDraft((d) => ({ ...d, ...next }));
   const patchArg = (index: number, next: Partial<WorkflowPresetArg>) =>
     patch({ args: draft.args.map((arg, i) => (i === index ? { ...arg, ...next } : arg)) });
+  const setDesign = (design: WorkflowDesign) =>
+    patch({ design, script: generateWorkflowScript(design) });
+  const editCode = (script: string) => {
+    if (script === draft.script) return;
+    if (draft.design) detachedDesign.current = draft.design;
+    setDraft((d) => ({ ...d, script, design: undefined }));
+  };
+  const designValid = !draft.design || parseWorkflowDesign(draft.design) !== null;
   const canSave =
     !loading &&
     !saving &&
     draft.name.trim() !== '' &&
     draft.description.trim() !== '' &&
+    designValid &&
     draft.script.trim() !== '';
 
   const handleSave = async () => {
@@ -115,7 +172,7 @@ function WorkflowPresetDialog({
 
   return (
     <Dialog open={target !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {target === 'new' ? t('Add workflow preset') : t('Edit workflow preset')}
@@ -189,23 +246,61 @@ function WorkflowPresetDialog({
             </div>
           </Field>
           <Field>
-            <FieldLabel>{t('Script')}</FieldLabel>
+            <div className="flex w-full items-center justify-between gap-2">
+              <FieldLabel>{t('Steps')}</FieldLabel>
+              <Tabs value={tab} onValueChange={(value) => setTab(value as EditorTab)}>
+                <TabsList>
+                  <TabsTab value="design">{t('Design')}</TabsTab>
+                  <TabsTab value="code">{t('Code')}</TabsTab>
+                </TabsList>
+              </Tabs>
+            </div>
             {loading ? (
               <div className="flex w-full items-center justify-center rounded-md border py-12">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               </div>
+            ) : tab === 'design' ? (
+              draft.design ? (
+                <WorkflowDesigner
+                  design={draft.design}
+                  agentTypes={agentTypes}
+                  argKeys={draft.args.map((arg) => arg.key.trim()).filter(Boolean)}
+                  onChange={setDesign}
+                />
+              ) : (
+                <div className="flex w-full flex-col items-center gap-2 rounded-md border border-dashed py-8 text-center">
+                  <p className="max-w-md text-muted-foreground text-xs">
+                    {t(
+                      'This preset is plain code and cannot be shown in the designer. Using the designer replaces the current script.'
+                    )}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => setDesign(detachedDesign.current ?? NEW_DESIGN)}
+                  >
+                    {t('Use the designer')}
+                  </Button>
+                </div>
+              )
             ) : (
-              <Textarea
+              <CodeEditor
+                fileName="workflow.js"
+                className="h-80"
                 value={draft.script}
-                onChange={(e) => patch({ script: e.target.value })}
-                rows={14}
-                className="font-mono text-xs"
+                epoch={epoch}
+                onChange={editCode}
               />
             )}
             <p className="text-muted-foreground text-xs">
-              {t(
-                'Plain JavaScript with top-level await; end with return. Available: agent(prompt, opts), parallel, pipeline, phase, log, args.'
-              )}
+              {tab === 'design'
+                ? !designValid &&
+                  t('Every phase needs a title and every step needs a label and a prompt.')
+                : draft.design
+                  ? t('Generated from the design. Editing the code detaches it from the designer.')
+                  : t(
+                      'Plain JavaScript with top-level await; end with return. Available: agent(prompt, opts), parallel, pipeline, phase, log, args.'
+                    )}
             </p>
           </Field>
           {error && (

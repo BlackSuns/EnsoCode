@@ -1124,6 +1124,26 @@ export const zhTranslations: Record<string, string> = {
   Required: '必填',
   'Add argument': '添加参数',
   Script: '脚本',
+  Steps: '步骤',
+  Design: '设计',
+  Code: '代码',
+  'Default (worker)': '默认（worker）',
+  'Phase {{n}}': '阶段 {{n}}',
+  'Phase title': '阶段名称',
+  'Move up': '上移',
+  'Move down': '下移',
+  Prompt: '提示词',
+  'Add parallel step': '添加并行步骤',
+  'Add phase': '添加阶段',
+  'Steps in a phase run in parallel; phases run in order. In prompts, {{argToken}} inserts an argument and {{prevToken}} inserts the previous phase output.':
+    '同一阶段内的步骤并行执行，阶段之间依次执行。提示词里用 {{argToken}} 引用参数，用 {{prevToken}} 引用上一阶段的输出。',
+  'This preset is plain code and cannot be shown in the designer. Using the designer replaces the current script.':
+    '该预设是纯代码，无法在设计器中显示。改用设计器会替换当前脚本。',
+  'Use the designer': '改用设计器',
+  'Every phase needs a title and every step needs a label and a prompt.':
+    '每个阶段需要名称，每个步骤需要显示名和提示词。',
+  'Generated from the design. Editing the code detaches it from the designer.':
+    '由设计生成。手动修改代码后将脱离设计器，变为纯代码预设。',
   'Plain JavaScript with top-level await; end with return. Available: agent(prompt, opts), parallel, pipeline, phase, log, args.':
     '纯 JavaScript，支持顶层 await，以 return 结束。可用：agent(prompt, opts)、parallel、pipeline、phase、log、args。',
   'Workflow preset not found': '工作流预设不存在',
