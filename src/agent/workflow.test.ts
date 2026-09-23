@@ -1,6 +1,70 @@
+import type { AgentControlToolRequest, AgentControlToolResponse } from '@shared/types/agent';
 import { describe, expect, it, vi } from 'vitest';
 import { createWorkflowTool, workflowChildOutcome } from './workflow';
 import { loadWorkflowPreset } from './workflowPresets';
+
+type FakeSpawn = { prompt: string; description: string };
+type FakeChild = { runId: string; status?: 'succeeded' | 'failed'; text?: string };
+
+/** 模拟 Main 的 agent control：spawn 立即回 runId，wait 可被 hold 挂住且响应 abort */
+function fakeChildren(child: (spawn: FakeSpawn) => FakeChild, hold?: Promise<void>) {
+  const runs = new Map<string, FakeChild>();
+  const stopped: string[] = [];
+  const invoke = vi.fn(
+    async (
+      request: AgentControlToolRequest,
+      signal?: AbortSignal
+    ): Promise<AgentControlToolResponse> => {
+      if (request.operation === 'spawn') {
+        const run = child(request);
+        runs.set(run.runId, run);
+        return { ok: true, value: { agentId: `child-${run.runId}`, runId: run.runId } };
+      }
+      if (request.operation === 'wait') {
+        if (hold) {
+          await new Promise<void>((resolve, reject) => {
+            if (signal?.aborted) return reject(new Error('Agent control wait interrupted.'));
+            signal?.addEventListener('abort', () =>
+              reject(new Error('Agent control wait interrupted.'))
+            );
+            void hold.then(resolve);
+          });
+        }
+        const run = runs.get(request.runIds[0] ?? '');
+        return {
+          ok: true,
+          value: {
+            runs: [{ status: run?.status ?? 'succeeded' }],
+            timedOut: false,
+            interrupted: false,
+          },
+        };
+      }
+      if (request.operation === 'report') {
+        return { ok: true, value: { text: runs.get(request.runId)?.text ?? '' } };
+      }
+      if (request.operation === 'stop') {
+        stopped.push(request.runId);
+        return { ok: true, value: {} };
+      }
+      throw new Error(`unexpected ${request.operation}`);
+    }
+  );
+  return { invoke, stopped };
+}
+
+function deferred() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+const until = async (predicate: () => boolean) => {
+  for (let i = 0; i < 200 && !predicate(); i++) await new Promise((r) => setTimeout(r, 5));
+  expect(predicate()).toBe(true);
+};
 
 describe('workflowChildOutcome', () => {
   it('成功子代理取文本，失败、超时和中断都不是成功', () => {
@@ -29,6 +93,8 @@ describe('workflow tool', () => {
         script: { type: string };
         meta: { type: string; required: string[]; properties: { name: { type: string } } };
         args: { type: string };
+        background: { type: string };
+        stop: { type: string };
       };
     };
     expect(parameters.type).toBe('object');
@@ -40,30 +106,19 @@ describe('workflow tool', () => {
     expect(parameters.properties.meta.required).toEqual(['name', 'description']);
     expect(parameters.properties.meta.properties.name.type).toBe('string');
     expect(parameters.properties.args.type).toBe('object');
+    expect(parameters.properties.background.type).toBe('boolean');
+    expect(parameters.properties.stop.type).toBe('string');
     expect(tool.promptGuidelines?.join('\n')).toMatch(/explicit|asks for a workflow/i);
   });
 
   it('扇出两个子代理，失败的一个变成 null，侧边栏快照能看到阶段和成员', async () => {
     const emit = vi.fn();
-    const invoke = vi.fn(async (request) => {
-      if (request.operation === 'report') {
-        return {
-          ok: true as const,
-          value: { text: request.runId === 'bad' ? '' : `ok:${request.runId}` },
-        };
-      }
-      const failed = request.operation === 'spawn' && request.prompt.includes('bad');
+    const { invoke } = fakeChildren((spawn) => {
+      const bad = spawn.prompt.includes('bad');
       return {
-        ok: true as const,
-        value: {
-          agentId: failed ? 'child-bad' : 'child-good',
-          runId: failed ? 'bad' : 'good',
-          report: {
-            runs: [{ status: failed ? 'failed' : 'succeeded' }],
-            timedOut: false,
-            interrupted: false,
-          },
-        },
+        runId: bad ? 'bad' : 'good',
+        status: bad ? 'failed' : 'succeeded',
+        text: bad ? '' : 'ok:good',
       };
     });
     const tool = createWorkflowTool({ invoke, emit, randomUuid: () => 'workflow-1' });
@@ -122,17 +177,7 @@ describe('workflow tool', () => {
   it('先后启动的子代理不进同一并行批次', async () => {
     const emit = vi.fn();
     const tool = createWorkflowTool({
-      invoke: vi.fn(async (request) => {
-        if (request.operation === 'report') return { ok: true as const, value: { text: 'done' } };
-        return {
-          ok: true as const,
-          value: {
-            agentId: `child-${request.prompt}`,
-            runId: request.prompt,
-            report: { runs: [{ status: 'succeeded' }], timedOut: false, interrupted: false },
-          },
-        };
-      }),
+      invoke: fakeChildren((spawn) => ({ runId: spawn.prompt, text: 'done' })).invoke,
       emit,
       randomUuid: () => 'workflow-seq',
     });
@@ -172,6 +217,94 @@ describe('workflow tool', () => {
     expect(emit.mock.calls.at(-1)?.[0]).toMatchObject({
       status: 'failed',
       error: expect.stringMatching(/not supported/),
+    });
+  });
+
+  describe('background', () => {
+    const script = {
+      meta: { name: 'bg', description: 'Background run' },
+      script: "return await agent('work', { label: 'work' });",
+    };
+    const make = (hold: Promise<void>, status: 'succeeded' | 'failed' = 'succeeded') => {
+      const emit = vi.fn();
+      const notify = vi.fn();
+      const backgroundRuns = new Map<string, AbortController>();
+      const children = fakeChildren(() => ({ runId: 'child-run', status, text: 'found it' }), hold);
+      const tool = createWorkflowTool({
+        invoke: children.invoke,
+        emit,
+        notify,
+        backgroundRuns,
+        randomUuid: () => 'wf-bg',
+      });
+      const run = (params: Record<string, unknown>, signal?: AbortSignal) =>
+        tool.execute('call-bg', params, signal, undefined, {} as never);
+      return { emit, notify, backgroundRuns, run, ...children };
+    };
+
+    it('background:true 立即返回 runId，跑完经通知把结果送回主 agent', async () => {
+      const gate = deferred();
+      const { emit, notify, backgroundRuns, run } = make(gate.promise);
+      const result = await run({ ...script, background: true });
+      expect(result.details).toMatchObject({ runId: 'wf-bg', background: true });
+      expect(JSON.stringify(result.content)).toMatch(/wf-bg/);
+      expect(backgroundRuns.has('wf-bg')).toBe(true);
+      expect(notify).not.toHaveBeenCalled();
+      gate.release();
+      await until(() => notify.mock.calls.length > 0);
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify.mock.calls[0]?.[0]).toMatch(/wf-bg[\s\S]*completed[\s\S]*"found it"/);
+      expect(notify.mock.calls[0]?.[1]).toBe(false);
+      expect(backgroundRuns.size).toBe(0);
+      expect(emit.mock.calls.at(-1)?.[0]).toMatchObject({ runId: 'wf-bg', status: 'completed' });
+    });
+
+    it('后台运行失败时通知标为紧急', async () => {
+      const { notify, run } = make(Promise.resolve());
+      await run({
+        meta: { name: 'bg', description: 'Background run' },
+        script: "throw new Error('boom');",
+        background: true,
+      });
+      await until(() => notify.mock.calls.length > 0);
+      expect(notify.mock.calls[0]?.[0]).toMatch(/boom/);
+      expect(notify.mock.calls[0]?.[1]).toBe(true);
+    });
+
+    it('stop 取消后台运行并停掉在跑的子代理，模型已知情不再通知', async () => {
+      const gate = deferred();
+      const { emit, notify, backgroundRuns, run, invoke, stopped } = make(gate.promise);
+      await run({ ...script, background: true });
+      await until(() => invoke.mock.calls.some(([request]) => request.operation === 'wait'));
+      const stoppedResult = await run({ stop: 'wf-bg' });
+      expect(JSON.stringify(stoppedResult.content)).toMatch(/stopped/i);
+      await until(() => emit.mock.calls.at(-1)?.[0].status === 'cancelled');
+      expect(stopped).toEqual(['child-run']);
+      expect(backgroundRuns.size).toBe(0);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(notify).not.toHaveBeenCalled();
+    });
+
+    it('stop 未知 runId、未接入通知时的 background 都在启动前拒绝', async () => {
+      const { run } = make(Promise.resolve());
+      await expect(run({ stop: 'nope' })).rejects.toThrow(/no running background workflow/);
+      const tool = createWorkflowTool({ invoke: vi.fn(), emit: vi.fn() });
+      await expect(
+        tool.execute('c', { ...script, background: true }, undefined, undefined, {} as never)
+      ).rejects.toThrow(/background/);
+    });
+
+    it('同步运行被中断时停掉在跑的子代理', async () => {
+      const gate = deferred();
+      const { emit, run, invoke, stopped } = make(gate.promise);
+      const controller = new AbortController();
+      const pending = run(script, controller.signal);
+      await until(() => invoke.mock.calls.some(([request]) => request.operation === 'wait'));
+      controller.abort();
+      const result = await pending;
+      expect((result as { isError?: boolean }).isError).toBe(true);
+      expect(stopped).toEqual(['child-run']);
+      expect(emit.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'cancelled' });
     });
   });
 
@@ -244,17 +377,7 @@ describe('workflow tool', () => {
     });
 
     it('内置预设在沙箱里按默认参数扇出只读子代理', async () => {
-      const invoke = vi.fn(async (request) => {
-        if (request.operation === 'report') return { ok: true as const, value: { text: 'none' } };
-        return {
-          ok: true as const,
-          value: {
-            agentId: `child-${request.description}`,
-            runId: request.description,
-            report: { runs: [{ status: 'succeeded' }], timedOut: false, interrupted: false },
-          },
-        };
-      });
+      const { invoke } = fakeChildren((spawn) => ({ runId: spawn.description, text: 'none' }));
       const tool = createWorkflowTool({
         invoke,
         emit: vi.fn(),

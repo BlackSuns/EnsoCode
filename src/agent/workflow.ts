@@ -29,6 +29,10 @@ const LOG_LIMIT = 20;
 export interface WorkflowToolDeps {
   invoke(request: AgentControlToolRequest, signal?: AbortSignal): Promise<AgentControlToolResponse>;
   emit(run: WorkflowRunSnapshot): void;
+  /** 后台运行结束时回投主 agent；未提供则不支持 background */
+  notify?: (text: string, urgent: boolean) => void;
+  /** 本会话在跑的后台运行，会话释放时由宿主统一 abort */
+  backgroundRuns?: Map<string, AbortController>;
   loadPreset?: (id: string) => WorkflowPreset | null;
   /** 会话建立时的可用预设快照，写进工具说明供模型挑选 */
   presets?: readonly WorkflowPresetSummary[];
@@ -206,6 +210,7 @@ async function runAgent(
   if (state.agentsStarted >= MAX_AGENTS) {
     return { fatal: `workflow agent cap exceeded (${MAX_AGENTS})`, value: null };
   }
+  if (signal?.aborted) return { fatal: 'workflow cancelled', value: null };
   state.agentsStarted += 1;
   const prompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : '';
   if (!prompt) return { fatal: 'agent() requires a non-empty prompt', value: null };
@@ -225,32 +230,36 @@ async function runAgent(
   const model = typeof payload.model === 'string' ? payload.model : undefined;
   const agentType = typeof payload.agentType === 'string' ? payload.agentType : undefined;
   const schema = isRecord(payload.schema) ? payload.schema : undefined;
+  let runId = '';
   try {
-    const spawned = await deps.invoke(
-      {
-        operation: 'spawn',
-        mode: 'task',
-        description: member.label,
-        prompt,
-        wait: true,
-        ...(model ? { model } : {}),
-        ...(agentType ? { agentType } : {}),
-        ...(schema ? { schema } : {}),
-      },
-      signal
-    );
+    // 不等待地 spawn 先拿到 runId，取消时才能真正停掉子代理
+    const spawned = await deps.invoke({
+      operation: 'spawn',
+      mode: 'task',
+      description: member.label,
+      prompt,
+      wait: false,
+      ...(model ? { model } : {}),
+      ...(agentType ? { agentType } : {}),
+      ...(schema ? { schema } : {}),
+    });
     if (!spawned.ok) {
       state.finishMember(member.seq, 'failed');
       publish();
       return { fatal: spawned.error, value: null };
     }
     const childId = childIdOf(spawned.value);
-    const runId =
+    runId =
       isRecord(spawned.value) && typeof spawned.value.runId === 'string' ? spawned.value.runId : '';
-    const reported = runId
-      ? await deps.invoke({ operation: 'report', runId }, signal)
-      : { ok: false as const, code: 'invalid-state' as const, error: 'missing run id' };
-    const outcome = workflowChildOutcome(spawned.value, reported.ok ? reported.value : undefined);
+    if (!runId) throw new Error('missing run id');
+    const waited = await deps.invoke({ operation: 'wait', runIds: [runId], until: 'all' }, signal);
+    if (signal?.aborted) throw new Error('workflow cancelled');
+    if (!waited.ok) throw new Error(waited.error);
+    const reported = await deps.invoke({ operation: 'report', runId });
+    const outcome = workflowChildOutcome(
+      { report: waited.value },
+      reported.ok ? reported.value : undefined
+    );
     state.finishMember(member.seq, outcome.failed ? 'failed' : 'completed', {
       ...(childId ? { childId } : {}),
       ...(outcome.text ? { result: outcome.text } : {}),
@@ -261,7 +270,10 @@ async function runAgent(
   } catch (error) {
     state.finishMember(member.seq, 'failed');
     publish();
-    if (signal?.aborted) return { fatal: 'workflow cancelled', value: null };
+    if (signal?.aborted) {
+      if (runId) await deps.invoke({ operation: 'stop', runId }).catch(() => undefined);
+      return { fatal: 'workflow cancelled', value: null };
+    }
     return {
       fatal: error instanceof Error ? error.message : String(error),
       value: null,
@@ -488,12 +500,42 @@ async function runScript(
 }
 
 export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
+  const settle = async (
+    state: WorkflowRunState,
+    script: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal | undefined
+  ): Promise<{ ok: true; value: unknown } | { ok: false; error: string; thrown?: unknown }> => {
+    let result: Awaited<ReturnType<typeof runScript>>;
+    try {
+      result = await runScript(deps, state, script, args, signal);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      state.finish(signal?.aborted ? 'cancelled' : 'failed', message);
+      deps.emit(state.copy());
+      return { ok: false, error: message, thrown: error };
+    }
+    if (!result.ok) {
+      state.finish(
+        signal?.aborted || result.error === 'workflow cancelled' ? 'cancelled' : 'failed',
+        result.error
+      );
+    } else {
+      state.finish('completed');
+    }
+    deps.emit(state.copy());
+    return result;
+  };
+  const completedText = (name: string, state: WorkflowRunState, value: unknown) =>
+    `workflow "${name}" completed (${state.agentsStarted} agents).\nReturn value:\n${JSON.stringify(value, null, 2)}`;
+
   return {
     name: 'workflow',
     label: 'Workflow',
     description:
       'Run a JavaScript workflow that fans work out across subagents. Use only when the user asks for a workflow or a large multi-agent fan-out. ' +
       'Pass either preset (id of a saved workflow) or script + meta. ' +
+      'Set background:true to return a runId immediately; the result arrives later as a notification. Pass stop:<runId> alone to cancel a background run. ' +
       'The script is plain JavaScript with top-level await and must return a JSON value. Hooks: agent(prompt, opts?), parallel(thunks), pipeline(items, ...stages), phase(title), log(message), args. ' +
       'A failed child resolves to null. Bad hook arguments fail the whole run. The script cannot use filesystem, network, timers, or Node APIs. Status is shown in the side panel.' +
       presetCatalog(deps.presets),
@@ -502,6 +544,7 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
     promptGuidelines: [
       'Use workflow when the user asks for a workflow, for large multi-agent orchestration, or when a listed preset clearly fits the task.',
       'Prefer a listed preset over writing an equivalent script; pass its id and args. Use only listed preset ids or ids the user gave you, and never rewrite a preset as a script.',
+      'Choose background:true when the run is long and you have other work to do or the user should not wait; keep it off when the next step needs the result. Do not poll a background run — wait for its notification.',
       'script is plain JavaScript, not TypeScript, with top-level await. End with return <json>.',
       'agent() options are only label, phase, model, agentType, and schema. Anything else fails the run.',
       'Child failure returns null. Do not treat null as success without checking it.',
@@ -535,10 +578,35 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
           additionalProperties: true,
           description: 'Optional JSON object exposed to the script as the args global.',
         },
+        background: {
+          type: 'boolean',
+          description:
+            'Default false. When true, return a runId immediately and deliver the result later as a notification.',
+        },
+        stop: {
+          type: 'string',
+          description: 'runId of a background workflow to cancel. Pass it without other fields.',
+        },
       },
     } as unknown as ToolDefinition['parameters'],
     async execute(_toolCallId, params, signal) {
       const record = (params ?? {}) as Record<string, unknown>;
+      const stopId = typeof record.stop === 'string' ? record.stop.trim() : '';
+      if (stopId) {
+        const controller = deps.backgroundRuns?.get(stopId);
+        if (!controller) throw new Error(`no running background workflow: ${stopId}`);
+        // 先摘除再 abort：收尾时发现已不在表里，就不再通知（模型已由本次返回知情）
+        deps.backgroundRuns?.delete(stopId);
+        controller.abort();
+        return {
+          content: [{ type: 'text', text: `workflow ${stopId} stopped` }],
+          details: { runId: stopId, stopped: true },
+        };
+      }
+      const background = record.background === true;
+      if (background && (!deps.notify || !deps.backgroundRuns)) {
+        throw new Error('background workflows are unavailable in this session');
+      }
       if (record.args !== undefined && !isRecord(record.args)) {
         throw new Error('workflow args must be a JSON object');
       }
@@ -559,34 +627,47 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
       if (!script.trim() || !meta)
         throw new Error('workflow requires preset, or script with meta.name and meta.description');
       const state = new WorkflowRunState(deps.randomUuid?.() ?? crypto.randomUUID(), meta);
-      let result: Awaited<ReturnType<typeof runScript>>;
-      try {
-        result = await runScript(deps, state, script, args, signal);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        state.finish(signal?.aborted ? 'cancelled' : 'failed', message);
-        deps.emit(state.copy());
-        throw error;
+      const runId = state.snapshot.runId;
+      const name = meta.name;
+      if (background && deps.notify && deps.backgroundRuns) {
+        const { notify, backgroundRuns } = deps;
+        const controller = new AbortController();
+        backgroundRuns.set(runId, controller);
+        void settle(state, script, args, controller.signal).then((result) => {
+          if (backgroundRuns.get(runId) !== controller) return;
+          backgroundRuns.delete(runId);
+          notify(
+            result.ok
+              ? `Background run ${runId}: ${completedText(name, state, result.value)}`
+              : `Background workflow "${name}" (runId ${runId}) ${
+                  controller.signal.aborted ? 'was cancelled' : 'failed'
+                }: ${result.error}`,
+            !result.ok
+          );
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `workflow "${name}" started in background (runId ${runId}). You will be notified when it finishes; keep working or return to the user meanwhile. Use stop:"${runId}" to cancel.`,
+            },
+          ],
+          details: { runId, background: true },
+        };
       }
+      const result = await settle(state, script, args, signal);
       if (!result.ok) {
-        state.finish(
-          signal?.aborted || result.error === 'workflow cancelled' ? 'cancelled' : 'failed',
-          result.error
-        );
-        deps.emit(state.copy());
+        if (result.thrown !== undefined) throw result.thrown;
         return {
           content: [{ type: 'text', text: result.error }],
-          details: { runId: state.snapshot.runId, agentsStarted: state.agentsStarted },
+          details: { runId, agentsStarted: state.agentsStarted },
           isError: true,
         };
       }
-      state.finish('completed');
-      deps.emit(state.copy());
-      const text = `workflow "${meta.name}" completed (${state.agentsStarted} agents).\nReturn value:\n${JSON.stringify(result.value, null, 2)}`;
       return {
-        content: [{ type: 'text', text }],
+        content: [{ type: 'text', text: completedText(name, state, result.value) }],
         details: {
-          runId: state.snapshot.runId,
+          runId,
           agentsStarted: state.agentsStarted,
           result: result.value,
         },

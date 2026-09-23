@@ -268,6 +268,8 @@ interface ManagedSession {
   compactionNoticeAt?: number;
   subagents: Map<string, SubagentInfo>;
   subagentAborts: Map<string, () => void>;
+  /** 后台 workflow 运行；会话释放时统一 abort */
+  workflowRuns?: Map<string, AbortController>;
   factory?: SessionFactory;
   parentId?: string;
   coworkerName?: string;
@@ -676,6 +678,7 @@ export class SessionSupervisor {
         (managed.browser?.pendingCount ?? 0) > 0 ||
         (managed.memory?.pendingCount ?? 0) > 0 ||
         (managed.agentControl?.pendingCount ?? 0) > 0 ||
+        (managed.workflowRuns?.size ?? 0) > 0 ||
         managed.pendingTaskReminders.length > 0 ||
         this.bgTasks.snapshot(id).some((task) => task.status === 'running'),
       hasChildren:
@@ -729,6 +732,8 @@ export class SessionSupervisor {
     managed.coworkers.clear();
     for (const abort of managed.subagentAborts.values()) abort();
     managed.subagentAborts.clear();
+    for (const controller of managed.workflowRuns?.values() ?? []) controller.abort();
+    managed.workflowRuns?.clear();
     managed.gate.cancelAll();
     managed.asks.cancelAll();
     cancelContinuousMemory(managed.session.sessionManager);
@@ -1915,6 +1920,7 @@ export class SessionSupervisor {
     const workflowRoots = workflowPresetRoots(remote ? undefined : cwd, {
       customDir: this.options.workflowDir,
     });
+    const workflowRuns = new Map<string, AbortController>();
     const sessionTools = [
       ...buildCoreTools(),
       ...(browser
@@ -1932,6 +1938,8 @@ export class SessionSupervisor {
               loadPreset: (id) =>
                 loadWorkflowPreset(id, workflowRoots, this.disabledWorkflowPresets),
               presets: listWorkflowPresets(workflowRoots, this.disabledWorkflowPresets),
+              backgroundRuns: workflowRuns,
+              notify: (text, urgent) => this.notifier.notify(sessionId, text, { urgent }),
               emit: (run) => {
                 const managed = managedRef ?? this.sessions.get(sessionId);
                 if (!managed) return;
@@ -2006,6 +2014,7 @@ export class SessionSupervisor {
       runawayGuard: runaway,
     });
     managedRef.agentControl = agentControl;
+    managedRef.workflowRuns = workflowRuns;
     if (rolePrompt && !resumeFile) managedRef.pendingRole = rolePrompt;
     managedRef.browser = browser;
     managedRef.memory = memory;
