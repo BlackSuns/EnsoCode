@@ -47,8 +47,13 @@ function stripRolePrefix(text: string): string {
   return match ? text.slice(match[0].length).trim() : text;
 }
 
+// pi prompt 对附图做转换/缩放后会在正文尾部追加 `\n\n[Image …]` 提示行
+const IMAGE_HINTS = /(?:^|\n\n)\[Image[^\n]*\](?:\n\[Image[^\n]*\])*$/;
+
 function sameUserText(optimistic: string, delivered: string): boolean {
-  if (optimistic === delivered || optimistic === stripRolePrefix(delivered)) return true;
+  const plain = stripRolePrefix(delivered);
+  if (optimistic === delivered || optimistic === plain) return true;
+  if (optimistic === plain.replace(IMAGE_HINTS, '')) return true;
   const slash = SKILL_SLASH.exec(optimistic);
   const block = SKILL_BLOCK.exec(delivered);
   if (!slash || !block) return false;
