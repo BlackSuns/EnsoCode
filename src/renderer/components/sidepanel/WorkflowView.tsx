@@ -119,7 +119,9 @@ function PresetRow({
           className="space-y-2 border-t px-2 py-2"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!missing && runPreset(conversationId, preset, values, t)) onToggle();
+            if (missing || !runPreset(conversationId, preset, values, t)) return;
+            setValues({});
+            onToggle();
           }}
         >
           {preset.args.map((arg) => (
