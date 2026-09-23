@@ -110,6 +110,7 @@ function rebuildTrayMenu(): void {
           rebuildTrayMenu();
         },
       },
+      { type: 'separator' },
       {
         label: zh ? '不休眠时阻止息屏' : 'Keep the screen on while awake',
         type: 'checkbox',
