@@ -1,8 +1,21 @@
 import { createHash } from 'node:crypto';
+import type { ProjectedMessage } from '@shared/types/agent';
 
 export const APPROVAL_REVIEW_TIMEOUT_MS = 30_000;
 export const APPROVAL_REVIEW_MAX_RECENT_MESSAGES = 8;
 export const APPROVAL_REVIEW_MAX_CONTENT_CHARS = 2_000;
+
+export function recentReviewMessages(
+  messages: readonly ProjectedMessage[]
+): Array<{ role: string; content: string }> {
+  return messages
+    .filter((message) => message.role !== 'system')
+    .slice(-APPROVAL_REVIEW_MAX_RECENT_MESSAGES)
+    .map((message) => ({
+      role: message.role,
+      content: message.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n'),
+    }));
+}
 
 export type ApprovalReviewDecision = 'auto_allow' | 'ask_user' | 'block';
 export type ApprovalRiskLevel = 'low' | 'medium' | 'high' | 'critical';

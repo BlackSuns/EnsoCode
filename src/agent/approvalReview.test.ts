@@ -3,6 +3,7 @@ import {
   computeApprovalActionHash,
   extractJsonObjectText,
   normalizeReviewDecision,
+  recentReviewMessages,
 } from './approvalReview';
 
 const HASH = 'deadbeef';
@@ -160,5 +161,30 @@ describe('computeApprovalActionHash', () => {
     const hash = computeApprovalActionHash({ tool: 'bash', kind: 'command', summary: 'ls' });
     expect(typeof hash).toBe('string');
     expect(hash.length).toBeGreaterThan(0);
+  });
+});
+
+describe('recentReviewMessages', () => {
+  it('跳过 system 消息后取最近 N 条，只保留文本', () => {
+    const messages = [
+      ...Array.from({ length: 8 }, (_, i) => ({
+        role: i % 2 ? 'assistant' : 'user',
+        content: [{ type: 'text' as const, text: `m${i}` }],
+      })),
+      { role: 'system', content: [] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text' as const, text: 'a' },
+          { type: 'toolCall' as const, id: '1', name: 'bash' },
+          { type: 'text' as const, text: 'b' },
+        ],
+      },
+    ];
+    const recent = recentReviewMessages(messages);
+    expect(recent).toHaveLength(8);
+    expect(recent.some((message) => message.role === 'system')).toBe(false);
+    expect(recent[0]).toEqual({ role: 'assistant', content: 'm1' });
+    expect(recent.at(-1)).toEqual({ role: 'assistant', content: 'a\n\nb' });
   });
 });

@@ -3,6 +3,7 @@ import {
   CONTEXT_OCCUPANCY_BUCKETS,
   charsToTokens,
   collectContextOccupancy,
+  estimateConversationTokens,
   summarizeContextOccupancy,
 } from './contextOccupancy';
 
@@ -283,5 +284,37 @@ describe('collectContextOccupancy', () => {
     expect(occupancy.compactionModelMismatch).toBe(true);
     expect(occupancy.buckets.projectMemory).toBe(0);
     expect(occupancy.buckets.reminders).toBe(1);
+  });
+
+  it('Pi system 消息的提示与工具已计入 system/tools 桶，不重复计入对话', () => {
+    const occupancy = collectContextOccupancy({
+      systemPrompt: '',
+      agentsFiles: [],
+      skills: [],
+      tools: [],
+      contextMessages: [
+        { role: 'system', content: '', sections: { preamble: 'x'.repeat(4000) }, timestamp: 0 },
+        { role: 'user', content: 'xxxx', timestamp: 1 },
+      ],
+      branch: [],
+      currentModelFamily: 'claude',
+      estimateMessageTokens: () => 10,
+    });
+    expect(occupancy.buckets.conversation).toBe(10);
+  });
+});
+
+describe('estimateConversationTokens', () => {
+  it('system 消息记 0，普通消息照常估算', () => {
+    const system = {
+      role: 'system',
+      content: '',
+      sections: { preamble: 'x'.repeat(4000) },
+      toolsAdded: [{ name: 'read', description: 'd'.repeat(400), parameters: {} }],
+      timestamp: 0,
+    };
+    const user = { role: 'user', content: 'x'.repeat(400), timestamp: 1 };
+    expect(estimateConversationTokens(system)).toBe(0);
+    expect(estimateConversationTokens(user)).toBe(100);
   });
 });

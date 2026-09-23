@@ -30,6 +30,8 @@ export function applyExploreFold(
   for (const fold of sorted) {
     if (fold.from < cursor || fold.to >= messages.length || fold.from > fold.to) continue;
     out.push(...messages.slice(cursor, fold.from));
+    // system 消息是工具/提示增量，折掉会让后续请求丢工具或段落
+    out.push(...messages.slice(fold.from, fold.to + 1).filter((m) => m.role === 'system'));
     out.push({
       role: 'user',
       content: `Explore report:\n${fold.report}`,

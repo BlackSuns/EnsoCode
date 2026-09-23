@@ -356,6 +356,16 @@ describe('buildTimeline', () => {
       );
       const singleUser = users(emptyReplyTimeline)[0];
       expect(singleUser.canCollapse).toBe(false);
+
+      // 后面只有 Pi 插入的 system 消息，不算回复
+      const systemOnlyTimeline = buildTimeline(
+        [
+          { role: 'user', content: [{ type: 'text', text: '孤立消息' }] },
+          { role: 'system', content: [] },
+        ],
+        false
+      );
+      expect(users(systemOnlyTimeline)[0].canCollapse).toBe(false);
     });
 
     it('折叠指定轮次：隐藏当前消息的所有回复（tool/text），保留发送信息、时间戳与耗时', () => {

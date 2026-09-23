@@ -11,7 +11,6 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
   DefaultResourceLoader,
-  estimateTokens,
   type InlineExtension,
   ModelRuntime,
   SessionManager,
@@ -77,6 +76,7 @@ import {
   buildApprovalReviewUserPrompt,
   computeApprovalActionHash,
   normalizeReviewDecision,
+  recentReviewMessages,
 } from './approvalReview';
 import { AskManager, createAskTool } from './ask';
 import { ensureAssistantUsage } from './assistantUsage';
@@ -90,6 +90,7 @@ import {
 } from './childReasoning';
 import {
   collectContextOccupancy,
+  estimateConversationTokens,
   type OccupancyBranchEntry,
   type OccupancySkill,
 } from './contextOccupancy';
@@ -3151,11 +3152,7 @@ export class SessionSupervisor {
   }
 
   private estimateSessionMessage(message: unknown): number {
-    try {
-      return estimateTokens(message as never);
-    } catch {
-      return 0;
-    }
+    return estimateConversationTokens(message);
   }
 
   private occupancyInputs(managed: ManagedSession) {
@@ -3416,18 +3413,11 @@ export class SessionSupervisor {
         error.name = 'AbortError';
         throw error;
       }
-      const recentMessages =
-        [...this.sessions.values()]
-          .find((session) =>
-            session.gate.snapshot().some((item) => item.requestId === info.requestId)
-          )
-          ?.messages.slice(-8)
-          .map((message) => ({
-            role: message.role,
-            content: message.content
-              .map((part) => (part.type === 'text' ? part.text : ''))
-              .join('\n'),
-          })) ?? [];
+      const recentMessages = recentReviewMessages(
+        [...this.sessions.values()].find((session) =>
+          session.gate.snapshot().some((item) => item.requestId === info.requestId)
+        )?.messages ?? []
+      );
       const message = await runtime.completeSimple(
         model,
         {
@@ -3865,15 +3855,7 @@ function occupancyFromManaged(
     compactionModelFamily: compactionModelFamilyOf(branch),
     contextWindow,
     pendingTaskReminders: managed.pendingTaskReminders,
-    estimateMessageTokens:
-      estimateMessageTokens ??
-      ((message) => {
-        try {
-          return estimateTokens(message as never);
-        } catch {
-          return 0;
-        }
-      }),
+    estimateMessageTokens: estimateMessageTokens ?? estimateConversationTokens,
   });
 }
 

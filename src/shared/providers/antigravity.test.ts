@@ -603,6 +603,45 @@ describe('streamSimple（假 fetch，不发真实网络）', () => {
     });
   });
 
+  it('Pi transcript 的 system 消息进 systemInstruction 与 tools，不进 contents', async () => {
+    const fake = fakeFetch(
+      'data: {"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}}\n\n'
+    );
+    const tool = (name: string) => ({ name, description: name, parameters: { type: 'object' } });
+    const system = (sections: Record<string, string>, name: string, timestamp: number) => ({
+      role: 'system',
+      content: '',
+      sections,
+      toolsAdded: [tool(name)],
+      timestamp,
+    });
+    const context = {
+      messages: [
+        system({ preamble: 'base-prompt' }, 'read', 0),
+        { role: 'user', content: 'hi', timestamp: 1 },
+        system({ cwd: 'late-section' }, 'late_tool', 2),
+        { role: 'user', content: 'again', timestamp: 3 },
+      ],
+    };
+    const stream = antigravityProviderConfig().streamSimple?.(model, context as never, {
+      apiKey,
+      fetch: fake.fetch,
+    });
+    if (!stream) throw new Error('streamSimple 未注册');
+    await stream.result();
+
+    const sent = JSON.parse(fake.calls[0].body);
+    const instruction = JSON.stringify(sent.request.systemInstruction);
+    expect(instruction).toContain('base-prompt');
+    expect(instruction).toContain('late-section');
+    const declarations: Array<{ name: string }> = sent.request.tools[0].functionDeclarations;
+    expect(declarations.map((d) => d.name)).toEqual(['read', 'late_tool']);
+    expect(sent.request.contents).toEqual([
+      { role: 'user', parts: [{ text: 'hi' }] },
+      { role: 'user', parts: [{ text: 'again' }] },
+    ]);
+  });
+
   it('请求体带上 project / requestType=agent / VALIDATED 工具模式', async () => {
     const fake = fakeFetch(
       'data: {"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}}\n\n'

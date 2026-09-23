@@ -68,6 +68,17 @@ describe('silentTurnKind', () => {
     ).toBe('post-tool');
   });
 
+  it('toolResult 与空回复之间夹着 system 消息仍为 post-tool', () => {
+    expect(
+      silentTurnKind([
+        { role: 'assistant', content: [{ type: 'toolCall', id: '1', name: 'read' }] },
+        { role: 'toolResult', toolCallId: '1', content: [{ type: 'text', text: 'ok' }] },
+        { role: 'system', content: [] },
+        assistant([]),
+      ])
+    ).toBe('post-tool');
+  });
+
   it('有正文时不分类', () => {
     expect(silentTurnKind([assistant([{ type: 'text', text: 'done' }])])).toBeUndefined();
   });

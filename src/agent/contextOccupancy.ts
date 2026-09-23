@@ -1,3 +1,4 @@
+import { estimateTokens } from '@earendil-works/pi-coding-agent';
 import {
   charsToTokens,
   type OccupancySkill,
@@ -127,7 +128,8 @@ export function collectContextOccupancy(input: CollectContextOccupancyInput): Co
   const estimate = input.estimateMessageTokens ?? defaultEstimate;
   let conversationTokens = 0;
   for (const message of input.contextMessages) {
-    if ((message as { role?: string }).role === 'compactionSummary') continue;
+    const role = (message as { role?: string }).role;
+    if (role === 'compactionSummary' || role === 'system') continue;
     conversationTokens += Math.max(0, estimate(message));
   }
   const instructionText = input.agentsFiles.map((file) => file.content).join('\n');
@@ -147,6 +149,16 @@ export function collectContextOccupancy(input: CollectContextOccupancyInput): Co
     contextWindow: input.contextWindow,
     compactionEntryId: compaction?.id,
   });
+}
+
+/** Pi system 消息承载系统提示与工具定义，已计入 system/tools 桶，不算对话。 */
+export function estimateConversationTokens(message: unknown): number {
+  if ((message as { role?: string } | undefined)?.role === 'system') return 0;
+  try {
+    return estimateTokens(message as never);
+  } catch {
+    return 0;
+  }
 }
 
 export function summarizeContextOccupancy(input: ContextOccupancyInput): ContextOccupancy {
