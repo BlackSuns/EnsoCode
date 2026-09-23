@@ -3,48 +3,19 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 export interface LlmMessage {
   role: string;
   content?: unknown;
-  toolCalls?: Array<{ name?: string }>;
-}
-
-export interface ExploreFoldSpan {
-  from: number;
-  to: number;
-  report: string;
+  toolCallId?: string;
+  isError?: boolean;
 }
 
 export interface ExploreFoldState {
   mark(goal: string): void;
-  fold(report: string): ExploreFoldSpan;
+  fold(report: string): string;
   apply(messages: LlmMessage[]): LlmMessage[];
   pending: boolean;
 }
 
-export function applyExploreFold(
-  messages: LlmMessage[],
-  folds: readonly ExploreFoldSpan[]
-): LlmMessage[] {
-  if (folds.length === 0) return messages;
-  const sorted = [...folds].sort((a, b) => a.from - b.from);
-  const out: LlmMessage[] = [];
-  let cursor = 0;
-  for (const fold of sorted) {
-    if (fold.from < cursor || fold.to >= messages.length || fold.from > fold.to) continue;
-    out.push(...messages.slice(cursor, fold.from));
-    // system 消息是工具/提示增量，折掉会让后续请求丢工具或段落
-    out.push(...messages.slice(fold.from, fold.to + 1).filter((m) => m.role === 'system'));
-    out.push({
-      role: 'user',
-      content: `Explore report:\n${fold.report}`,
-    });
-    cursor = fold.to + 1;
-  }
-  out.push(...messages.slice(cursor));
-  return out;
-}
-
 export function createExploreFoldState(): ExploreFoldState {
   let pendingGoal: string | undefined;
-  const reports: string[] = [];
 
   return {
     get pending() {
@@ -61,38 +32,57 @@ export function createExploreFoldState(): ExploreFoldState {
       if (pendingGoal === undefined) throw new Error('no active explore_mark');
       const trimmed = report.trim();
       if (!trimmed) throw new Error('report is required');
-      reports.push(trimmed);
       pendingGoal = undefined;
-      return { from: 0, to: 0, report: trimmed };
+      return trimmed;
     },
-    apply(messages) {
-      const pairs = pairMarkFold(messages);
-      const folds = reports
-        .map((report, index) => {
-          const pair = pairs[index];
-          return pair ? { ...pair, report } : undefined;
-        })
-        .filter((fold): fold is ExploreFoldSpan => fold !== undefined);
-      return applyExploreFold(messages, folds);
-    },
+    apply: foldExploreContext,
   };
 }
 
-function messageHasTool(message: LlmMessage | undefined, name: string): boolean {
-  return Boolean(message?.toolCalls?.some((call) => call.name === name));
+function toolCallsOf(message: LlmMessage): Array<{ id: string; name: string }> {
+  if (message.role !== 'assistant' || !Array.isArray(message.content)) return [];
+  return message.content.filter(
+    (part): part is { type: 'toolCall'; id: string; name: string } =>
+      part?.type === 'toolCall' && typeof part.id === 'string' && typeof part.name === 'string'
+  );
 }
 
-function pairMarkFold(messages: LlmMessage[]): Array<{ from: number; to: number }> {
-  const pairs: Array<{ from: number; to: number }> = [];
-  let markAt: number | undefined;
+/**
+ * 删除成功执行的 mark→fold 之间的工具轮次。mark/fold 调用及其结果保留：
+ * 模型据此知道探索已完成，fold 结果正文即报告；工具调用与结果始终成对。
+ */
+export function foldExploreContext(messages: LlmMessage[]): LlmMessage[] {
+  const failed = new Set<string>();
+  const done = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== 'toolResult' || !message.toolCallId) continue;
+    (message.isError === true ? failed : done).add(message.toolCallId);
+  }
+  const ok = (id: string) => done.has(id) && !failed.has(id);
+  const drop = new Set<number>();
+  let from: number | undefined;
   for (let i = 0; i < messages.length; i++) {
-    if (messageHasTool(messages[i], 'explore_mark') && markAt === undefined) markAt = i;
-    if (messageHasTool(messages[i], 'explore_fold') && markAt !== undefined) {
-      pairs.push({ from: markAt, to: i });
-      markAt = undefined;
+    const role = messages[i].role;
+    if (role !== 'assistant' && role !== 'toolResult' && role !== 'system') {
+      from = undefined;
+      continue;
+    }
+    const calls = toolCallsOf(messages[i]);
+    const folds = calls.some((c) => c.name === 'explore_fold' && ok(c.id));
+    if (from !== undefined && folds) {
+      for (let j = from; j < i; j++) if (messages[j].role !== 'system') drop.add(j);
+      from = undefined;
+    } else if (
+      from === undefined &&
+      !folds &&
+      calls.some((c) => c.name === 'explore_mark' && ok(c.id))
+    ) {
+      from = i + 1;
+      while (messages[from]?.role === 'toolResult') from++;
+      i = from - 1;
     }
   }
-  return pairs;
+  return drop.size === 0 ? messages : messages.filter((_, i) => !drop.has(i));
 }
 
 export function createExploreFoldTools(state: ExploreFoldState): ToolDefinition[] {
