@@ -2073,7 +2073,13 @@ describe('typed Agent child projection', () => {
     }));
     await pending;
 
-    expect(agentPrompt).toHaveBeenCalledWith('parent', 'urgent', undefined);
+    expect(agentPrompt).toHaveBeenCalledWith('parent', 'urgent', undefined, expect.any(String));
+    const echo = sessionsModule.useSessionsStore
+      .getState()
+      .conversations.parent.messages.find((message) => message.optimistic);
+    // 投递标识与回显一致，worker 回执 delivery-settled 才能精确收回它
+    expect(echo?.deliveryId).toBe((agentPrompt.mock.calls.at(-1) as unknown[] | undefined)?.[3]);
+    expect(echo?.deliveryId).toEqual(expect.any(String));
     expect(
       sessionsModule.useSessionsStore.getState().conversations.parent.queuedMessages
     ).toHaveLength(0);
@@ -2158,7 +2164,9 @@ describe('typed Agent child projection', () => {
     store.updateQueuedMessage('parent', 'q1', 'after');
     store.sendQueuedNow('parent', 'q1');
 
-    await vi.waitFor(() => expect(agentPrompt).toHaveBeenCalledWith('parent', 'after', images));
+    await vi.waitFor(() =>
+      expect(agentPrompt).toHaveBeenCalledWith('parent', 'after', images, expect.any(String))
+    );
   });
 
   it('仅图片回退事件也把图片交给输入框', () => {
@@ -2264,7 +2272,12 @@ describe('typed Agent child projection', () => {
     });
 
     await vi.waitFor(() =>
-      expect(agentPrompt).toHaveBeenCalledWith('parent', 'after compact', undefined)
+      expect(agentPrompt).toHaveBeenCalledWith(
+        'parent',
+        'after compact',
+        undefined,
+        expect.any(String)
+      )
     );
     expect(
       sessionsModule.useSessionsStore.getState().conversations.parent.queuedMessages
@@ -2308,7 +2321,12 @@ describe('typed Agent child projection', () => {
       state: 'end',
     });
     await vi.waitFor(() =>
-      expect(agentPrompt).toHaveBeenCalledWith('parent', 'wait for compact', undefined)
+      expect(agentPrompt).toHaveBeenCalledWith(
+        'parent',
+        'wait for compact',
+        undefined,
+        expect.any(String)
+      )
     );
   });
 
@@ -2355,7 +2373,12 @@ describe('typed Agent child projection', () => {
     }));
     onAgentEvent?.(snapshot);
     await vi.waitFor(() =>
-      expect(agentPrompt).toHaveBeenCalledWith('parent', 'after reload', undefined)
+      expect(agentPrompt).toHaveBeenCalledWith(
+        'parent',
+        'after reload',
+        undefined,
+        expect.any(String)
+      )
     );
     expect(
       sessionsModule.useSessionsStore.getState().conversations.parent.queuedMessages
@@ -2406,7 +2429,8 @@ describe('typed Agent child projection', () => {
         expect(agentPrompt).toHaveBeenCalledWith(
           'parent',
           expect.stringContaining('<goal-continuation>'),
-          undefined
+          undefined,
+          expect.any(String)
         )
       );
       expect(sessionsModule.useSessionsStore.getState().conversations.parent.goal).toMatchObject({

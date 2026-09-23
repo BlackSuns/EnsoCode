@@ -248,7 +248,12 @@ describe('workspace branch switching', () => {
     expect(state.workspaceRevisionByConversation.unrelated).toBeUndefined();
     expect(state.conversations.unrelated.pendingWorkspaceNote).toBeUndefined();
     await state.send('root message', { providerId: 'p', modelId: 'm', cwd: '/workspace' });
-    expect(agentPrompt).toHaveBeenLastCalledWith(id, expect.stringContaining('feature'), undefined);
+    expect(agentPrompt).toHaveBeenLastCalledWith(
+      id,
+      expect.stringContaining('feature'),
+      undefined,
+      expect.any(String)
+    );
     sessions.useSessionsStore.setState((current) => ({
       conversations: {
         ...current.conversations,
@@ -261,7 +266,8 @@ describe('workspace branch switching', () => {
     expect(agentPrompt).toHaveBeenLastCalledWith(
       'child',
       expect.stringContaining('feature'),
-      undefined
+      undefined,
+      expect.any(String)
     );
     expect(
       sessions.useSessionsStore.getState().conversations.child.pendingWorkspaceNote
@@ -542,7 +548,8 @@ describe('send 使用 worktree cwd 并消费迁移提醒', () => {
     expect(agentPrompt).toHaveBeenCalledWith(
       id,
       expect.stringContaining('<workspace-migrated>'),
-      undefined
+      undefined,
+      expect.any(String)
     );
     expect(
       sessions.useSessionsStore.getState().conversations[id].pendingWorkspaceNote
@@ -551,7 +558,7 @@ describe('send 使用 worktree cwd 并消费迁移提醒', () => {
     await sessions.useSessionsStore
       .getState()
       .send('again', { providerId: 'p', modelId: 'm', cwd: '/workspace' });
-    expect(agentPrompt).toHaveBeenLastCalledWith(id, 'again', undefined);
+    expect(agentPrompt).toHaveBeenLastCalledWith(id, 'again', undefined, expect.any(String));
   });
 });
 

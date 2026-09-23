@@ -988,8 +988,14 @@ export type AgentCommand =
       agentType?: string;
       resumeFile: string;
     }
-  | { type: 'prompt'; identity: SessionIdentity; text: string; images?: AttachedImage[] }
-  | { type: 'steer'; identity: SessionIdentity; text: string; images?: AttachedImage[] }
+  | {
+      type: 'prompt' | 'steer';
+      identity: SessionIdentity;
+      text: string;
+      images?: AttachedImage[];
+      /** renderer 乐观回显的投递标识；worker 在对应 user 消息上屏后以 delivery-settled 回执 */
+      deliveryId?: string;
+    }
   | { type: 'set-model'; identity: SessionIdentity; model: SpawnModelConfig }
   | { type: 'set-thinking'; identity: SessionIdentity; level: ThinkingLevel }
   | {
@@ -1340,6 +1346,7 @@ export type AgentWorkerEvent =
       seq: number;
       requestId: string;
     }
+  | { type: 'delivery-settled'; identity: SessionIdentity; seq: number; deliveryId: string }
   | { type: 'status'; identity: SessionIdentity; seq: number; status: NodeStatus; error?: string }
   | {
       type: 'message-upsert';
@@ -1564,6 +1571,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0;
+
+/** 乐观回显投递标识（renderer 生成的 UUID）；IPC 与 worker 协议共用同一边界 */
+export const isDeliveryId = (value: unknown): value is string =>
+  isNonEmptyString(value) && value.length <= 128;
 
 const hasOnlyKeys = (value: Record<string, unknown>, allowed: readonly string[]): boolean =>
   Object.keys(value).every((key) => allowed.includes(key));
@@ -2609,11 +2620,12 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
     case 'prompt':
     case 'steer': {
       const images = value.images === undefined ? [] : parseAttachedImages(value.images);
-      return hasOnlyKeys(value, ['type', 'identity', 'text', 'images']) &&
+      return hasOnlyKeys(value, ['type', 'identity', 'text', 'images', 'deliveryId']) &&
         parseAnySessionIdentity(value.identity) &&
         typeof value.text === 'string' &&
         images !== null &&
-        (value.text.length > 0 || images.length > 0)
+        (value.text.length > 0 || images.length > 0) &&
+        (value.deliveryId === undefined || isDeliveryId(value.deliveryId))
         ? (value as unknown as AgentCommand)
         : null;
     }
@@ -2977,6 +2989,11 @@ export function parseAgentWorkerEvent(value: unknown): AgentWorkerEvent | null {
     case 'workspace-branch-context-consumed':
       return hasExactKeys(value, ['type', 'identity', 'seq', 'requestId']) &&
         isNonEmptyString(value.requestId)
+        ? (value as unknown as AgentWorkerEvent)
+        : null;
+    case 'delivery-settled':
+      return hasExactKeys(value, ['type', 'identity', 'seq', 'deliveryId']) &&
+        isDeliveryId(value.deliveryId)
         ? (value as unknown as AgentWorkerEvent)
         : null;
     case 'status':

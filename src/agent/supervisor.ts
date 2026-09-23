@@ -268,6 +268,10 @@ interface ManagedSession {
   parentId?: string;
   coworkerName?: string;
   pendingRole?: string;
+  /** 下一条 prompt 产生的 user 消息的投递回执；id 为 null 表示该投递无乐观回显 */
+  promptDelivery?: { id: string | null };
+  /** 已入 pi steer 队列、尚未上屏的投递回执，与 pi 队列同序 */
+  steerDeliveries?: { id: string | null }[];
   pendingBranch?: string;
   pendingBranchRequestId?: string;
   pendingVerifications?: number;
@@ -1056,11 +1060,11 @@ export class SessionSupervisor {
         const managed = this.must(command.identity);
         const images = command.images?.map((image) => ({ type: 'image' as const, ...image }));
         if (await this.interruptRetryIfAny(managed)) {
-          this.promptFresh(managed, command.text, images);
+          this.promptFresh(managed, command.text, images, command.deliveryId);
           return;
         }
         if (managed.status === 'running') {
-          await managed.session.steer(command.text, images);
+          await this.steerTracked(managed, command.text, images, command.deliveryId);
           return;
         }
         // 投影已 idle 但 pi 仍 isStreaming：要么 agent_end 尚未回流，要么是 abort 后工具不响应
@@ -1077,7 +1081,7 @@ export class SessionSupervisor {
           );
           return;
         }
-        this.promptFresh(managed, command.text, images);
+        this.promptFresh(managed, command.text, images, command.deliveryId);
         return;
       }
       case 'steer': {
@@ -1086,10 +1090,10 @@ export class SessionSupervisor {
         // 重试倒计时期间 renderer 看到的仍是 running 会发 steer：此时没有活轮可插，
         // 语义是用户接管——打断重试，改为新轮 prompt
         if (await this.interruptRetryIfAny(managed)) {
-          this.promptFresh(managed, command.text, images);
+          this.promptFresh(managed, command.text, images, command.deliveryId);
           return;
         }
-        await managed.session.steer(command.text, images);
+        await this.steerTracked(managed, command.text, images, command.deliveryId);
         return;
       }
       case 'abort-retry':
@@ -2506,10 +2510,9 @@ export class SessionSupervisor {
     managed.currentTurnId = randomUUID();
     const start = async () => {
       if (managed.status === 'running') {
-        await managed.session.steer(text);
+        await this.steerTracked(managed, text);
       } else {
-        void managed.session
-          .prompt(consumeRole(managed, text))
+        void this.promptTracked(managed, consumeRole(managed, text))
           .then(() => {
             // prompt 已归但未见任何终态事件(不应发生的退化路径):不让 wait 挂死
             if (managed.status !== 'running' && managed.roundPending) this.settleRound(managed);
@@ -2672,7 +2675,16 @@ export class SessionSupervisor {
           managed.timings[index] = { stepStartMs: managed.requestStartMs ?? Date.now() };
           managed.requestStartMs = undefined;
         }
+        const deliveryId = event.message.role === 'user' ? this.takeDelivery(managed) : null;
         this.upsertLocalMessage(managed, message);
+        if (deliveryId) {
+          this.options.emit({
+            type: 'delivery-settled',
+            identity: managed.identity,
+            seq: ++managed.seq,
+            deliveryId,
+          });
+        }
         return;
       }
       case 'message_update': {
@@ -2913,7 +2925,7 @@ export class SessionSupervisor {
     if (!text) return false;
     // 重发同一请求：本轮摘要从重发点起算，避免失败的首次尝试重复计入
     managed.turnStartIndex = managed.messages.length;
-    void managed.session.prompt(text).catch((error) => {
+    void this.promptTracked(managed, text).catch((error) => {
       this.failTurn(managed, toErrorMessage(error));
     });
     return true;
@@ -3030,21 +3042,63 @@ export class SessionSupervisor {
   private promptFresh(
     managed: ManagedSession,
     text: string,
-    images?: { type: 'image'; data: string; mimeType: string }[]
+    images?: { type: 'image'; data: string; mimeType: string }[],
+    deliveryId?: string
   ): void {
     if (managed.session.isStreaming) {
-      void managed.session.steer(text, images).catch((error) => {
+      void this.steerTracked(managed, text, images, deliveryId).catch((error) => {
         this.failTurn(managed, toErrorMessage(error));
       });
       return;
     }
     managed.currentTurnId = randomUUID();
     ensureAssistantUsage(managed.session.messages as unknown[]);
-    void managed.session
-      .prompt(consumeRole(managed, text), images ? { images } : undefined)
-      .catch((error) => {
-        this.failTurn(managed, toErrorMessage(error));
-      });
+    void this.promptTracked(
+      managed,
+      consumeRole(managed, text),
+      images ? { images } : undefined,
+      deliveryId
+    ).catch((error) => {
+      this.failTurn(managed, toErrorMessage(error));
+    });
+  }
+
+  /**
+   * pi 先投递新 prompt 自身的 user 消息，再投递滞留的 steer；每条 user 消息按此顺序领取回执。
+   * 所有注入 user 消息的调用都必须经这两个入口，否则队列错位。
+   */
+  private promptTracked(
+    managed: ManagedSession,
+    text: string,
+    options?: Parameters<AgentSession['prompt']>[1],
+    deliveryId?: string
+  ): Promise<void> {
+    const slot = { id: deliveryId ?? null };
+    managed.promptDelivery = slot;
+    return managed.session.prompt(text, options).finally(() => {
+      if (managed.promptDelivery === slot) managed.promptDelivery = undefined;
+    });
+  }
+
+  private steerTracked(
+    managed: ManagedSession,
+    text: string,
+    images?: { type: 'image'; data: string; mimeType: string }[],
+    deliveryId?: string
+  ): Promise<void> {
+    const slot = { id: deliveryId ?? null };
+    managed.steerDeliveries ??= [];
+    managed.steerDeliveries.push(slot);
+    return managed.session.steer(text, images).catch((error: unknown) => {
+      managed.steerDeliveries = managed.steerDeliveries?.filter((item) => item !== slot);
+      throw error;
+    });
+  }
+
+  private takeDelivery(managed: ManagedSession): string | null {
+    const slot = managed.promptDelivery ?? managed.steerDeliveries?.shift();
+    managed.promptDelivery = undefined;
+    return slot?.id ?? null;
   }
 
   private failTurn(managed: ManagedSession, error: string, undelivered = false): void {

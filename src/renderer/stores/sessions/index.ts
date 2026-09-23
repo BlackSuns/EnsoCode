@@ -1584,8 +1584,8 @@ export const useSessionsStore = create<SessionsState>()(
       ): Promise<string | null> {
         const result =
           mode === 'steer'
-            ? await window.electronAPI.agent.steer(id, text, images)
-            : await window.electronAPI.agent.prompt(id, text, images);
+            ? await window.electronAPI.agent.steer(id, text, images, rollback.deliveryId)
+            : await window.electronAPI.agent.prompt(id, text, images, rollback.deliveryId);
         if (result.ok) return null;
         const error = result.error ?? 'send failed';
         const { restore } = rollback;
@@ -2889,7 +2889,7 @@ export const useSessionsStore = create<SessionsState>()(
           }
           // 乐观回显：立即上屏，不等 spawn/prompt 往返。optimistic 标记使其作为
           // 未确认尾巴浮在权威消息之后，同文本 user upsert 到达时被消费；
-          // 万一错位由 agent_end 的全量 reconcile 兜底。
+          // 文本被 worker/pi 改写对不上时，由 worker 的 delivery-settled 回执按 deliveryId 收回。
           // coworker 由 worker 侧创建/恢复,永不走 spawn 分支；未恢复时在回显前拦下并显式报错
           if (!conversation.started && conversation.parentId) {
             const error = 'coworker not restored yet — resume the conversation first';

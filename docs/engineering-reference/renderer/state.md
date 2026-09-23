@@ -109,6 +109,16 @@ expect(store.getState().conversations.ended.messages).toHaveLength(before);
 [big-question/optimistic-echo-blocks-snapshot.md](../big-question/optimistic-echo-blocks-snapshot.md)）。
 同理，任何「本地是否已有数据、要不要去拉」的判断都要过滤 `optimistic` 条目。
 
+## 乐观回显的收回：文本匹配 + 投递回执
+
+回显先按文本匹配被同文 user upsert 消费（`sameUserText`，已覆盖 `<role>` 前缀、
+`/skill:` 展开、图片缩放提示、超长正文截断）。worker / pi 任何新的正文改写都会让
+匹配失效，回显滞留在尾部：`chatTimelineBusy` 恒真，三点 loading 不停、回复被挡在回显之上，
+重启从 jsonl 重读才恢复。兜底是 `deliveryId` 回执：renderer 随 prompt/steer 下发
+`deliveryId`，worker 按 pi 投递顺序（新 prompt 自身的 user 消息先于滞留 steer）配对，
+user upsert 之后发 `delivery-settled`，reducer 按 id 收回。worker 里所有注入 user 消息的
+调用都必须走 `promptTracked` / `steerTracked`，否则队列错位。
+
 侧栏 Files 按会话常驻（`mountedIds` 只增不减）。`evictColdMessages` 会把隐藏会话的
 `messages` 置空；此时对时间线做「已见 write」占位，会把空数组当成权威历史。
 之后 snapshot / tail 回填会把每一条历史 write 当成新文件，整树展开。

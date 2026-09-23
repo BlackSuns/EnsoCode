@@ -733,6 +733,76 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
     }
   });
 
+  describe('乐观回显投递回执 delivery-settled', () => {
+    async function spawned() {
+      const events: AgentWorkerEvent[] = [];
+      const supervisor = new SessionSupervisor({
+        emit: (event) => events.push(event),
+        agentDir: '/tmp/agent',
+        sessionDir: mkdtempSync(path.join(tmpdir(), 'enso-dispatch-')),
+      });
+      supervisor.handleCommand({
+        type: 'spawn-parent',
+        identity: parent,
+        cwd: '/workspace',
+        model,
+      });
+      await waitFor(events, 'parent-ready');
+      const piSession = mocks.sessions[0] as ReturnType<typeof session>;
+      // 真实 pi 的 prompt 整轮跑完才 resolve，user 消息在此之前上屏
+      piSession.prompt.mockImplementation(() => new Promise<undefined>(() => {}));
+      const userMessage = (text: string) =>
+        piSession.emit({
+          type: 'message_start',
+          message: { role: 'user', content: [{ type: 'text', text }], timestamp: 1 },
+        });
+      const settled = () =>
+        events.flatMap((event) => (event.type === 'delivery-settled' ? [event.deliveryId] : []));
+      return { events, supervisor, piSession, userMessage, settled };
+    }
+
+    it('prompt 的 user 消息上屏后回执 deliveryId，且排在该 upsert 之后', async () => {
+      const { events, supervisor, userMessage } = await spawned();
+      supervisor.handleCommand({ type: 'prompt', identity: parent, text: 'hi', deliveryId: 'd1' });
+      await settle();
+      userMessage('pi 改写后的 hi');
+      const upsert = events.findIndex(
+        (event) => event.type === 'message-upsert' && event.message.role === 'user'
+      );
+      const receipt = events.findIndex((event) => event.type === 'delivery-settled');
+      expect(upsert).toBeGreaterThan(-1);
+      expect(receipt).toBeGreaterThan(upsert);
+      expect(events[receipt]).toMatchObject({ identity: parent, deliveryId: 'd1' });
+      await supervisor.shutdown();
+    });
+
+    it('新 prompt 的 user 消息先于滞留的 steer；无 id 的投递占位不串号', async () => {
+      const { supervisor, userMessage, settled } = await spawned();
+      supervisor.handleCommand({ type: 'steer', identity: parent, text: 'late', deliveryId: 's1' });
+      supervisor.handleCommand({ type: 'steer', identity: parent, text: 'phone' });
+      await settle();
+      supervisor.handleCommand({ type: 'prompt', identity: parent, text: 'new', deliveryId: 'p1' });
+      await settle();
+      userMessage('new');
+      userMessage('late');
+      userMessage('phone');
+      expect(settled()).toEqual(['p1', 's1']);
+      await supervisor.shutdown();
+    });
+
+    it('pi 拒收的 steer 不占队列位', async () => {
+      const { supervisor, piSession, userMessage, settled } = await spawned();
+      piSession.steer.mockRejectedValueOnce(new Error('boom'));
+      supervisor.handleCommand({ type: 'steer', identity: parent, text: 'bad', deliveryId: 's1' });
+      await settle();
+      supervisor.handleCommand({ type: 'steer', identity: parent, text: 'ok', deliveryId: 's2' });
+      await settle();
+      userMessage('ok');
+      expect(settled()).toEqual(['s2']);
+      await supervisor.shutdown();
+    });
+  });
+
   it('worker 中不存在的会话收到 prompt：发 parent-rejected 而非静默丢弃', async () => {
     const events: AgentWorkerEvent[] = [];
     const supervisor = new SessionSupervisor({

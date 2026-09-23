@@ -1,3 +1,4 @@
+import { truncatedProjectionHead } from '@shared/projectedText';
 import {
   type AgentSessionCustomEntry,
   type ApprovalRequestInfo,
@@ -12,7 +13,6 @@ import {
   type SubagentInfo,
   shouldApplyDispatchMainEvent,
 } from '@shared/types/agent';
-import { truncatedProjectionHead } from '@shared/projectedText';
 import { extractEdits, extractWriteContent } from './timeline';
 
 /**
@@ -434,6 +434,17 @@ export function applyAgentEvent(
       };
     case 'workspace-branch-context-consumed':
       return { ...state, generation: state.generation ?? identity.generation, lastSeq: event.seq };
+    case 'delivery-settled': {
+      // worker 回执：该投递的 user 消息已上屏；文本匹配没消费掉的回显在此按 id 收回
+      const index = current.messages.findIndex(
+        (message) => message.optimistic && message.deliveryId === event.deliveryId
+      );
+      return {
+        ...current,
+        ...(index === -1 ? {} : { messages: current.messages.toSpliced(index, 1) }),
+        lastSeq: event.seq,
+      };
+    }
     case 'status': {
       const base =
         event.status === 'running'

@@ -27,6 +27,7 @@ import type {
 } from '@shared/types/agent';
 import {
   APPROVAL_MODES,
+  isDeliveryId,
   parseConversationAuthorityRequest,
   parseCreateConversationAuthorityRequest,
   parseTitleSummaryInput,
@@ -1280,30 +1281,52 @@ export function registerAgentHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.AGENT_PROMPT,
-    (_event, sessionId: unknown, text: unknown, images?: unknown): AgentActionResult => {
+    (
+      _event,
+      sessionId: unknown,
+      text: unknown,
+      images?: unknown,
+      deliveryId?: unknown
+    ): AgentActionResult => {
       const identity = exactIdentity(sessionId);
-      if (!identity || !isValidMessageInput(sessionId, text, images)) {
+      if (
+        !identity ||
+        !isValidMessageInput(sessionId, text, images) ||
+        (deliveryId !== undefined && !isDeliveryId(deliveryId))
+      ) {
         return { ok: false, error: 'invalid prompt or stale session generation' };
       }
       return promptSession(
         identity,
         text as string,
-        images as { data: string; mimeType: string }[] | undefined
+        images as { data: string; mimeType: string }[] | undefined,
+        deliveryId
       );
     }
   );
 
   ipcMain.handle(
     IPC_CHANNELS.AGENT_STEER,
-    (_event, sessionId: unknown, text: unknown, images?: unknown): AgentActionResult => {
+    (
+      _event,
+      sessionId: unknown,
+      text: unknown,
+      images?: unknown,
+      deliveryId?: unknown
+    ): AgentActionResult => {
       const identity = exactIdentity(sessionId);
-      if (!identity || !isValidMessageInput(sessionId, text, images)) {
+      if (
+        !identity ||
+        !isValidMessageInput(sessionId, text, images) ||
+        (deliveryId !== undefined && !isDeliveryId(deliveryId))
+      ) {
         return { ok: false, error: 'invalid steer or stale session generation' };
       }
       return steerSession(
         identity,
         text as string,
-        images as { data: string; mimeType: string }[] | undefined
+        images as { data: string; mimeType: string }[] | undefined,
+        deliveryId
       );
     }
   );
