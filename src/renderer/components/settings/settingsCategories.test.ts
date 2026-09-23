@@ -26,6 +26,15 @@ describe('visibleCategories', () => {
     const ids = visibleCategories(cats, ['memory', 'browser', 'isolated_sandbox']).map((c) => c.id);
     expect(ids).toEqual(['general', 'tools', 'usage']);
   });
+
+  it('hides the workflows page while the workflow tool is off', () => {
+    const withWorkflows = [...cats, { id: 'workflows' as SettingsCategory }];
+    expect(visibleCategories(withWorkflows, ['workflow']).map((c) => c.id)).not.toContain(
+      'workflows'
+    );
+    expect(visibleCategories(withWorkflows, ['memory']).map((c) => c.id)).toContain('workflows');
+    expect(resolveActiveCategory('workflows', ['workflow'])).toBe('tools');
+  });
 });
 
 describe('resolveActiveCategory', () => {
