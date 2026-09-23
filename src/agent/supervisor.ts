@@ -11,7 +11,6 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
   DefaultResourceLoader,
-  estimateTokens,
   type InlineExtension,
   ModelRuntime,
   SessionManager,
@@ -90,6 +89,7 @@ import {
 } from './childReasoning';
 import {
   collectContextOccupancy,
+  estimateConversationTokens,
   type OccupancyBranchEntry,
   type OccupancySkill,
 } from './contextOccupancy';
@@ -3157,11 +3157,7 @@ export class SessionSupervisor {
   }
 
   private estimateSessionMessage(message: unknown): number {
-    try {
-      return estimateTokens(message as never);
-    } catch {
-      return 0;
-    }
+    return estimateConversationTokens(message);
   }
 
   private occupancyInputs(managed: ManagedSession) {
@@ -3871,15 +3867,7 @@ function occupancyFromManaged(
     compactionModelFamily: compactionModelFamilyOf(branch),
     contextWindow,
     pendingTaskReminders: managed.pendingTaskReminders,
-    estimateMessageTokens:
-      estimateMessageTokens ??
-      ((message) => {
-        try {
-          return estimateTokens(message as never);
-        } catch {
-          return 0;
-        }
-      }),
+    estimateMessageTokens: estimateMessageTokens ?? estimateConversationTokens,
   });
 }
 
