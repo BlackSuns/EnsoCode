@@ -82,6 +82,44 @@ describe('派发父容器的 custom entry 必须能落盘', () => {
     expect(customs[0]?.customType).toBe('enso-agent-session');
   });
 
+  it('新会话 materialize 后仍能安全落盘首条 assistant', () => {
+    const manager = SessionManager.create(cwd, sessionDir);
+    const file = manager.getSessionFile();
+    expect(file).toBeTruthy();
+    if (!file) return;
+
+    manager.appendCustomEntry('enso-agent-session', { kind: 'agent-dispatch' });
+    materializeSessionFile(sessionWith(manager, []));
+
+    expect(() =>
+      manager.appendMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'first response' }],
+        api: 'openai-responses',
+        provider: 'openai',
+        model: 'test',
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: 'stop',
+        timestamp: 0,
+      })
+    ).not.toThrow();
+
+    expect(entriesOf(file).some((entry) => entry.type === 'message')).toBe(true);
+    const reopened = SessionManager.open(file, sessionDir);
+    expect(
+      reopened
+        .getBranch()
+        .some((entry) => entry.type === 'message' && entry.message.role === 'assistant')
+    ).toBe(true);
+  });
+
   it('多条通知都要在文件里，不能只留第一条', () => {
     const manager = SessionManager.create(cwd, sessionDir);
     const file = manager.getSessionFile();

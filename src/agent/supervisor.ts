@@ -126,18 +126,18 @@ import { projectMessages, projectResumeTail } from './resumeSnapshots';
 import { withRtkOptimization } from './rtk';
 import { RunawayGuard } from './runawayGuard';
 import {
+  buildSessionDisplayMessages,
+  editLatestAssistantForRetry,
+  silentTurnRecoveryExtension,
+} from './sessionAdapter';
+import {
   EVICTION_SWEEP_INTERVAL_MS,
   type EvictionCandidate,
   selectEvictable,
 } from './sessionEviction';
 import { branchSessionFromPersistedFile, resolveForkLeafId } from './sessionFork';
 import { createSessionCommandTool } from './sessionShell';
-import {
-  POST_TOOL_EMPTY_NUDGE,
-  SILENT_TURN_NUDGE,
-  type SilentTurnKind,
-  silentTurnKind,
-} from './silentTurn';
+import { type SilentTurnKind, silentTurnKind } from './silentTurn';
 import { providerKeyFor, smartCompactInlineExtension } from './smartCompact';
 import {
   createSshExecutor,
@@ -174,7 +174,6 @@ import { BrowserInvoker, createBrowserTools, withNavigateApproval } from './tool
 import { createEnsoAppTool, EnsoAppInvoker } from './tools/ensoApp';
 import { createEnsoCapabilitiesTool } from './tools/ensoCapabilities';
 import { createMemoryTools, MemoryInvoker } from './tools/memory';
-import { transcriptMessages } from './transcript';
 import { createWorkflowTool, WORKFLOW_STOPPED_BY_USER } from './workflow';
 import { listWorkflowPresets, loadWorkflowPreset, workflowPresetRoots } from './workflowPresets';
 import { WorkspaceSwitchGate, workspaceBranchContextExtension } from './workspaceSwitch';
@@ -242,8 +241,6 @@ interface ManagedSession {
   lastRetryError?: string;
   /** 当前用户轮已做过一次空回复自动续跑 */
   silentTurnNudgeUsed: boolean;
-  /** 空回复续跑已发出、尚未收到对应 agent_start/结束 */
-  silentTurnRecovering: boolean;
   /** 本次空回复恢复的类型；post-tool 第二次仍空则失败 */
   silentTurnKind?: SilentTurnKind;
   runawayGuard?: RunawayGuard;
@@ -320,6 +317,7 @@ function sessionAgentsFilesOverride(
 
 function createSessionResourceLoader(options: {
   branchContext: InlineExtension;
+  silentTurnRecovery: InlineExtension;
   cwd: string;
   agentDir: string;
   noSkills: boolean;
@@ -427,6 +425,7 @@ function createSessionResourceLoader(options: {
               }),
             ]
           : []),
+      options.silentTurnRecovery,
     ],
     agentsFilesOverride: options.remoteAgentsFiles
       ? () => ({
@@ -445,7 +444,8 @@ function createSessionResourceLoader(options: {
 function createEnsoResourceLoader(
   cwd: string,
   agentDir: string,
-  branchContext: InlineExtension
+  branchContext: InlineExtension,
+  silentTurnRecovery: InlineExtension
 ): DefaultResourceLoader {
   return new DefaultResourceLoader({
     cwd,
@@ -455,7 +455,7 @@ function createEnsoResourceLoader(
     noPromptTemplates: true,
     noThemes: true,
     noContextFiles: true,
-    extensionFactories: [branchContext, applyPatchResultExtension],
+    extensionFactories: [branchContext, applyPatchResultExtension, silentTurnRecovery],
     systemPrompt: ENSO_SYSTEM_PROMPT,
     skillsOverride: () => ({ skills: [], diagnostics: [] }),
     promptsOverride: () => ({ prompts: [], diagnostics: [] }),
@@ -466,23 +466,31 @@ function createEnsoResourceLoader(
   });
 }
 /**
- * pi 的 SessionManager._persist 在会话出现第一条 assistant 消息之前一个字节不写（避免留下空会话
- * 文件）。而纯派发的父容器按设计永远不跑主 coding 回合，永远不会有 assistant 消息，
- * 于是它的 custom entry（已派发/完成通知）只存在内存里，且 parent-ready 上报的 sessionFile
- * 指向一个不存在的文件——重启后 resume 直接失败，连带 child 的历史也打不开。
+ * Pi 的 SessionManager._persist 在会话出现第一条 assistant 消息前不写文件，以免留下空会话。纯派发父容器不会运行主 coding 回合，因此其派发通知等 custom entry 可能始终只在内存中，resume 指向的文件也不存在。
  *
- * 因此在会话还没有 assistant 消息时，由我们强制落盘；一旦 pi 自己接管了持久化就不再介入。
- * 依赖的 `_rewriteFile` 是 pi 的私有方法：升级 pi 时需复检，回归测试断言的是“文件落盘”
- * 这个可观测结果，不是调用了该方法，所以上游改语义时测试会直接飘红。
+ * Pi's SessionManager._persist writes no file before the first assistant message to avoid empty sessions. Dispatch-only parents never run the main coding turn, so their custom entries may remain in memory and the file needed for resume may not exist.
+ *
+ * 无 assistant 时强制物化会话文件。Pi 0.87.1 的 `_rewriteFile()` 不更新私有 `flushed` 标记；首条 assistant 随后会用 `openSync(..., 'wx')` 重建已存在文件并抛 EEXIST。重写成功后同步标记，交回 SDK 后续追加持久化。
+ *
+ * Force materialization when no assistant exists. Pi 0.87.1's `_rewriteFile()` leaves the private `flushed` flag unchanged; the first assistant then tries to recreate the existing file with `openSync(..., 'wx')` and throws EEXIST. Mark it flushed after a successful rewrite so the SDK can append subsequent entries.
+ *
+ * 这是对 Pi 私有 API 的适配，升级时需复检；回归测试断言文件存在及可重开，而非内部方法调用。
+ *
+ * This adapts Pi private APIs and must be rechecked on upgrades; regression tests assert file existence and successful reopen, not the private method call.
  */
 export function materializeSessionFile(session: AgentSession): void {
   const hasAssistant = (session.messages as { role?: string }[] | undefined)?.some(
     (message) => message?.role === 'assistant'
   );
   if (hasAssistant) return;
-  const manager = session.sessionManager as unknown as { _rewriteFile?: () => void };
+  const manager = session.sessionManager as unknown as {
+    _rewriteFile?: () => void;
+    flushed?: boolean;
+  };
   try {
-    manager._rewriteFile?.();
+    if (typeof manager._rewriteFile !== 'function') return;
+    manager._rewriteFile();
+    manager.flushed = true;
   } catch {
     // 落盘失败不能弄挂派发；内存中的通知仍然可用。
   }
@@ -1096,12 +1104,7 @@ export class SessionSupervisor {
         const managed = this.must(command.identity);
         if (managed.session.isStreaming || managed.status === 'running') return;
         const agent = managed.session.agent;
-        const messages = agent.state.messages;
-        const failed = messages.at(-1);
-        if (failed?.role === 'assistant') {
-          // 0.87 起下次请求以 SessionManager 投影为准，只改 state.messages 会被盖回去
-          omitFromModelContext(managed.session, failed);
-        }
+        editLatestAssistantForRetry(managed.session);
         if (agent.state.messages.at(-1)?.role === 'assistant') return;
         ensureAssistantUsage(agent.state.messages as unknown[]);
         managed.currentTurnId = randomUUID();
@@ -1451,6 +1454,11 @@ export class SessionSupervisor {
     }
     const resourceLoader = createSessionResourceLoader({
       branchContext: this.branchContextExtension(() => managedRef),
+      silentTurnRecovery: silentTurnRecoveryExtension((kind) => {
+        if (!managedRef) return;
+        managedRef.silentTurnNudgeUsed = true;
+        managedRef.silentTurnKind = kind;
+      }),
       cwd,
       agentDir: this.options.agentDir,
       noSkills: loadLocalSkills === false,
@@ -1798,10 +1806,18 @@ export class SessionSupervisor {
         const branchContext = this.branchContextExtension(() =>
           [...this.sessions.values()].find((managed) => managed.session === session)
         );
+        const silentTurnRecovery = silentTurnRecoveryExtension((kind) => {
+          if (!childIdentity) return;
+          const managed = this.sessions.get(childIdentity.sessionId);
+          if (!managed || !isSameGeneration(managed.identity, childIdentity)) return;
+          managed.silentTurnNudgeUsed = true;
+          managed.silentTurnKind = kind;
+        });
         const subLoader = isLockedEnso
-          ? createEnsoResourceLoader(cwd, this.options.agentDir, branchContext)
+          ? createEnsoResourceLoader(cwd, this.options.agentDir, branchContext, silentTurnRecovery)
           : createSessionResourceLoader({
               branchContext,
+              silentTurnRecovery,
               cwd,
               agentDir: this.options.agentDir,
               noSkills: resolved || agentType ? true : loadLocalSkills === false,
@@ -2096,7 +2112,6 @@ export class SessionSupervisor {
       ...(opts.safeJournal ? { safeJournal: opts.safeJournal } : {}),
       adaptiveDowngraded: false,
       silentTurnNudgeUsed: false,
-      silentTurnRecovering: false,
       ...(opts.runawayGuard ? { runawayGuard: opts.runawayGuard } : {}),
       timings: [],
       toolStartAt: new Map(),
@@ -2641,8 +2656,8 @@ export class SessionSupervisor {
     managed.lastActivityAt = Date.now();
     switch (event.type) {
       case 'agent_start':
-        if (!managed.silentTurnRecovering) managed.silentTurnNudgeUsed = false;
-        if (!managed.silentTurnRecovering) managed.silentTurnKind = undefined;
+        managed.silentTurnNudgeUsed = false;
+        managed.silentTurnKind = undefined;
         managed.runawayGuard?.resetTurn();
         managed.currentTurnId ??= randomUUID();
         managed.status = 'running';
@@ -2882,45 +2897,12 @@ export class SessionSupervisor {
     const kind = silentTurnKind(managed.messages);
     if (!kind) return false;
     if (managed.silentTurnNudgeUsed) {
-      if (kind === 'post-tool') {
+      if (kind === 'post-tool' || managed.silentTurnKind === 'post-tool') {
         this.failTurn(managed, 'The tools completed, but the assistant reply was empty.');
         return true;
       }
-      return false;
     }
-    const agent = managed.session.agent;
-    if (!agent) return false;
-    const transcript = agent.state.messages;
-    const empty = transcript.at(-1);
-    if (empty?.role !== 'assistant') return false;
-    const tail = transcript.at(-2)?.role;
-    if (tail !== 'user' && tail !== 'toolResult') {
-      return false;
-    }
-    omitFromModelContext(managed.session, empty);
-    this.reconcileMessages(managed, this.transcript(managed));
-    managed.silentTurnNudgeUsed = true;
-    managed.silentTurnRecovering = true;
-    managed.silentTurnKind = kind;
-    ensureAssistantUsage(agent.state.messages as unknown[]);
-    const nudge = kind === 'post-tool' ? POST_TOOL_EMPTY_NUDGE : SILENT_TURN_NUDGE;
-    const restoreNudge = installOneShotSystemNudge(agent, nudge);
-    const restore = () => {
-      managed.silentTurnRecovering = false;
-      restoreNudge();
-    };
-    try {
-      void agent
-        .continue()
-        .catch((error) => {
-          this.failTurn(managed, toErrorMessage(error));
-        })
-        .finally(restore);
-    } catch (error) {
-      restore();
-      this.failTurn(managed, toErrorMessage(error));
-    }
-    return true;
+    return false;
   }
 
   private tryAdaptiveDowngrade(managed: ManagedSession): boolean {
@@ -2976,10 +2958,7 @@ export class SessionSupervisor {
 
   /** 渲染层口径的完整记录：compaction 之前的历史 + pi 当前上下文 */
   private transcript(managed: ManagedSession): unknown[] {
-    return transcriptMessages(
-      managed.session.sessionManager,
-      managed.session.messages as unknown[]
-    );
+    return buildSessionDisplayMessages(managed.session, managed.session.messages as unknown[]);
   }
 
   private reconcileMessages(managed: ManagedSession, rawMessages: unknown[]): void {
@@ -3745,48 +3724,6 @@ function consumeRole(managed: { pendingRole?: string }, text: string): string {
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
-
-/** 错误/空 assistant 留在 jsonl，但从下次 provider 投影里拿掉。 */
-function omitFromModelContext(
-  session: AgentSession,
-  message: AgentSession['agent']['state']['messages'][number]
-): void {
-  const entry = [...session.sessionManager.getBranch()]
-    .reverse()
-    .find((item) => item.type === 'message' && item.message === message);
-  if (entry) {
-    session.sessionManager.appendContextEdit(entry.id, null);
-    session.refreshContext();
-  }
-  const messages = session.agent.state.messages;
-  if (messages.at(-1) === message) {
-    session.agent.state.messages = messages.slice(0, -1);
-  }
-}
-
-/** 只影响这一次 continue 的系统提示，不写回只读 state.systemPrompt。 */
-function installOneShotSystemNudge(agent: AgentSession['agent'], nudge: string): () => void {
-  const previous = agent.prepareRequest;
-  agent.prepareRequest = async (request, signal) => {
-    const update = await previous?.(request, signal);
-    const context = update?.context ?? request.context;
-    const messages = context.messages.slice();
-    const first = messages[0];
-    if (first?.role === 'system') {
-      const content =
-        typeof first.content === 'string'
-          ? `${first.content}\n\n${nudge}`
-          : [...first.content, { type: 'text' as const, text: `\n\n${nudge}` }];
-      messages[0] = { ...first, content };
-    } else {
-      messages.unshift({ role: 'system', content: nudge, timestamp: Date.now() });
-    }
-    return { ...update, context: { ...context, messages } };
-  };
-  return () => {
-    agent.prepareRequest = previous;
-  };
-}
 
 function liveCompletionText(partial: unknown): { text: string; thinking: string } {
   if (!partial || typeof partial !== 'object') return { text: '', thinking: '' };

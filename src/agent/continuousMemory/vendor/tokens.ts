@@ -5,6 +5,16 @@ export function estimateStringTokens(text: string): number {
 }
 
 /**
+ * 系统消息属于框架上下文，不作为持续记忆的对话来源。
+ *
+ * System messages are framework context, not conversation sources for continuous memory.
+ */
+export function isSystemMessageEntry(entry: { type: string; message?: unknown }): boolean {
+	if (entry.type !== "message" || !entry.message || typeof entry.message !== "object") return false;
+	return (entry.message as { role?: unknown }).role === "system";
+}
+
+/**
  * Estimate the rendered footprint of an observation line as it appears in
  * summaries / pool listings: "[id] YYYY-MM-DD HH:MM [relevance] content".
  * Pool budgets that only count bare content undercount every line's
@@ -24,6 +34,7 @@ export function observationLineTokenCount(observation: {
 
 export function estimateEntryTokens(entry: { type: string; message?: unknown; content?: unknown; summary?: unknown }): number {
 	if (entry.type === "message" && entry.message) {
+		if (isSystemMessageEntry(entry)) return 0;
 		return estimateMessageTokens(entry.message as Parameters<typeof estimateMessageTokens>[0]);
 	}
 	if (entry.type === "custom_message" && entry.content) {
