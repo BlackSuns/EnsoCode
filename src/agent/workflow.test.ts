@@ -430,4 +430,78 @@ describe('workflow tool', () => {
       expect(spawns.every((r) => r.agentType === 'reviewer')).toBe(true);
     });
   });
+
+  describe('model', () => {
+    const models = [
+      { name: 'Max/claude-opus-5', config: {} as never },
+      { name: 'OpenAI/gpt-6', config: {} as never },
+    ];
+    const agentTypes = [
+      { name: 'reviewer', allowModelOverride: true },
+      { name: 'worker', allowModelOverride: true },
+      { name: 'fixed', allowModelOverride: false },
+    ];
+    const make = () => {
+      const { invoke } = fakeChildren((spawn) => ({ runId: spawn.description, text: 'ok' }));
+      const emit = vi.fn();
+      const tool = createWorkflowTool({ invoke, emit, models, agentTypes });
+      const run = (params: Record<string, unknown>) =>
+        tool.execute('call-m', params, undefined, undefined, {} as never);
+      const spawns = () =>
+        invoke.mock.calls.map(([request]) => request).filter((r) => r.operation === 'spawn');
+      return { tool, run, spawns, emit };
+    };
+    const meta = { name: 'm', description: 'model test' };
+
+    it('顶层 model 由未自带 model 的 agent() 继承，脚本显式 model 优先，固定模型的类型不带', async () => {
+      const { run, spawns } = make();
+      await run({
+        meta,
+        model: 'Max/claude-opus-5',
+        script: `await parallel([
+          () => agent("a", { label: "a", agentType: "reviewer" }),
+          () => agent("b", { label: "b" }),
+          () => agent("c", { label: "c", agentType: "reviewer", model: "OpenAI/gpt-6" }),
+          () => agent("d", { label: "d", agentType: "fixed" }),
+        ]); return 1;`,
+      });
+      const byLabel = Object.fromEntries(spawns().map((r) => [r.description, r.model]));
+      expect(byLabel).toEqual({
+        a: 'Max/claude-opus-5',
+        b: 'Max/claude-opus-5',
+        c: 'OpenAI/gpt-6',
+        d: undefined,
+      });
+    });
+
+    it('类型要求选模型而未给 model 时，不启动子代理，错误列出可选模型', async () => {
+      const { run, spawns } = make();
+      const result = await run({
+        meta,
+        script: 'return await agent("a", { agentType: "reviewer" });',
+      });
+      expect((result as { isError?: boolean }).isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/"reviewer" requires a model/);
+      expect(text).toContain('Max/claude-opus-5, OpenAI/gpt-6');
+      expect(spawns()).toHaveLength(0);
+    });
+
+    it('未知 model 在启动前拒绝；参数与说明暴露可选模型和需要选模型的类型', async () => {
+      const { tool, run, emit } = make();
+      await expect(run({ meta, model: 'opus', script: 'return 1;' })).rejects.toThrow(
+        /unknown model "opus"/
+      );
+      expect(emit).not.toHaveBeenCalled();
+      const params = tool.parameters as { properties: Record<string, { enum?: string[] }> };
+      expect(params.properties.model?.enum).toEqual(['Max/claude-opus-5', 'OpenAI/gpt-6']);
+      const guidelines = tool.promptGuidelines?.join('\n') ?? '';
+      expect(guidelines).toContain('reviewer, worker');
+      expect(guidelines).toContain('Max/claude-opus-5, OpenAI/gpt-6');
+      const bare = createWorkflowTool({ invoke: vi.fn(), emit: vi.fn() });
+      expect(
+        (bare.parameters as { properties: Record<string, unknown> }).properties.model
+      ).toBeUndefined();
+    });
+  });
 });

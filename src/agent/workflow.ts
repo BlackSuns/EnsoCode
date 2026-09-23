@@ -1,7 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
-import type { AgentControlToolRequest, AgentControlToolResponse } from '@shared/types/agent';
+import type {
+  AgentControlToolRequest,
+  AgentControlToolResponse,
+  AgentTypeSpawnConfig,
+  SubagentModelOption,
+} from '@shared/types/agent';
 import type {
   WorkflowMemberSnapshot,
   WorkflowPresetSummary,
@@ -36,6 +41,9 @@ export interface WorkflowToolDeps {
   loadPreset?: (id: string) => WorkflowPreset | null;
   /** 会话建立时的可用预设快照，写进工具说明供模型挑选 */
   presets?: readonly WorkflowPresetSummary[];
+  /** 与 subagent 工具同源：可选模型，以及哪些类型要求主 agent 选模型 */
+  models?: readonly Pick<SubagentModelOption, 'name'>[];
+  agentTypes?: readonly Pick<AgentTypeSpawnConfig, 'name' | 'allowModelOverride'>[];
   randomUuid?: () => string;
 }
 
@@ -114,6 +122,8 @@ interface HostJob {
 class WorkflowRunState {
   readonly snapshot: WorkflowRunSnapshot;
   agentsStarted = 0;
+  /** 顶层 model：由未自带 model、且类型要求选模型的 agent() 继承 */
+  model: string | undefined;
   private memberSeq = 0;
   private batchSeq = 0;
 
@@ -211,6 +221,20 @@ async function runAgent(
     return { fatal: `workflow agent cap exceeded (${MAX_AGENTS})`, value: null };
   }
   if (signal?.aborted) return { fatal: 'workflow cancelled', value: null };
+  const agentType = typeof payload.agentType === 'string' ? payload.agentType : undefined;
+  // 未指定类型时 Main 派发 worker
+  const typeName = agentType ?? 'worker';
+  const picks = deps.agentTypes?.some(
+    (type) => type.name === typeName && type.allowModelOverride === true
+  );
+  const model = typeof payload.model === 'string' ? payload.model : picks ? state.model : undefined;
+  if (picks && !model) {
+    const names = (deps.models ?? []).map((option) => option.name).join(', ');
+    return {
+      fatal: `agent type "${typeName}" requires a model: call workflow again with model set to one of [${names}]`,
+      value: null,
+    };
+  }
   state.agentsStarted += 1;
   const prompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : '';
   if (!prompt) return { fatal: 'agent() requires a non-empty prompt', value: null };
@@ -227,8 +251,6 @@ async function runAgent(
     typeof payload.batch === 'number' && payload.batch > 0 ? payload.batch : state.nextBatch();
   const member = state.startMember(label, explicitPhase || state.snapshot.phase, batch, prompt);
   publish();
-  const model = typeof payload.model === 'string' ? payload.model : undefined;
-  const agentType = typeof payload.agentType === 'string' ? payload.agentType : undefined;
   const schema = isRecord(payload.schema) ? payload.schema : undefined;
   let runId = '';
   try {
@@ -504,6 +526,10 @@ export const WORKFLOW_STOPPED_BY_USER = 'workflow-stopped-by-user';
 const USER_STOP_TEXT = 'was stopped by the user — do not restart it';
 
 export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
+  const modelNames = (deps.models ?? []).map((option) => option.name);
+  const pickTypes = (deps.agentTypes ?? [])
+    .filter((type) => type.allowModelOverride === true)
+    .map((type) => type.name);
   const settle = async (
     state: WorkflowRunState,
     script: string,
@@ -551,6 +577,15 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
       'Choose background:true when the run is long and you have other work to do or the user should not wait; keep it off when the next step needs the result. Do not poll a background run — wait for its notification.',
       'script is plain JavaScript, not TypeScript, with top-level await. End with return <json>.',
       'agent() options are only label, phase, model, agentType, and schema. Anything else fails the run.',
+      ...(modelNames.length > 0
+        ? [
+            `model must be copied exactly from the model enum: ${modelNames.join(', ')}. Top-level model applies to every agent() without its own model whose agent type requires one${
+              pickTypes.length > 0
+                ? ` (${pickTypes.join(', ')}; agent() without agentType uses worker). Pass it when running presets that use these types`
+                : ''
+            }.`,
+          ]
+        : []),
       'Child failure returns null. Do not treat null as success without checking it.',
     ],
     parameters: {
@@ -587,6 +622,16 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
           description:
             'Default false. When true, return a runId immediately and deliver the result later as a notification.',
         },
+        ...(modelNames.length > 0
+          ? {
+              model: {
+                type: 'string',
+                enum: modelNames,
+                description:
+                  'Model for every agent() without its own model whose agent type requires one. Exact id from the enum.',
+              },
+            }
+          : {}),
         stop: {
           type: 'string',
           description: 'runId of a background workflow to cancel. Pass it without other fields.',
@@ -614,6 +659,10 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
       if (record.args !== undefined && !isRecord(record.args)) {
         throw new Error('workflow args must be a JSON object');
       }
+      const model = typeof record.model === 'string' ? record.model.trim() : '';
+      if (model && !modelNames.includes(model)) {
+        throw new Error(`unknown model "${model}". Available: [${modelNames.join(', ')}]`);
+      }
       const presetId = typeof record.preset === 'string' ? record.preset.trim() : '';
       let script = typeof record.script === 'string' ? record.script : '';
       let meta = parseMeta(record.meta);
@@ -631,6 +680,7 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
       if (!script.trim() || !meta)
         throw new Error('workflow requires preset, or script with meta.name and meta.description');
       const state = new WorkflowRunState(deps.randomUuid?.() ?? crypto.randomUUID(), meta);
+      state.model = model || undefined;
       const runId = state.snapshot.runId;
       const name = meta.name;
       const controller = new AbortController();

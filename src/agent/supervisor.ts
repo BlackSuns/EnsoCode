@@ -1943,6 +1943,8 @@ export class SessionSupervisor {
               loadPreset: (id) =>
                 loadWorkflowPreset(id, workflowRoots, this.disabledWorkflowPresets),
               presets: listWorkflowPresets(workflowRoots, this.disabledWorkflowPresets),
+              models: subagentModels,
+              agentTypes,
               activeRuns: workflowRuns,
               notify: (text, urgent) => this.notifier.notify(sessionId, text, { urgent }),
               emit: (run) => {
