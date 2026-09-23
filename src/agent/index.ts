@@ -21,6 +21,7 @@ const supervisor = new SessionSupervisor({
   emit: (event) => port.postMessage(event),
   agentDir: path.join(dataDir, 'pi-agent'),
   sessionDir: path.join(dataDir, 'sessions'),
+  workflowDir: path.join(dataDir, 'workflows'),
 });
 
 port.on('message', (event) => {

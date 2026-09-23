@@ -1,6 +1,13 @@
+import {
+  isWorkflowAvailable,
+  projectDisabledBuiltinTools,
+  resolveDisabledBuiltinTools,
+} from '@shared/types/builtinTools';
 import type { DockviewApi } from 'dockview-react';
 import { releaseTerminal } from '@/lib/terminalRegistry';
 import { useSessionsStore } from '@/stores/sessions';
+import { useSettingsStore } from '@/stores/settings';
+import type { SettingsState } from '@/stores/settings/types';
 import { useSidePanelStore } from '@/stores/sidePanel';
 import { resolveSidePanelDockConversationId } from './sidePanelDockId';
 
@@ -14,6 +21,18 @@ const pendingWorkflowReveal: {
   runId: string;
 }[] = [];
 const revealedWorkflowRuns = new Set<string>();
+
+/** 工作流 tab 跟随该项目生效的内置工具开关（项目覆盖优先于全局） */
+export function selectWorkflowAvailable(
+  state: Pick<SettingsState, 'disabledBuiltinTools' | 'projects'>,
+  projectId: string | undefined
+): boolean {
+  return isWorkflowAvailable(
+    resolveDisabledBuiltinTools(state.disabledBuiltinTools, {
+      disabledBuiltinTools: projectDisabledBuiltinTools(state.projects, projectId),
+    })
+  );
+}
 
 export function registerFilesTabCloser(conversationId: string, close: () => boolean): () => void {
   filesTabClosers.set(conversationId, close);
@@ -164,6 +183,7 @@ export function addSidePanelWorkflow(opts: {
   const sessions = useSessionsStore.getState();
   const conversation = sessions.conversations[opts.conversationId];
   if (!conversation) return;
+  if (!selectWorkflowAvailable(useSettingsStore.getState(), conversation.projectId)) return;
   const dockId = resolveSidePanelDockConversationId(sessions.conversations, opts.conversationId);
   const api = docks.get(dockId);
   useSidePanelStore.getState().ensureOpen(dockId);

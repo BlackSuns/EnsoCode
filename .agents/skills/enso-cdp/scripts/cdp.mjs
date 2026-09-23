@@ -23,9 +23,11 @@ if (!cmd || !['pages', 'eval', 'shot', 'keys', 'type', 'drag'].includes(cmd)) {
   process.exit(2);
 }
 
-const list = await (await fetch('http://127.0.0.1:9222/json/list')).json().catch(() => null);
+// 与 main 的 ENSO_CDP_PORT 同名：同机多实例时指定要连哪一个
+const port = process.env.ENSO_CDP_PORT?.trim() || '9222';
+const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json().catch(() => null);
 if (!list) {
-  console.error('CDP 不可达：确认 pnpm dev 在跑（9222 不是 HMR，改了 main/agent 要重启）');
+  console.error(`CDP ${port} 不可达：确认 pnpm dev 在跑（CDP 不是 HMR，改了 main/agent 要重启）`);
   process.exit(2);
 }
 if (cmd === 'pages') {

@@ -6,13 +6,10 @@
 
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type {
-  SessionWorktree,
-  WorktreeUsageRecord,
-} from '../../../shared/types/worktree';
+import type { SessionWorktree, WorktreeUsageRecord } from '../../../shared/types/worktree';
 
 function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function isSessionWorktree(value: unknown): value is SessionWorktree {
@@ -70,9 +67,11 @@ export class WorktreeRegistry {
   }
 
   usageRecords(): WorktreeUsageRecord[] {
-    return [...this.records.values()].map(
-      ({ path, projectId, repoPath }) => ({ path, projectId, repoPath })
-    );
+    return [...this.records.values()].map(({ path, projectId, repoPath }) => ({
+      path,
+      projectId,
+      repoPath,
+    }));
   }
 
   share(fromConversationId: string, toConversationId: string): void {

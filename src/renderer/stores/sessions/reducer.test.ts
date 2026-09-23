@@ -658,6 +658,35 @@ describe('applyAgentEvent', () => {
     expect(delivered.messages[0].content).toEqual([{ type: 'text', text: expanded }]);
   });
 
+  it.each([
+    ['带文字', '加个按钮', '加个按钮\n\n'],
+    ['纯图片', '', '\n\n'],
+  ])('pi 追加图片缩放提示的 user upsert 消费乐观回显（%s）', (_, typed, prefix) => {
+    const image = { type: 'image' as const, data: 'x', mimeType: 'image/png' };
+    const hints =
+      '[Image converted from image/webp to image/png.]\n' +
+      '[Image: original 3773x1017, displayed at 2000x539. Multiply coordinates by 1.89 to map to original image.]';
+    const withEcho = {
+      ...base,
+      messages: [
+        {
+          role: 'user' as const,
+          content: [{ type: 'text' as const, text: typed }, image],
+          optimistic: true as const,
+        },
+      ],
+    };
+    const delivered = applyAgentEvent(withEcho, 's1', {
+      type: 'message-upsert',
+      identity: identity(),
+      seq: 1,
+      index: 0,
+      message: { role: 'user', content: [{ type: 'text', text: prefix + hints }, image] },
+    });
+    expect(delivered.messages).toHaveLength(1);
+    expect(delivered.messages[0]).not.toHaveProperty('optimistic', true);
+  });
+
   it('restored generation replaces the projection and rejects stale generation events', () => {
     const g1 = applyAgentEvent(base, 's1', status(5, 'running', 'g1'));
     const snapshot: SessionSnapshot = {

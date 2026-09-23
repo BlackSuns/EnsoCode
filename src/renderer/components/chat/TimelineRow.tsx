@@ -1,5 +1,6 @@
 import { isBtwIsolationPrompt } from '@shared/btw';
 import type { AgentSessionCustomEntry, TodoItem, TurnPerf } from '@shared/types/agent';
+import { parseWorkflowPresetMessage } from '@shared/workflowPresetMessage';
 import {
   Bot,
   BoxSelect,
@@ -23,6 +24,7 @@ import {
   Target,
   TerminalSquare,
   Undo2,
+  Workflow,
 } from 'lucide-react';
 import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -50,8 +52,8 @@ import {
   parseSandboxOutput,
   shouldAutoExpandAppliedFileChanges,
   shouldShowToolOutputAfterFileChanges,
-  thinkingRowExpanded,
   type TimelineItem,
+  thinkingRowExpanded,
 } from '@/stores/sessions/timeline';
 import { useSettingsStore } from '@/stores/settings';
 import { CodeBlock } from './CodeBlock';
@@ -259,6 +261,40 @@ function SlashInvocation({ text }: { text: string }) {
   return <ChipBubble chip={<SlashChip name={parsed.slash} />} extra={parsed.rest.trim()} />;
 }
 
+/** 侧边栏触发的预设工作流：卡片展示名称与参数，块后给模型的说明不显示 */
+function WorkflowPresetInvocation({
+  preset,
+}: {
+  preset: NonNullable<ReturnType<typeof parseWorkflowPresetMessage>>;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="min-w-64 max-w-[80%] overflow-hidden rounded-2xl rounded-br-md bg-muted text-sm">
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-info/15 text-info">
+          <Workflow className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[11px] text-muted-foreground">{t('Workflow preset')}</p>
+          <p className="truncate font-medium" title={preset.id}>
+            {preset.name || preset.id}
+          </p>
+        </div>
+      </div>
+      {preset.args.length > 0 && (
+        <dl className="space-y-1 border-t border-border/60 px-3.5 py-2 text-xs">
+          {preset.args.map(([key, value]) => (
+            <div key={key} className="flex gap-2">
+              <dt className="shrink-0 font-mono text-muted-foreground">{key}</dt>
+              <dd className="min-w-0 whitespace-pre-wrap break-words">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
 /** 内联提及卡片：与输入框编辑器的卡片完全同款（图标 + 文件名/标题），
  * 保持在句子里的原位与顺序 */
 function InlineMentionCard({
@@ -379,6 +415,8 @@ function UserText({
   activeNth?: number;
 }) {
   const { t } = useI18n();
+  const workflowPreset = parseWorkflowPresetMessage(text);
+  if (workflowPreset) return <WorkflowPresetInvocation preset={workflowPreset} />;
   const refs = splitMentionRefs(text);
   const hasRefs = refs.files.length > 0 || refs.chats.length > 0;
   if (hasRefs) {

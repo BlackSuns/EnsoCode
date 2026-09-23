@@ -143,6 +143,11 @@ import type {
 } from '@shared/types/sidePanel';
 import type { UpdateStatus } from '@shared/types/updater';
 import type {
+  WorkflowPresetDraft,
+  WorkflowPresetSaveResult,
+  WorkflowPresetSummary,
+} from '@shared/types/workflow';
+import type {
   SessionWorktree,
   WorkspaceBranchesResult,
   WorkspaceBranchSwitchRequest,
@@ -335,6 +340,9 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.ASSETS_COLLECT_IMPORT, scanId, candidateIds),
     listProjectSkills: (cwd: string): Promise<{ name: string; description: string }[]> =>
       ipcRenderer.invoke(IPC_CHANNELS.ASSETS_LIST_PROJECT_SKILLS, cwd),
+    /** 按会话列出工作流预设；项目根由 Main 从会话记录推导 */
+    listWorkflowPresets: (conversationId: string): Promise<WorkflowPresetSummary[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.ASSETS_LIST_WORKFLOW_PRESETS, conversationId),
     skillOccupancy: (ids: string[]): Promise<AssetOccupancyRow[]> =>
       ipcRenderer.invoke(IPC_CHANNELS.ASSETS_SKILL_OCCUPANCY, ids),
     instructionOccupancy: (ids: string[]): Promise<AssetOccupancyRow[]> =>
@@ -364,6 +372,18 @@ const electronAPI = {
     ): Promise<{ ok: boolean; bytes: number; error?: string }> =>
       ipcRenderer.invoke(IPC_CHANNELS.INSTRUCTIONS_WRITE_SOURCE, id, sourcePath, content),
     delete: (id: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.INSTRUCTIONS_DELETE, id),
+  },
+
+  /** 设置页托管的工作流预设；id 由 Main 生成，文件路径不经 renderer */
+  workflowPresets: {
+    list: (): Promise<WorkflowPresetSummary[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_PRESETS_LIST),
+    read: (id: string): Promise<(WorkflowPresetDraft & { id: string }) | null> =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_PRESETS_READ, id),
+    save: (draft: WorkflowPresetDraft, id?: string): Promise<WorkflowPresetSaveResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_PRESETS_SAVE, draft, id),
+    delete: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_PRESETS_DELETE, id),
   },
 
   presets: {
@@ -626,6 +646,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_TASK_STOP, sessionId, taskId),
     stopSubagent: (sessionId: string, agentId: string): Promise<AgentActionResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SUBAGENT_STOP, sessionId, agentId),
+    stopWorkflow: (sessionId: string, runId: string): Promise<AgentActionResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_WORKFLOW_STOP, sessionId, runId),
     /** 手动压缩上下文；忙碌时 worker 自行排队，进度经 compaction 事件回来 */
     compact: (sessionId: string, instructions?: string): Promise<AgentActionResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_COMPACT, sessionId, instructions),

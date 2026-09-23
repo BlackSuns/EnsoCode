@@ -29,6 +29,66 @@ export interface WorkflowMemberGroup {
   members: WorkflowMemberSnapshot[];
 }
 
+export type WorkflowPresetSource = 'project' | 'custom' | 'global' | 'builtin';
+
+const WORKFLOW_PRESET_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const MAX_DISABLED_WORKFLOW_PRESETS = 64;
+
+export function isWorkflowPresetId(id: string): boolean {
+  return WORKFLOW_PRESET_ID_RE.test(id);
+}
+
+/** 设置里禁用的内置预设 id：跨进程边界收窄，坏值丢弃 */
+export function parseDisabledWorkflowPresets(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value.filter((id): id is string => typeof id === 'string' && isWorkflowPresetId(id));
+  return [...new Set(ids)].slice(0, MAX_DISABLED_WORKFLOW_PRESETS);
+}
+
+export interface WorkflowPresetArg {
+  key: string;
+  label: string;
+  default?: string;
+  required?: boolean;
+}
+
+/** 侧边栏展示用；脚本正文只在 worker 执行时按 id 读取，不经 renderer。 */
+export interface WorkflowPresetSummary {
+  id: string;
+  source: WorkflowPresetSource;
+  name: string;
+  description: string;
+  args: WorkflowPresetArg[];
+}
+
+/** 设计器步骤；agentType 为空 = 运行时默认（worker） */
+export interface WorkflowDesignStep {
+  label: string;
+  agentType: string;
+  prompt: string;
+}
+
+/** 同一阶段内的步骤并行，阶段之间串行 */
+export interface WorkflowDesignPhase {
+  title: string;
+  steps: WorkflowDesignStep[];
+}
+
+export interface WorkflowDesign {
+  phases: WorkflowDesignPhase[];
+}
+
+/** 设置页编辑的表单内容；脚本不含注释头，保存时由 Main 序列化成预设文件。有 design 时脚本由它生成。 */
+export interface WorkflowPresetDraft {
+  name: string;
+  description: string;
+  args: WorkflowPresetArg[];
+  script: string;
+  design?: WorkflowDesign;
+}
+
+export type WorkflowPresetSaveResult = { ok: true; id: string } | { ok: false; error: string };
+
 export function groupWorkflowMembers(
   members: readonly WorkflowMemberSnapshot[]
 ): WorkflowMemberGroup[] {

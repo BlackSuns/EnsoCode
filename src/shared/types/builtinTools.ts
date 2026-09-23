@@ -98,6 +98,11 @@ export function resolveDisabledBuiltinTools(
     : effectiveDisabledBuiltinTools(globalDisabled);
 }
 
+/** workflow 靠 subagent 派发子代理，两者都开才会下发给会话（与 worker 口径一致） */
+export function isWorkflowAvailable(disabledBuiltinTools: readonly string[]): boolean {
+  return !disabledBuiltinTools.includes('workflow') && !disabledBuiltinTools.includes('subagent');
+}
+
 /** 从 settings.projects 取出某项目的覆盖列表；缺项目或未覆盖返回 undefined。 */
 export function projectDisabledBuiltinTools(
   projects: unknown,

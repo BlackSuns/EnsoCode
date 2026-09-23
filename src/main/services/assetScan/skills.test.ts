@@ -67,7 +67,11 @@ describe('readSkillsRoot', () => {
   });
 
   it('跟随指向技能目录的符号链接', () => {
-    const real = writeSkill(path.join(tmp, 'origin'), 'surge', 'name: Surge\ndescription: surge-cli');
+    const real = writeSkill(
+      path.join(tmp, 'origin'),
+      'surge',
+      'name: Surge\ndescription: surge-cli'
+    );
     const root = path.join(tmp, 'skills');
     fs.mkdirSync(root);
     const linked = path.join(root, 'surge');

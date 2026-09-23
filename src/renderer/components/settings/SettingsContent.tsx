@@ -13,6 +13,7 @@ import {
   Smartphone,
   Sparkles,
   Terminal,
+  Workflow,
   Wrench,
 } from 'lucide-react';
 import * as React from 'react';
@@ -37,6 +38,7 @@ import { SkillsSettings } from './SkillsSettings';
 import { SshSettings } from './SshSettings';
 import { resolveActiveCategory, visibleCategories } from './settingsCategories';
 import { UsageSettings } from './UsageSettings';
+import { WorkflowsSettings } from './WorkflowsSettings';
 
 function flashSettingsRow(rowId: string): void {
   window.requestAnimationFrame(() => {
@@ -85,6 +87,7 @@ export function SettingsContent() {
     { id: 'presets', icon: Layers, label: t('Presets') },
     { id: 'agents', icon: Bot, label: t('Agent types') },
     { id: 'tools', icon: Wrench, label: t('Built-in tools') },
+    { id: 'workflows', icon: Workflow, label: t('Workflows') },
     { id: 'memory', icon: Brain, label: t('Memory') },
     { id: 'skills', icon: Sparkles, label: t('Skills') },
     { id: 'mcp', icon: Plug, label: t('MCP Servers') },
@@ -134,6 +137,7 @@ export function SettingsContent() {
         {activeCategory === 'instructions' && <InstructionsSettings />}
         {activeCategory === 'presets' && <PresetsSettings />}
         {activeCategory === 'agents' && <AgentTypesSettings />}
+        {activeCategory === 'workflows' && <WorkflowsSettings />}
         {activeCategory === 'tools' && <BuiltinToolsSettings />}
         {activeCategory === 'memory' && (
           <div className="space-y-8">

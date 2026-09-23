@@ -8,6 +8,7 @@ export const SETTINGS_CATEGORIES = [
   'instructions',
   'presets',
   'agents',
+  'workflows',
   'tools',
   'memory',
   'phone',

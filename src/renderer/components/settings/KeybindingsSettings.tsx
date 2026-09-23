@@ -131,12 +131,10 @@ function KeybindingsSection() {
             >
               {isCapturing ? (
                 <span className="text-xs text-muted-foreground">{t('Press shortcut…')}</span>
+              ) : binding ? (
+                <Kbd>{formatBinding(binding)}</Kbd>
               ) : (
-                binding ? (
-                  <Kbd>{formatBinding(binding)}</Kbd>
-                ) : (
-                  <span className="text-xs text-muted-foreground">{t('No shortcut')}</span>
-                )
+                <span className="text-xs text-muted-foreground">{t('No shortcut')}</span>
               )}
             </button>
           </div>

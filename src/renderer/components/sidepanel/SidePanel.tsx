@@ -36,10 +36,12 @@ import {
   bindSidePanelDock,
   closeSidePanelBrowser,
   disposeConversationResources,
+  selectWorkflowAvailable,
 } from '@/lib/sidePanelDock';
 import { releaseTerminal } from '@/lib/terminalRegistry';
 import { cn } from '@/lib/utils';
 import { useSessionsStore } from '@/stores/sessions';
+import { useSettingsStore } from '@/stores/settings';
 import { useSidePanelStore } from '@/stores/sidePanel';
 import { sanitizeSidePanelLayout } from '@/stores/sidePanel/layoutSanitize';
 import {
@@ -211,6 +213,10 @@ function addWorkflowPanel(
   });
 }
 
+function useWorkflowAvailable(projectId: string | undefined): boolean {
+  return useSettingsStore((state) => selectWorkflowAvailable(state, projectId));
+}
+
 function WorkflowPanel(
   props: IDockviewPanelProps<{ conversationId?: string; projectId?: string }>
 ) {
@@ -331,7 +337,8 @@ function NewTabMenu({
   onNewFiles: () => void;
   onNewBrowser: () => void;
   onNewBtw: () => void;
-  onNewWorkflow: () => void;
+  /** 缺省 = 该项目没开 workflow 工具，不给入口 */
+  onNewWorkflow?: () => void;
   compact?: boolean;
 }) {
   const { t } = useI18n();
@@ -370,10 +377,12 @@ function NewTabMenu({
           <MessageCircle className="h-4 w-4" />
           {t('Btw')}
         </MenuItem>
-        <MenuItem onClick={onNewWorkflow}>
-          <Workflow className="h-4 w-4" />
-          {t('Workflow')}
-        </MenuItem>
+        {onNewWorkflow ? (
+          <MenuItem onClick={onNewWorkflow}>
+            <Workflow className="h-4 w-4" />
+            {t('Workflow')}
+          </MenuItem>
+        ) : null}
       </MenuPopup>
     </Menu>
   );
@@ -390,6 +399,7 @@ function SidePanelHeaderActions({
   const { conversationId, projectId } = useContext(PanelContext);
   const fullscreen = useSidePanelStore((s) => s.fullscreen);
   const toggleFullscreen = useSidePanelStore((s) => s.toggleFullscreen);
+  const workflowAvailable = useWorkflowAvailable(projectId);
   return (
     <div className="flex h-full items-center gap-0.5">
       <button
@@ -433,8 +443,10 @@ function SidePanelHeaderActions({
           }
           addBtwPanel(containerApi, conversationId, projectId, t('Btw'));
         }}
-        onNewWorkflow={() =>
-          addWorkflowPanel(containerApi, conversationId, projectId, t('Workflow'))
+        onNewWorkflow={
+          workflowAvailable
+            ? () => addWorkflowPanel(containerApi, conversationId, projectId, t('Workflow'))
+            : undefined
         }
       />
     </div>
@@ -445,6 +457,7 @@ function SidePanelHeaderActions({
 function Watermark(props: IWatermarkPanelProps) {
   const { t } = useI18n();
   const { conversationId, projectId } = useContext(PanelContext);
+  const workflowAvailable = useWorkflowAvailable(projectId);
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center justify-end border-b bg-background px-2 py-1">
@@ -468,8 +481,10 @@ function Watermark(props: IWatermarkPanelProps) {
             addBrowserPanel(props.containerApi, conversationId, projectId, t('Browser'))
           }
           onNewBtw={() => addBtwPanel(props.containerApi, conversationId, projectId, t('Btw'))}
-          onNewWorkflow={() =>
-            addWorkflowPanel(props.containerApi, conversationId, projectId, t('Workflow'))
+          onNewWorkflow={
+            workflowAvailable
+              ? () => addWorkflowPanel(props.containerApi, conversationId, projectId, t('Workflow'))
+              : undefined
           }
         />
       </div>
@@ -528,6 +543,12 @@ function ConversationDock({
   projectId: string;
 }) {
   const isDark = useIsDark();
+  const workflowAvailable = useWorkflowAvailable(projectId);
+  const [dockApi, setDockApi] = useState<DockviewApi | null>(null);
+  // 关掉工具时收起已开的工作流 tab；恢复布局带回来的也一并收掉
+  useEffect(() => {
+    if (!workflowAvailable) dockApi?.getPanel('workflow')?.api.close();
+  }, [dockApi, workflowAvailable]);
 
   const onReady = (event: DockviewReadyEvent) => {
     bindSidePanelDock(conversationId, event.api);
@@ -565,6 +586,7 @@ function ConversationDock({
       releaseTerminal(panel.id);
       void window.electronAPI.terminal.dispose(panel.id);
     });
+    setDockApi(event.api);
   };
 
   return (

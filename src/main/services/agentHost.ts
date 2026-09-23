@@ -71,6 +71,7 @@ import {
   type ModelThinkingLevelOverride,
 } from '@shared/types/llm';
 import type { AgentDispatchTask } from '@shared/types/mentions';
+import { parseDisabledWorkflowPresets } from '@shared/types/workflow';
 import { parseWindowsLocalShell } from '@shared/windowsLocalShell';
 import { app, type UtilityProcess, utilityProcess } from 'electron';
 import { ENSO_SYSTEM_PROMPT } from '../../agent/ensoPrompt';
@@ -142,13 +143,22 @@ export function setAgentEventListener(
   onEvent = listener;
 }
 
+/** worker 数据根（ENSO_AGENT_DATA_DIR）；worker 在其下读 workflows/ 等 Main 写入的内容。 */
+export function agentDataDir(): string {
+  return path.join(app.getPath('userData'), 'agent');
+}
+
+export function customWorkflowPresetDir(): string {
+  return path.join(agentDataDir(), 'workflows');
+}
+
 export function startAgentWorker(): void {
   if (worker) return;
   const child = utilityProcess.fork(agentWorkerPath, [], {
     serviceName: 'enso-agent-worker',
     env: {
       ...process.env,
-      ENSO_AGENT_DATA_DIR: path.join(app.getPath('userData'), 'agent'),
+      ENSO_AGENT_DATA_DIR: agentDataDir(),
       PI_CODING_AGENT_DIR: path.join(app.getPath('userData'), 'agent', 'pi-agent'),
       ENSO_RTK_PATH: bundledRtkPath({
         packaged: app.isPackaged,
@@ -184,6 +194,7 @@ export function startAgentWorker(): void {
     for (const command of queued) child.postMessage(command);
     pushApprovalReviewer();
     pushMaxActiveCoworkers();
+    pushDisabledWorkflowPresets();
   });
   child.on('message', (raw) => {
     const event = parseAgentWorkerEvent(raw);
@@ -1033,6 +1044,13 @@ export function stopBackgroundTask(
   return sendAgentCommand({ type: 'task-stop', identity, taskId });
 }
 
+export function stopWorkflow(
+  identity: SessionIdentity,
+  runId: string
+): { ok: boolean; error?: string } {
+  return sendAgentCommand({ type: 'workflow-stop', identity, runId });
+}
+
 export function stopSubagent(
   identity: SessionIdentity,
   agentId: string
@@ -1306,6 +1324,14 @@ export function pushMaxActiveCoworkers(): void {
   worker.postMessage({
     type: 'set-max-active-coworkers',
     limit: normalizeMaxActiveCoworkers(readSettingsState()?.maxActiveCoworkers),
+  } satisfies AgentCommand);
+}
+
+export function pushDisabledWorkflowPresets(): void {
+  if (!worker || !workerReady) return;
+  worker.postMessage({
+    type: 'set-disabled-workflow-presets',
+    ids: parseDisabledWorkflowPresets(readSettingsState()?.disabledWorkflowPresets),
   } satisfies AgentCommand);
 }
 

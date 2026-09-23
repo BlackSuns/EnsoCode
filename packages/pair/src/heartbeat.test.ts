@@ -19,7 +19,11 @@ describe('attachHeartbeat RTT', () => {
   it('pong 回报从 ping 发出起的往返时延', () => {
     const ws = new FakeWs();
     const rtts: number[] = [];
-    attachHeartbeat(ws as unknown as WebSocket, () => {}, (ms) => rtts.push(ms));
+    attachHeartbeat(
+      ws as unknown as WebSocket,
+      () => {},
+      (ms) => rtts.push(ms)
+    );
     expect(ws.sent).toEqual(['ping']);
 
     vi.setSystemTime(1_048);
@@ -30,7 +34,11 @@ describe('attachHeartbeat RTT', () => {
   it('业务帧不算 RTT', () => {
     const ws = new FakeWs();
     const rtts: number[] = [];
-    attachHeartbeat(ws as unknown as WebSocket, () => {}, (ms) => rtts.push(ms));
+    attachHeartbeat(
+      ws as unknown as WebSocket,
+      () => {},
+      (ms) => rtts.push(ms)
+    );
     vi.setSystemTime(1_020);
     ws.dispatchEvent(Object.assign(new Event('message'), { data: new ArrayBuffer(4) }));
     expect(rtts).toEqual([]);

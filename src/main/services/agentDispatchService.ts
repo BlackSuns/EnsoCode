@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import {
-  type AgentTypeKey,
   type AgentTypeCandidate,
+  type AgentTypeKey,
   type AgentTypeRegistrySnapshot,
   type ChildSessionIdentity,
   ENSO_LOCKED_PROFILE_ID,

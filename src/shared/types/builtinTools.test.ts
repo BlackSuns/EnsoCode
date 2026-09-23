@@ -4,9 +4,19 @@ import {
   DEFAULT_DISABLED_BUILTIN_TOOLS,
   effectiveDisabledBuiltinTools,
   effectiveSubagentAllowedModes,
+  isWorkflowAvailable,
   projectDisabledBuiltinTools,
   resolveDisabledBuiltinTools,
 } from './builtinTools';
+
+describe('isWorkflowAvailable', () => {
+  it('workflow 靠 subagent 派发子代理，两者任一关闭都不可用', () => {
+    expect(isWorkflowAvailable([])).toBe(true);
+    expect(isWorkflowAvailable(['memory'])).toBe(true);
+    expect(isWorkflowAvailable(['workflow'])).toBe(false);
+    expect(isWorkflowAvailable(['subagent'])).toBe(false);
+  });
+});
 
 describe('effectiveDisabledBuiltinTools', () => {
   it('缺字段时用默认关闭列表：memory 默认关，其余全开', () => {

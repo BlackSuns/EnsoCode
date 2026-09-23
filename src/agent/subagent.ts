@@ -211,6 +211,7 @@ export function createUnifiedSubagentTool(deps: UnifiedSubagentDeps): ToolDefini
             properties: { operation: { const: 'spawn' } },
             required: ['operation'],
           },
+          // biome-ignore lint/suspicious/noThenProperty: JSON Schema 的 if/then 关键字
           then: { required: ['description', 'prompt'] },
         },
       ],

@@ -74,7 +74,6 @@ const receipt = {
   sequence: 0,
 };
 
-
 describe('agent control tool protocol', () => {
   it('accepts normalized spawn/send/wait requests with bounded gate shape', () => {
     expect(
@@ -493,6 +492,17 @@ describe('parent/child commands', () => {
     expect(parseAgentCommand({ ...base, rolePrompt: 1 })).toBeNull();
   });
 
+  it('workflow-stop 必须 exact identity + 合法 runId', () => {
+    const command = { type: 'workflow-stop', identity: parent, runId: 'run-1' };
+    expect(parseAgentCommand(command)).toEqual(command);
+    expect(
+      parseAgentCommand({ ...command, identity: { ...parent, generation: 'old' } })
+    ).toBeNull();
+    expect(parseAgentCommand({ ...command, runId: '' })).toBeNull();
+    expect(parseAgentCommand({ ...command, runId: 'x'.repeat(81) })).toBeNull();
+    expect(parseAgentCommand({ ...command, extra: 1 })).toBeNull();
+  });
+
   it('subagent-stop 必须 exact identity + 非空 agentId', () => {
     const command = { type: 'subagent-stop', identity: parent, agentId: 'agent-1' };
     expect(parseAgentCommand(command)).toEqual(command);
@@ -516,6 +526,16 @@ describe('parent/child commands', () => {
     expect(parseAgentCommand({ type: 'set-max-active-coworkers', limit: 21 })).toBeNull();
     expect(parseAgentCommand({ type: 'set-max-active-coworkers', limit: 5.5 })).toBeNull();
     expect(parseAgentCommand({ type: 'set-max-active-coworkers' })).toBeNull();
+  });
+
+  it('set-disabled-workflow-presets 只接受合法 id 数组', () => {
+    expect(
+      parseAgentCommand({ type: 'set-disabled-workflow-presets', ids: ['parallel-review'] })
+    ).toEqual({ type: 'set-disabled-workflow-presets', ids: ['parallel-review'] });
+    expect(parseAgentCommand({ type: 'set-disabled-workflow-presets', ids: [] })).not.toBeNull();
+    expect(parseAgentCommand({ type: 'set-disabled-workflow-presets', ids: ['../x'] })).toBeNull();
+    expect(parseAgentCommand({ type: 'set-disabled-workflow-presets', ids: 'x' })).toBeNull();
+    expect(parseAgentCommand({ type: 'set-disabled-workflow-presets' })).toBeNull();
   });
 
   it('spawn-parent 携 editMode:仅接受三个互斥模式', () => {

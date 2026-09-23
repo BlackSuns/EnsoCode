@@ -1,9 +1,19 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
-import type { AgentControlToolRequest, AgentControlToolResponse } from '@shared/types/agent';
-import type { WorkflowMemberSnapshot, WorkflowRunSnapshot } from '@shared/types/workflow';
+import type {
+  AgentControlToolRequest,
+  AgentControlToolResponse,
+  AgentTypeSpawnConfig,
+  SubagentModelOption,
+} from '@shared/types/agent';
+import type {
+  WorkflowMemberSnapshot,
+  WorkflowPresetSummary,
+  WorkflowRunSnapshot,
+} from '@shared/types/workflow';
 import { JSException, type JSValueHandle, QuickJS } from 'quickjs-wasi';
+import { resolveWorkflowPresetArgs, type WorkflowPreset } from './workflowPresets';
 
 const require = createRequire(import.meta.url);
 let wasmModule: Promise<WebAssembly.Module> | undefined;
@@ -24,6 +34,16 @@ const LOG_LIMIT = 20;
 export interface WorkflowToolDeps {
   invoke(request: AgentControlToolRequest, signal?: AbortSignal): Promise<AgentControlToolResponse>;
   emit(run: WorkflowRunSnapshot): void;
+  /** 后台运行结束时回投主 agent；未提供则不支持 background */
+  notify?: (text: string, urgent: boolean) => void;
+  /** 本会话在跑的运行（同步与后台）；宿主据此响应用户停止、会话释放时统一 abort */
+  activeRuns?: Map<string, AbortController>;
+  loadPreset?: (id: string) => WorkflowPreset | null;
+  /** 会话建立时的可用预设快照，写进工具说明供模型挑选 */
+  presets?: readonly WorkflowPresetSummary[];
+  /** 与 subagent 工具同源：可选模型，以及哪些类型要求主 agent 选模型 */
+  models?: readonly Pick<SubagentModelOption, 'name'>[];
+  agentTypes?: readonly Pick<AgentTypeSpawnConfig, 'name' | 'allowModelOverride'>[];
   randomUuid?: () => string;
 }
 
@@ -40,6 +60,29 @@ function childIdOf(value: unknown): string | undefined {
 function clip(value: string, max: number): string {
   const text = value.trim();
   return text.length > max ? text.slice(0, max) : text;
+}
+
+const MAX_LISTED_PRESETS = 20;
+
+function oneLine(value: string, max: number): string {
+  const text = value.replace(/\s+/g, ' ').trim();
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function presetCatalog(presets: readonly WorkflowPresetSummary[] | undefined): string {
+  if (!presets?.length) return '';
+  const lines = presets.slice(0, MAX_LISTED_PRESETS).map((preset) => {
+    const args = preset.args.map((arg) =>
+      arg.required
+        ? `${arg.key}*`
+        : arg.default !== undefined
+          ? `${arg.key}=${JSON.stringify(arg.default)}`
+          : arg.key
+    );
+    const head = `- ${preset.id}: ${oneLine(preset.name, 60)} — ${oneLine(preset.description, 160)}`;
+    return args.length > 0 ? `${head} (args: ${args.join(', ')})` : head;
+  });
+  return `\nAvailable presets (pass the id as preset and string values in args; * = required):\n${lines.join('\n')}`;
 }
 
 export function workflowChildOutcome(
@@ -79,6 +122,8 @@ interface HostJob {
 class WorkflowRunState {
   readonly snapshot: WorkflowRunSnapshot;
   agentsStarted = 0;
+  /** 顶层 model：由未自带 model、且类型要求选模型的 agent() 继承 */
+  model: string | undefined;
   private memberSeq = 0;
   private batchSeq = 0;
 
@@ -175,6 +220,21 @@ async function runAgent(
   if (state.agentsStarted >= MAX_AGENTS) {
     return { fatal: `workflow agent cap exceeded (${MAX_AGENTS})`, value: null };
   }
+  if (signal?.aborted) return { fatal: 'workflow cancelled', value: null };
+  const agentType = typeof payload.agentType === 'string' ? payload.agentType : undefined;
+  // 未指定类型时 Main 派发 worker
+  const typeName = agentType ?? 'worker';
+  const picks = deps.agentTypes?.some(
+    (type) => type.name === typeName && type.allowModelOverride === true
+  );
+  const model = typeof payload.model === 'string' ? payload.model : picks ? state.model : undefined;
+  if (picks && !model) {
+    const names = (deps.models ?? []).map((option) => option.name).join(', ');
+    return {
+      fatal: `agent type "${typeName}" requires a model: call workflow again with model set to one of [${names}]`,
+      value: null,
+    };
+  }
   state.agentsStarted += 1;
   const prompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : '';
   if (!prompt) return { fatal: 'agent() requires a non-empty prompt', value: null };
@@ -191,35 +251,37 @@ async function runAgent(
     typeof payload.batch === 'number' && payload.batch > 0 ? payload.batch : state.nextBatch();
   const member = state.startMember(label, explicitPhase || state.snapshot.phase, batch, prompt);
   publish();
-  const model = typeof payload.model === 'string' ? payload.model : undefined;
-  const agentType = typeof payload.agentType === 'string' ? payload.agentType : undefined;
   const schema = isRecord(payload.schema) ? payload.schema : undefined;
+  let runId = '';
   try {
-    const spawned = await deps.invoke(
-      {
-        operation: 'spawn',
-        mode: 'task',
-        description: member.label,
-        prompt,
-        wait: true,
-        ...(model ? { model } : {}),
-        ...(agentType ? { agentType } : {}),
-        ...(schema ? { schema } : {}),
-      },
-      signal
-    );
+    // 不等待地 spawn 先拿到 runId，取消时才能真正停掉子代理
+    const spawned = await deps.invoke({
+      operation: 'spawn',
+      mode: 'task',
+      description: member.label,
+      prompt,
+      wait: false,
+      ...(model ? { model } : {}),
+      ...(agentType ? { agentType } : {}),
+      ...(schema ? { schema } : {}),
+    });
     if (!spawned.ok) {
       state.finishMember(member.seq, 'failed');
       publish();
       return { fatal: spawned.error, value: null };
     }
     const childId = childIdOf(spawned.value);
-    const runId =
+    runId =
       isRecord(spawned.value) && typeof spawned.value.runId === 'string' ? spawned.value.runId : '';
-    const reported = runId
-      ? await deps.invoke({ operation: 'report', runId }, signal)
-      : { ok: false as const, code: 'invalid-state' as const, error: 'missing run id' };
-    const outcome = workflowChildOutcome(spawned.value, reported.ok ? reported.value : undefined);
+    if (!runId) throw new Error('missing run id');
+    const waited = await deps.invoke({ operation: 'wait', runIds: [runId], until: 'all' }, signal);
+    if (signal?.aborted) throw new Error('workflow cancelled');
+    if (!waited.ok) throw new Error(waited.error);
+    const reported = await deps.invoke({ operation: 'report', runId });
+    const outcome = workflowChildOutcome(
+      { report: waited.value },
+      reported.ok ? reported.value : undefined
+    );
     state.finishMember(member.seq, outcome.failed ? 'failed' : 'completed', {
       ...(childId ? { childId } : {}),
       ...(outcome.text ? { result: outcome.text } : {}),
@@ -230,7 +292,10 @@ async function runAgent(
   } catch (error) {
     state.finishMember(member.seq, 'failed');
     publish();
-    if (signal?.aborted) return { fatal: 'workflow cancelled', value: null };
+    if (signal?.aborted) {
+      if (runId) await deps.invoke({ operation: 'stop', runId }).catch(() => undefined);
+      return { fatal: 'workflow cancelled', value: null };
+    }
     return {
       fatal: error instanceof Error ? error.message : String(error),
       value: null,
@@ -456,37 +521,92 @@ async function runScript(
   }
 }
 
+/** 用户从侧边栏停止时的 abort reason，据此告诉模型不要重跑 */
+export const WORKFLOW_STOPPED_BY_USER = 'workflow-stopped-by-user';
+const USER_STOP_TEXT = 'was stopped by the user — do not restart it';
+
 export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
+  const modelNames = (deps.models ?? []).map((option) => option.name);
+  const pickTypes = (deps.agentTypes ?? [])
+    .filter((type) => type.allowModelOverride === true)
+    .map((type) => type.name);
+  const settle = async (
+    state: WorkflowRunState,
+    script: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal | undefined
+  ): Promise<{ ok: true; value: unknown } | { ok: false; error: string; thrown?: unknown }> => {
+    let result: Awaited<ReturnType<typeof runScript>>;
+    try {
+      result = await runScript(deps, state, script, args, signal);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      state.finish(signal?.aborted ? 'cancelled' : 'failed', message);
+      deps.emit(state.copy());
+      return { ok: false, error: message, thrown: error };
+    }
+    if (!result.ok) {
+      state.finish(
+        signal?.aborted || result.error === 'workflow cancelled' ? 'cancelled' : 'failed',
+        result.error
+      );
+    } else {
+      state.finish('completed');
+    }
+    deps.emit(state.copy());
+    return result;
+  };
+  const completedText = (name: string, state: WorkflowRunState, value: unknown) =>
+    `workflow "${name}" completed (${state.agentsStarted} agents).\nReturn value:\n${JSON.stringify(value, null, 2)}`;
+
   return {
     name: 'workflow',
     label: 'Workflow',
     description:
       'Run a JavaScript workflow that fans work out across subagents. Use only when the user asks for a workflow or a large multi-agent fan-out. ' +
+      'Pass either preset (id of a saved workflow) or script + meta. ' +
+      'Set background:true to return a runId immediately; the result arrives later as a notification. Pass stop:<runId> alone to cancel a background run. ' +
       'The script is plain JavaScript with top-level await and must return a JSON value. Hooks: agent(prompt, opts?), parallel(thunks), pipeline(items, ...stages), phase(title), log(message), args. ' +
-      'A failed child resolves to null. Bad hook arguments fail the whole run. The script cannot use filesystem, network, timers, or Node APIs. Status is shown in the side panel.',
+      'A failed child resolves to null. Bad hook arguments fail the whole run. The script cannot use filesystem, network, timers, or Node APIs. Status is shown in the side panel.' +
+      presetCatalog(deps.presets),
     promptSnippet:
-      'workflow: write a JavaScript orchestration script that fans subagents out. Use only for an explicit workflow request or a large fan-out. One or two delegations should use subagent.',
+      'workflow: run a saved preset or write a JavaScript orchestration script that fans subagents out. Use for an explicit workflow request, a large fan-out, or a task a listed preset clearly fits. One or two delegations should use subagent.',
     promptGuidelines: [
-      'Use workflow only when the user asks for a workflow or for large multi-agent orchestration.',
+      'Use workflow when the user asks for a workflow, for large multi-agent orchestration, or when a listed preset clearly fits the task.',
+      'Prefer a listed preset over writing an equivalent script; pass its id and args. Use only listed preset ids or ids the user gave you, and never rewrite a preset as a script.',
+      'Choose background:true when the run is long and you have other work to do or the user should not wait; keep it off when the next step needs the result. Do not poll a background run — wait for its notification.',
       'script is plain JavaScript, not TypeScript, with top-level await. End with return <json>.',
       'agent() options are only label, phase, model, agentType, and schema. Anything else fails the run.',
+      ...(modelNames.length > 0
+        ? [
+            `model must be copied exactly from the model enum: ${modelNames.join(', ')}. Top-level model applies to every agent() without its own model whose agent type requires one${
+              pickTypes.length > 0
+                ? ` (${pickTypes.join(', ')}; agent() without agentType uses worker). Pass it when running presets that use these types`
+                : ''
+            }.`,
+          ]
+        : []),
       'Child failure returns null. Do not treat null as success without checking it.',
     ],
     parameters: {
       type: 'object',
       additionalProperties: false,
-      required: ['script', 'meta'],
+      required: [],
       properties: {
+        preset: {
+          type: 'string',
+          description: 'Id of a saved workflow preset to run instead of script + meta.',
+        },
         script: {
           type: 'string',
           description:
-            'Plain JavaScript body. Top-level await is allowed. End with return <json-value>.',
+            'Plain JavaScript body. Top-level await is allowed. End with return <json-value>. Required without preset.',
         },
         meta: {
           type: 'object',
           additionalProperties: false,
           required: ['name', 'description'],
-          description: 'Workflow identity. Plain JSON, never code.',
+          description: 'Workflow identity. Plain JSON, never code. Required without preset.',
           properties: {
             name: { type: 'string', description: 'Short kebab-case workflow name.' },
             description: { type: 'string', description: 'One-line description of the workflow.' },
@@ -497,46 +617,130 @@ export function createWorkflowTool(deps: WorkflowToolDeps): ToolDefinition {
           additionalProperties: true,
           description: 'Optional JSON object exposed to the script as the args global.',
         },
+        background: {
+          type: 'boolean',
+          description:
+            'Default false. When true, return a runId immediately and deliver the result later as a notification.',
+        },
+        ...(modelNames.length > 0
+          ? {
+              model: {
+                type: 'string',
+                enum: modelNames,
+                description:
+                  'Model for every agent() without its own model whose agent type requires one. Exact id from the enum.',
+              },
+            }
+          : {}),
+        stop: {
+          type: 'string',
+          description: 'runId of a background workflow to cancel. Pass it without other fields.',
+        },
       },
     } as unknown as ToolDefinition['parameters'],
     async execute(_toolCallId, params, signal) {
       const record = (params ?? {}) as Record<string, unknown>;
-      const script = typeof record.script === 'string' ? record.script : '';
-      const meta = parseMeta(record.meta);
-      if (!script.trim() || !meta)
-        throw new Error('workflow requires script, meta.name, and meta.description');
+      const stopId = typeof record.stop === 'string' ? record.stop.trim() : '';
+      if (stopId) {
+        const controller = deps.activeRuns?.get(stopId);
+        if (!controller) throw new Error(`no running background workflow: ${stopId}`);
+        // 先摘除再 abort：收尾时发现已不在表里，就不再通知（模型已由本次返回知情）
+        deps.activeRuns?.delete(stopId);
+        controller.abort();
+        return {
+          content: [{ type: 'text', text: `workflow ${stopId} stopped` }],
+          details: { runId: stopId, stopped: true },
+        };
+      }
+      const background = record.background === true;
+      if (background && (!deps.notify || !deps.activeRuns)) {
+        throw new Error('background workflows are unavailable in this session');
+      }
       if (record.args !== undefined && !isRecord(record.args)) {
         throw new Error('workflow args must be a JSON object');
       }
-      const state = new WorkflowRunState(deps.randomUuid?.() ?? crypto.randomUUID(), meta);
-      let result: Awaited<ReturnType<typeof runScript>>;
-      try {
-        result = await runScript(deps, state, script, record.args ?? {}, signal);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        state.finish(signal?.aborted ? 'cancelled' : 'failed', message);
-        deps.emit(state.copy());
-        throw error;
+      const model = typeof record.model === 'string' ? record.model.trim() : '';
+      if (model && !modelNames.includes(model)) {
+        throw new Error(`unknown model "${model}". Available: [${modelNames.join(', ')}]`);
       }
-      if (!result.ok) {
-        state.finish(
-          signal?.aborted || result.error === 'workflow cancelled' ? 'cancelled' : 'failed',
-          result.error
-        );
-        deps.emit(state.copy());
+      const presetId = typeof record.preset === 'string' ? record.preset.trim() : '';
+      let script = typeof record.script === 'string' ? record.script : '';
+      let meta = parseMeta(record.meta);
+      let args: Record<string, unknown> = isRecord(record.args) ? record.args : {};
+      if (presetId) {
+        if (script.trim()) throw new Error('workflow accepts either preset or script, not both');
+        const preset = deps.loadPreset?.(presetId) ?? null;
+        if (!preset) throw new Error(`unknown workflow preset: ${presetId}`);
+        const resolved = resolveWorkflowPresetArgs(preset, args);
+        if (!resolved.ok) throw new Error(resolved.error);
+        script = preset.script;
+        meta = { name: preset.name, description: preset.description };
+        args = resolved.args;
+      }
+      if (!script.trim() || !meta)
+        throw new Error('workflow requires preset, or script with meta.name and meta.description');
+      const state = new WorkflowRunState(deps.randomUuid?.() ?? crypto.randomUUID(), meta);
+      state.model = model || undefined;
+      const runId = state.snapshot.runId;
+      const name = meta.name;
+      const controller = new AbortController();
+      const activeRuns = deps.activeRuns;
+      activeRuns?.set(runId, controller);
+      // 仍在表里 = 不是模型自己 stop 的（stop 会先摘除），收尾需要告知结果
+      const release = () => {
+        if (activeRuns?.get(runId) !== controller) return false;
+        activeRuns.delete(runId);
+        return true;
+      };
+      const byUser = () => controller.signal.reason === WORKFLOW_STOPPED_BY_USER;
+      if (background && deps.notify) {
+        const { notify } = deps;
+        void settle(state, script, args, controller.signal).then((result) => {
+          if (!release()) return;
+          notify(
+            result.ok
+              ? `Background run ${runId}: ${completedText(name, state, result.value)}`
+              : byUser()
+                ? `Background workflow "${name}" (runId ${runId}) ${USER_STOP_TEXT}.`
+                : `Background workflow "${name}" (runId ${runId}) ${
+                    controller.signal.aborted ? 'was cancelled' : 'failed'
+                  }: ${result.error}`,
+            !result.ok
+          );
+        });
         return {
-          content: [{ type: 'text', text: result.error }],
-          details: { runId: state.snapshot.runId, agentsStarted: state.agentsStarted },
+          content: [
+            {
+              type: 'text',
+              text: `workflow "${name}" started in background (runId ${runId}). You will be notified when it finishes; keep working or return to the user meanwhile. Use stop:"${runId}" to cancel.`,
+            },
+          ],
+          details: { runId, background: true },
+        };
+      }
+      const result = await settle(
+        state,
+        script,
+        args,
+        signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+      ).finally(release);
+      if (!result.ok) {
+        if (result.thrown !== undefined && !byUser()) throw result.thrown;
+        return {
+          content: [
+            {
+              type: 'text',
+              text: byUser() ? `workflow "${name}" ${USER_STOP_TEXT}` : result.error,
+            },
+          ],
+          details: { runId, agentsStarted: state.agentsStarted },
           isError: true,
         };
       }
-      state.finish('completed');
-      deps.emit(state.copy());
-      const text = `workflow "${meta.name}" completed (${state.agentsStarted} agents).\nReturn value:\n${JSON.stringify(result.value, null, 2)}`;
       return {
-        content: [{ type: 'text', text }],
+        content: [{ type: 'text', text: completedText(name, state, result.value) }],
         details: {
-          runId: state.snapshot.runId,
+          runId,
           agentsStarted: state.agentsStarted,
           result: result.value,
         },

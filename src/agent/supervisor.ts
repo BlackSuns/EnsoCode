@@ -55,7 +55,6 @@ import type {
   SessionSnapshot,
   SlashCommand,
   SpawnModelConfig,
-  SubagentInfo,
   SubagentModelOption,
   ThinkingLevel,
 } from '@shared/types/agent';
@@ -156,7 +155,6 @@ import {
   withAgentRead,
 } from './structuredYield';
 import { createUnifiedSubagentTool, lastAssistantText } from './subagent';
-import { pruneCompletedSubagentDetails } from './subagentRetention';
 import { SystemReminderRegistry } from './systemReminder';
 import {
   buildInitialTitleUserText,
@@ -176,7 +174,8 @@ import { BrowserInvoker, createBrowserTools, withNavigateApproval } from './tool
 import { createEnsoAppTool, EnsoAppInvoker } from './tools/ensoApp';
 import { createEnsoCapabilitiesTool } from './tools/ensoCapabilities';
 import { createMemoryTools, MemoryInvoker } from './tools/memory';
-import { createWorkflowTool } from './workflow';
+import { createWorkflowTool, WORKFLOW_STOPPED_BY_USER } from './workflow';
+import { listWorkflowPresets, loadWorkflowPreset, workflowPresetRoots } from './workflowPresets';
 import { WorkspaceSwitchGate, workspaceBranchContextExtension } from './workspaceSwitch';
 import { withWritePreflight, withWriteScope } from './writeScope';
 
@@ -246,6 +245,8 @@ interface ManagedSession {
   silentTurnKind?: SilentTurnKind;
   runawayGuard?: RunawayGuard;
   timings: (MessageTiming | undefined)[];
+  /** 最近一次 turn_start 时刻；pi 在发起每次模型请求前触发，下一条 assistant message_start 消费 */
+  requestStartMs?: number;
   toolStartAt: Map<string, number>;
   toolDurations: Map<string, number>;
   gate: ApprovalGate;
@@ -260,8 +261,8 @@ interface ManagedSession {
   compaction?: 'queued' | 'running';
   /** 绝对消息 index 口径：压完那刻 messages.length（须在 reconcileMessages 之后取） */
   compactionNoticeAt?: number;
-  subagents: Map<string, SubagentInfo>;
-  subagentAborts: Map<string, () => void>;
+  /** 在跑的 workflow（同步与后台）；用户停止与会话释放时 abort */
+  workflowRuns?: Map<string, AbortController>;
   factory?: SessionFactory;
   parentId?: string;
   coworkerName?: string;
@@ -292,6 +293,8 @@ export interface SupervisorOptions {
   agentDir: string;
   /** 会话 jsonl 目录 */
   sessionDir: string;
+  /** 设置页新增的工作流预设目录（Main 写入，worker 只读） */
+  workflowDir?: string;
 }
 
 /** 指令走 loader 覆盖：去掉 agentDir 里的共享 AGENTS.md，再按会话前置一份；开关打开时追加项目内其它 harness 的规则文件。 */
@@ -567,6 +570,7 @@ export class SessionSupervisor {
   private readonly evictionTimer: ReturnType<typeof setInterval>;
   private approvalReviewer: SpawnModelConfig | undefined;
   private maxActiveCoworkers = DEFAULT_MAX_ACTIVE_COWORKERS;
+  private disabledWorkflowPresets: string[] = [];
   /** 父会话通知(合并投递):闲则注入合成提示唤醒,忙则挂 pending 搭下次工具结果 */
   private readonly notifier = new ParentNotifier((sessionId, text) => {
     this.deliverNotification(sessionId, text);
@@ -678,11 +682,11 @@ export class SessionSupervisor {
         (managed.browser?.pendingCount ?? 0) > 0 ||
         (managed.memory?.pendingCount ?? 0) > 0 ||
         (managed.agentControl?.pendingCount ?? 0) > 0 ||
+        (managed.workflowRuns?.size ?? 0) > 0 ||
         managed.pendingTaskReminders.length > 0 ||
         this.bgTasks.snapshot(id).some((task) => task.status === 'running'),
       hasChildren:
         managed.coworkers.size > 0 ||
-        [...managed.subagents.values()].some((s) => s.status === 'running') ||
         [...this.sessions.keys()].some((key) => key.startsWith(`${id}::`)),
     };
   }
@@ -712,8 +716,6 @@ export class SessionSupervisor {
     // 先收掉整棵子会话（coworker/child 都以 `${parentId}::` 为键前缀）
     for (const [id, child] of [...this.sessions]) {
       if (!id.startsWith(`${parentId}::`)) continue;
-      for (const abort of child.subagentAborts.values()) abort();
-      child.subagentAborts.clear();
       child.gate.cancelAll();
       child.asks.cancelAll();
       cancelContinuousMemory(child.session.sessionManager);
@@ -729,8 +731,8 @@ export class SessionSupervisor {
       this.settleRound(child);
     }
     managed.coworkers.clear();
-    for (const abort of managed.subagentAborts.values()) abort();
-    managed.subagentAborts.clear();
+    for (const controller of managed.workflowRuns?.values() ?? []) controller.abort();
+    managed.workflowRuns?.clear();
     managed.gate.cancelAll();
     managed.asks.cancelAll();
     cancelContinuousMemory(managed.session.sessionManager);
@@ -781,7 +783,6 @@ export class SessionSupervisor {
                 (managed.ensoApp?.pendingCount ?? 0) > 0 ||
                 (managed.browser?.pendingCount ?? 0) > 0 ||
                 (managed.agentControl?.pendingCount ?? 0) > 0 ||
-                [...managed.subagents.values()].some((s) => s.status === 'running') ||
                 this.bgTasks
                   .snapshot(managed.identity.sessionId)
                   .some((task) => task.status === 'running')
@@ -866,6 +867,10 @@ export class SessionSupervisor {
     }
     if (command.type === 'set-max-active-coworkers') {
       this.maxActiveCoworkers = command.limit;
+      return;
+    }
+    if (command.type === 'set-disabled-workflow-presets') {
+      this.disabledWorkflowPresets = command.ids;
       return;
     }
     const identity =
@@ -1202,15 +1207,19 @@ export class SessionSupervisor {
         });
         return;
       }
+      case 'workflow-stop':
+        this.must(command.identity)
+          .workflowRuns?.get(command.runId)
+          ?.abort(WORKFLOW_STOPPED_BY_USER);
+        return;
       case 'task-stop':
         this.must(command.identity);
         this.bgTasks.stop(command.taskId);
         return;
-      case 'subagent-stop': {
-        const managed = this.must(command.identity);
-        managed.subagentAborts.get(command.agentId)?.();
+      // 旧子代理状态链路已无来源，命令仍在共享协议里，worker 侧不再有可停的对象
+      case 'subagent-stop':
+        this.must(command.identity);
         return;
-      }
       case 'fork': {
         const managed = this.must(command.identity);
         if (managed.status !== 'idle' || managed.childIdentity) {
@@ -1918,6 +1927,10 @@ export class SessionSupervisor {
       : undefined;
     const catalogRef: { current: Def[] } = { current: [] };
     const sandboxStore = new Map<string, unknown>();
+    const workflowRoots = workflowPresetRoots(remote ? undefined : cwd, {
+      customDir: this.options.workflowDir,
+    });
+    const workflowRuns = new Map<string, AbortController>();
     const sessionTools = [
       ...buildCoreTools(),
       ...(browser
@@ -1931,6 +1944,14 @@ export class SessionSupervisor {
         ? [
             createWorkflowTool({
               invoke: (request, signal) => agentControl.invoke(request, signal),
+              // 远程会话的 cwd 在远端，本地只读设置、全局与内置预设（与 Main 列表口径一致）
+              loadPreset: (id) =>
+                loadWorkflowPreset(id, workflowRoots, this.disabledWorkflowPresets),
+              presets: listWorkflowPresets(workflowRoots, this.disabledWorkflowPresets),
+              models: subagentModels,
+              agentTypes,
+              activeRuns: workflowRuns,
+              notify: (text, urgent) => this.notifier.notify(sessionId, text, { urgent }),
               emit: (run) => {
                 const managed = managedRef ?? this.sessions.get(sessionId);
                 if (!managed) return;
@@ -2005,6 +2026,7 @@ export class SessionSupervisor {
       runawayGuard: runaway,
     });
     managedRef.agentControl = agentControl;
+    managedRef.workflowRuns = workflowRuns;
     if (rolePrompt && !resumeFile) managedRef.pendingRole = rolePrompt;
     managedRef.browser = browser;
     managedRef.memory = memory;
@@ -2098,8 +2120,6 @@ export class SessionSupervisor {
       asks: opts.asks ?? this.createAskManager(identity),
       pendingTaskReminders: [],
       roundWaiters: new Set(),
-      subagents: new Map(),
-      subagentAborts: new Map(),
       coworkers: new Map(),
       lastActivityAt: Date.now(),
       contextUsage: new UsageTracker(),
@@ -2554,31 +2574,6 @@ export class SessionSupervisor {
     );
   }
 
-  /**
-   * 阻塞至 coworker 当前轮结束(无论由主 agent 还是用户 tab 触发);空闲则立即返回最近一轮摘要。
-   * 传 gate 时(重)跑验收。父 abort 只提前返回。
-   */
-  private async coworkerWait(
-    coworkerId: string,
-    opts: { signal?: AbortSignal; gate?: string } = {}
-  ): Promise<string> {
-    const managed = this.mustCurrent(coworkerId);
-    if (managed.status === 'running' || managed.roundPending) {
-      managed.parentWaiting = true;
-      try {
-        await this.waitRoundEnd(managed, opts.signal);
-      } finally {
-        managed.parentWaiting = false;
-      }
-      if (opts.signal?.aborted) {
-        return '(wait interrupted — coworker keeps running; use coworker wait/send to follow up)';
-      }
-    } else if (!managed.lastRoundSummary) {
-      return '(no round completed yet — coworker is idle)';
-    }
-    return `${await this.coworkerRoundSummary(managed, opts.gate)}\n\n${COWORKER_FOLLOW_UP_HINT}`;
-  }
-
   private createPeerMessageTool(parentId: string, from: string) {
     return createMessageCoworkerTool({
       from,
@@ -2592,17 +2587,6 @@ export class SessionSupervisor {
         if (target) this.notifier.notify(target.id, text);
       },
     });
-  }
-
-  private mustCoworker(identity: SessionIdentity, name: string): CoworkerInfo {
-    const parent = this.must(identity);
-    const info = parent.coworkers.get(name);
-    if (!info) {
-      throw new Error(
-        `unknown coworker "${name}". Hired: [${[...parent.coworkers.keys()].join(', ')}]`
-      );
-    }
-    return info;
   }
 
   private async runParentGate(managed: ManagedSession, gateCommand: string): Promise<string> {
@@ -2682,11 +2666,16 @@ export class SessionSupervisor {
         this.emitStatus(managed);
         this.emitSessionMeta(managed);
         return;
+      case 'turn_start':
+        managed.requestStartMs = Date.now();
+        return;
       case 'message_start': {
         const index = managed.messages.length;
         const message = projectMessage(event.message);
         if (message?.role === 'assistant') {
-          managed.timings[index] = { stepStartMs: Date.now() };
+          // pi-ai 收到响应头才推 start，紧接首个 delta；从 turn_start 起算才含等待首 token 的时间
+          managed.timings[index] = { stepStartMs: managed.requestStartMs ?? Date.now() };
+          managed.requestStartMs = undefined;
         }
         this.upsertLocalMessage(managed, message);
         return;
@@ -3351,9 +3340,8 @@ export class SessionSupervisor {
           ? { pendingApprovals: managed.gate.snapshot() }
           : {}),
         ...(managed.asks.snapshot().length > 0 ? { pendingAsks: managed.asks.snapshot() } : {}),
-        // 切会话/重连靠快照整段重建 TaskBar；不带这两项会把还在跑的子代理/后台任务条清空，等下一次 update 才回来
+        // 切会话/重连靠快照整段重建 TaskBar；不带它会把还在跑的后台任务条清空，等下一次 update 才回来
         ...(backgroundTasks.length > 0 ? { backgroundTasks } : {}),
-        ...(managed.subagents.size > 0 ? { subagents: [...managed.subagents.values()] } : {}),
         ...(managed.childMetadata ? { child: managed.childMetadata } : {}),
         ...(managed.customEntries.length > 0 ? { customEntries: managed.customEntries } : {}),
         ...(managed.compaction ? { compaction: managed.compaction } : {}),
@@ -3733,13 +3721,6 @@ function consumeRole(managed: { pendingRole?: string }, text: string): string {
   managed.pendingRole = undefined;
   return `<role>\n${role}\n</role>\n\n${text}`;
 }
-
-const slugify = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 32) || 'coworker';
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

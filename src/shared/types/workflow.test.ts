@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { groupWorkflowMembers, parseWorkflowRunSnapshot } from './workflow';
+import {
+  groupWorkflowMembers,
+  parseDisabledWorkflowPresets,
+  parseWorkflowRunSnapshot,
+} from './workflow';
+
+describe('parseDisabledWorkflowPresets', () => {
+  it('只保留合法 id 并去重，坏输入得到空列表', () => {
+    expect(
+      parseDisabledWorkflowPresets(['parallel-review', 'parallel-review', '../x', 1, 'Bad Id'])
+    ).toEqual(['parallel-review']);
+    expect(parseDisabledWorkflowPresets('parallel-review')).toEqual([]);
+    expect(parseDisabledWorkflowPresets(undefined)).toEqual([]);
+    expect(
+      parseDisabledWorkflowPresets(Array.from({ length: 100 }, (_, i) => `p${i}`))
+    ).toHaveLength(64);
+  });
+});
 
 const valid = {
   runId: 'run-1',

@@ -139,11 +139,21 @@ export function evictColdMessages<T extends { messages: unknown[]; customEntries
   ttl = MESSAGE_CACHE_TTL_MS,
   extraHotIds?: ReadonlySet<string>
 ): Record<string, T> {
-  return evictColdMessageBodies(conversations, viewedId, lastViewedAt, now, ttl, extraHotIds, false);
+  return evictColdMessageBodies(
+    conversations,
+    viewedId,
+    lastViewedAt,
+    now,
+    ttl,
+    extraHotIds,
+    false
+  );
 }
 
 /** 只清已经离开并过 TTL 的正文。没有盖章的留给定时全量清，避免同一次写入被切 tab 抹掉。 */
-export function evictStampedColdMessages<T extends { messages: unknown[]; customEntries: unknown[] }>(
+export function evictStampedColdMessages<
+  T extends { messages: unknown[]; customEntries: unknown[] },
+>(
   conversations: Record<string, T>,
   viewedId: string | null,
   lastViewedAt: Readonly<Record<string, number>>,

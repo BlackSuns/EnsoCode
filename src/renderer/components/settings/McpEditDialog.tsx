@@ -1,5 +1,3 @@
-import { Editor, type EditorOptions } from '@pierre/diffs/edit';
-import { EditProvider, File, Virtualizer } from '@pierre/diffs/react';
 import { type DiscoveredMcpServer, parseMcpImportJson } from '@shared/mcpConfig';
 import {
   DEFAULT_MCP_CALL_TIMEOUT_MS,
@@ -11,7 +9,6 @@ import {
 import type { McpServerEntry, McpTransport } from '@shared/types';
 import { MCP_TRANSPORTS } from '@shared/types';
 import * as React from 'react';
-import { CODE_THEME, ensureHighlighter } from '@/components/chat/codeHighlighter';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -32,10 +29,10 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { useCodeHighlightOptions } from '@/hooks/useColorScheme';
 import { useI18n } from '@/i18n';
 import { Z_INDEX } from '@/lib/z-index';
 import { useSettingsStore } from '@/stores/settings';
+import { CodeEditor } from './CodeEditor';
 
 interface McpEditDialogProps {
   /** 'new' 表示手动新建 */
@@ -44,76 +41,6 @@ interface McpEditDialogProps {
 }
 
 type EditorMode = 'form' | 'json';
-
-const JSON_FILE_OPTIONS = {
-  theme: CODE_THEME,
-  disableFileHeader: true,
-  overflow: 'scroll',
-  preferredHighlighter: 'shiki-js',
-} as const;
-
-function createEditor<A>(options: EditorOptions<A>) {
-  return new Editor(options);
-}
-
-function JsonCodeEditor({
-  value,
-  epoch,
-  onChange,
-}: {
-  value: string;
-  epoch: number;
-  onChange: (value: string) => void;
-}) {
-  const { t } = useI18n();
-  const [ready, setReady] = React.useState(false);
-  const options = useCodeHighlightOptions(JSON_FILE_OPTIONS);
-  const onChangeRef = React.useRef(onChange);
-  onChangeRef.current = onChange;
-  const editOptions = React.useMemo<EditorOptions<undefined>>(
-    () => ({
-      onChange(file) {
-        onChangeRef.current(file.contents);
-      },
-    }),
-    []
-  );
-
-  React.useEffect(() => {
-    let alive = true;
-    void ensureHighlighter().then(() => {
-      if (alive) setReady(true);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  if (!ready) {
-    return (
-      <div className="flex h-60 w-full items-center justify-center rounded-lg border border-input text-muted-foreground text-xs">
-        {t('Loading...')}
-      </div>
-    );
-  }
-
-  return (
-    <div className="h-60 w-full overflow-hidden rounded-lg border border-input">
-      <EditProvider createEditor={createEditor}>
-        <Virtualizer style={{ height: '100%', overflow: 'auto' }}>
-          <File
-            key={epoch}
-            file={{ name: 'mcp.json', contents: value }}
-            disableWorkerPool
-            edit
-            editorOptions={editOptions}
-            options={options}
-          />
-        </Virtualizer>
-      </EditProvider>
-    </div>
-  );
-}
 
 const parseLines = (text: string): string[] | undefined => {
   const lines = text
@@ -404,7 +331,12 @@ export function McpEditDialog({ server, onClose }: McpEditDialogProps) {
                   {t('Format')}
                 </Button>
               </div>
-              <JsonCodeEditor value={jsonText} epoch={jsonEpoch} onChange={setJsonText} />
+              <CodeEditor
+                fileName="mcp.json"
+                value={jsonText}
+                epoch={jsonEpoch}
+                onChange={setJsonText}
+              />
               <p className="text-muted-foreground text-xs">
                 {t('Paste a server object or mcpServers JSON from Cursor / Claude Desktop')}
               </p>

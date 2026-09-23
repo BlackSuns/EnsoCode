@@ -8,20 +8,19 @@ import {
   projectDisabledBuiltinTools,
   resolveDisabledBuiltinTools,
 } from '@shared/types';
-import { effectiveSubagentAllowedModes } from '@shared/types/builtinTools';
 import type {
   AgentActionResult,
+  AgentControlContext,
+  AgentControlToolResponse,
   AgentRemoteConfig,
   AgentSpawnRequest,
+  AgentWorkerEvent,
   ApprovalDecision,
   ApprovalMode,
   ChildHistoryResult,
   ConversationReloadResult,
   McpStatusPush,
   ParentHistoryTailResult,
-  AgentControlContext,
-  AgentControlToolResponse,
-  AgentWorkerEvent,
   RendererAgentEvent,
   SpawnModelConfig,
   ThinkingLevel,
@@ -34,18 +33,17 @@ import {
   parseUpdateConversationSelectionRequest,
   THINKING_LEVELS,
 } from '@shared/types/agent';
+import { effectiveSubagentAllowedModes } from '@shared/types/builtinTools';
 import {
   parseAgentDispatchRequest,
   parseParentModelSelectionRequest,
   parseParentSourceBindingRequest,
 } from '@shared/types/mentions';
-import { app, type WebContents, ipcMain, webContents } from 'electron';
+import { app, ipcMain, type WebContents, webContents } from 'electron';
 import { EnsoSafeJournal } from '../../agent/ensoSafeJournal';
 import { titleSummaryTimeoutMs } from '../../agent/titleSummary';
 import { ActiveConversationRegistry } from '../services/activeConversationRegistry';
 import { AgentDispatchService } from '../services/agentDispatchService';
-import { AgentService } from '../services/agentService';
-import { validateAgentRun } from '../services/agentRunValidation';
 import {
   abortRetrySession,
   abortSession,
@@ -72,6 +70,7 @@ import {
   resumeCoworkerSession,
   retrySession,
   rewindSession,
+  sendAgentCommand,
   sendBrowserResultToSession,
   sendMemoryResultToSession,
   setAgentEventListener,
@@ -83,11 +82,13 @@ import {
   spawnChildSession,
   spawnSession,
   steerSession,
-  sendAgentCommand,
   stopBackgroundTask,
   stopSubagent,
+  stopWorkflow,
   summarizeConversationTitle,
 } from '../services/agentHost';
+import { validateAgentRun } from '../services/agentRunValidation';
+import { AgentService } from '../services/agentService';
 import { pickBrowserFileRoot, setBrowserFileRootResolver } from '../services/browserFileRoot';
 import { browserHost } from '../services/browserHost';
 import { chatModelsRoot } from '../services/chatModels';
@@ -597,14 +598,13 @@ function wirePairSessionHost(): void {
   });
 }
 
-
 function agentControlContext(
   identity: SessionIdentity | ChildSessionIdentity
 ): AgentControlContext | undefined {
   const root = 'parent' in identity ? identity.parent : identity;
   const conversation = sourceAuthority?.conversation(root.sessionId);
   const project = conversation ? sourceAuthority?.project(conversation.projectId) : undefined;
-  if (!project || project.state !== 'active') return undefined;
+  if (project?.state !== 'active') return undefined;
   return {
     owner: { ownerId: root.sessionId, projectId: project.projectId, kind: 'chatSession' },
     actor: {
@@ -784,12 +784,20 @@ export function registerAgentHandlers(): void {
       const state = readSettingsState() ?? {};
       const projects = Array.isArray(state.projects) ? state.projects : [];
       const project = projects.find(
-        (entry) => entry && typeof entry === 'object' && (entry as { id?: unknown }).id === context.owner.projectId
+        (entry) =>
+          entry &&
+          typeof entry === 'object' &&
+          (entry as { id?: unknown }).id === context.owner.projectId
       ) as { disabledBuiltinTools?: unknown; subagentAllowedModes?: unknown } | undefined;
       const disabled = resolveDisabledBuiltinTools(state.disabledBuiltinTools, {
         disabledBuiltinTools: project?.disabledBuiltinTools,
       });
-      return new Set(effectiveSubagentAllowedModes(project?.subagentAllowedModes ?? state.subagentAllowedModes, disabled));
+      return new Set(
+        effectiveSubagentAllowedModes(
+          project?.subagentAllowedModes ?? state.subagentAllowedModes,
+          disabled
+        )
+      );
     },
     runtime: {
       spawn: (input) =>
@@ -1586,6 +1594,17 @@ export function registerAgentHandlers(): void {
         return { ok: false, error: 'invalid task stop or stale generation' };
       }
       return stopBackgroundTask(identity, taskId);
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_WORKFLOW_STOP,
+    (_event, sessionId: unknown, runId: unknown): AgentActionResult => {
+      const identity = exactIdentity(sessionId);
+      if (!identity || !isNonEmptyString(runId) || runId.length > 80) {
+        return { ok: false, error: 'invalid workflow stop or stale generation' };
+      }
+      return stopWorkflow(identity, runId);
     }
   );
 

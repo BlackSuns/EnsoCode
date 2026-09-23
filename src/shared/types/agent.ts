@@ -42,7 +42,7 @@ import {
   type ModelThinkingLevelOverride,
 } from './llm';
 import { type AgentDispatchTask, parseAgentDispatchTask } from './mentions';
-import { parseWorkflowRunSnapshot, type WorkflowRunSnapshot } from './workflow';
+import { isWorkflowPresetId, parseWorkflowRunSnapshot, type WorkflowRunSnapshot } from './workflow';
 
 export type { ChildSessionIdentity, SessionIdentity } from '../builtinAgents';
 export { parseChildSessionIdentity, parseSessionIdentity } from '../builtinAgents';
@@ -1007,6 +1007,8 @@ export type AgentCommand =
   | { type: 'set-approval-mode'; identity: SessionIdentity; mode: ApprovalMode }
   | { type: 'set-approval-reviewer'; model?: SpawnModelConfig }
   | { type: 'set-max-active-coworkers'; limit: number }
+  /** 设置里禁用的内置预设：worker 执行与工具说明都按它过滤 */
+  | { type: 'set-disabled-workflow-presets'; ids: string[] }
   | { type: 'compact'; identity: SessionIdentity; instructions?: string }
   | { type: 'ask-respond'; identity: SessionIdentity; requestId: string; answer: string }
   | {
@@ -1033,6 +1035,7 @@ export type AgentCommand =
       error?: string;
     }
   | { type: 'task-stop'; identity: SessionIdentity; taskId: string }
+  | { type: 'workflow-stop'; identity: SessionIdentity; runId: string }
   | { type: 'subagent-stop'; identity: SessionIdentity; agentId: string }
   | {
       type: 'rewind';
@@ -1134,7 +1137,7 @@ export interface TurnPerf {
 
 /** 单条 assistant step 的计时打点（worker 侧填，随 message-upsert 下发） */
 export interface MessageTiming {
-  /** step 开始：message_start 到达时刻 */
+  /** step 开始：发起模型请求的 turn_start 时刻（缺省为 message_start） */
   stepStartMs: number;
   /** 首 token：首个 message_update 时刻 */
   firstTokenMs?: number;
@@ -2657,6 +2660,13 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
       return hasExactKeys(value, ['type', 'limit']) && parseMaxActiveCoworkers(value.limit) !== null
         ? (value as unknown as AgentCommand)
         : null;
+    case 'set-disabled-workflow-presets':
+      return hasExactKeys(value, ['type', 'ids']) &&
+        Array.isArray(value.ids) &&
+        value.ids.length <= 64 &&
+        value.ids.every((id) => typeof id === 'string' && isWorkflowPresetId(id))
+        ? (value as unknown as AgentCommand)
+        : null;
     case 'ask-respond':
       return hasExactKeys(value, ['type', 'identity', 'requestId', 'answer']) &&
         parseAnySessionIdentity(value.identity) &&
@@ -2687,6 +2697,13 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
         : isNonEmptyString(value.error) && value.result === undefined;
       return shapeOk ? (value as unknown as AgentCommand) : null;
     }
+    case 'workflow-stop':
+      return hasExactKeys(value, ['type', 'identity', 'runId']) &&
+        parseAnySessionIdentity(value.identity) &&
+        isNonEmptyString(value.runId) &&
+        value.runId.length <= 80
+        ? (value as unknown as AgentCommand)
+        : null;
     case 'task-stop':
       return hasExactKeys(value, ['type', 'identity', 'taskId']) &&
         parseAnySessionIdentity(value.identity) &&

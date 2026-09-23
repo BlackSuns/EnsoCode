@@ -23,8 +23,13 @@ function tempDir(name: string): string {
 function fakeRtk(body: string): string {
   const dir = tempDir('enso-rtk-bin-');
   const file = path.join(dir, 'rtk');
-  writeFileSync(file, `#!/usr/bin/env node\n${body}\n`);
+  writeFileSync(
+    file,
+    `#!/usr/bin/env node\nif (process.env.ENSO_FAKE_RTK_WARMUP) process.exit(0);\n${body}\n`
+  );
   chmodSync(file, 0o755);
+  // macOS 首次执行新建的可执行文件要过安全评估，负载高时可达秒级，会挤爆被测的真实超时；在此预付
+  spawnSync(file, [], { env: { ...process.env, ENSO_FAKE_RTK_WARMUP: '1' } });
   return file;
 }
 
@@ -683,14 +688,14 @@ if (process.argv[2] === 'gain') process.stdout.write(JSON.stringify({ summary: {
       dataDir: tempDir('enso-rtk-data-'),
       cwd: process.cwd(),
       shell: 'powershell',
-      rewriteTimeoutMs: 400,
+      rewriteTimeoutMs: 5_000,
     });
 
     const now = vi
       .spyOn(Date, 'now')
       .mockReturnValueOnce(1_000)
       .mockReturnValueOnce(1_001)
-      .mockReturnValue(1_401);
+      .mockReturnValue(6_001);
     try {
       await execute(wrapped, 'git status; git diff; git log -1');
     } finally {
