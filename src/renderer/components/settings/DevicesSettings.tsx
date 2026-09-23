@@ -281,13 +281,7 @@ function ConnectToNodesSection() {
 }
 
 /** 业务帧出口标签：直连（WebRTC）/ 中继；只读，切换由 main 自动完成 */
-function TransportBadge({
-  transport,
-  rttMs,
-}: {
-  transport?: 'relay' | 'direct';
-  rttMs?: number;
-}) {
+function TransportBadge({ transport, rttMs }: { transport?: 'relay' | 'direct'; rttMs?: number }) {
   const { t } = useI18n();
   const direct = transport === 'direct';
   const rtt = formatRttMs(rttMs);

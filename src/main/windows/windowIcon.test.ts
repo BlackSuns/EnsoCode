@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   resolveWindowsAppUserModelId,
   shouldSetWindowIcon,
-  windowIconCandidates,
   WINDOWS_APP_USER_MODEL_ID,
+  windowIconCandidates,
   windowsTaskbarAppDetails,
 } from './windowIcon';
 

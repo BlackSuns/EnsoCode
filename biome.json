@@ -69,5 +69,11 @@
       "!src/agent/continuousMemory/vendor",
       "!src/shared/providers/devin/vendor"
     ]
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["build/**/*.svg"],
+      "linter": { "rules": { "a11y": { "noSvgWithoutTitle": "off" } } }
+    }
+  ]
 }

@@ -11,9 +11,9 @@ import {
   shouldAutoExpandAppliedFileChanges,
   shouldPrefetchOlderHistory,
   shouldShowToolOutputAfterFileChanges,
-  thinkingRowExpanded,
   type TimelineItem,
   terminalErrorText,
+  thinkingRowExpanded,
 } from './timeline';
 
 const user = (text: string): ProjectedMessage => ({

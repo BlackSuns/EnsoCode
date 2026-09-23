@@ -7,8 +7,8 @@ import { consumeTrayReenterAfterUpdate, readSettings } from './ipc/settings';
 import { startAgentWorker } from './services/agentHost';
 import { attachAppQuitDrain } from './services/appQuitDrain';
 import {
-  enterServerMode,
   ensureTray,
+  enterServerMode,
   isServerMode,
   leaveServerMode,
   restoreFromSecondInstance,
@@ -40,8 +40,8 @@ import {
   syncTrayToggleShortcut,
 } from './services/trayToggleShortcut';
 import { createMainWindow, getMainWindow } from './windows/MainWindow';
-import { resolveWindowsAppUserModelId } from './windows/windowIcon';
 import { applyWindowsChromiumSwitches } from './windows/win32Restore';
+import { resolveWindowsAppUserModelId } from './windows/windowIcon';
 
 // 仅开发环境开放 CDP 端口，便于调试；打包后不开，避免暴露远程调试。
 // 同机跑两以上实例（如验证节点互连）时可用 ENSO_CDP_PORT 错开。

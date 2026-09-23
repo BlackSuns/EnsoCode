@@ -46,14 +46,15 @@ describe('unified subagent tool', () => {
         allOf?: Array<{ then?: { required?: string[] } }>;
       }
     ).properties;
-    const conditional = (
-      tool.parameters as { allOf?: Array<{ then?: { required?: string[] } }> }
-    ).allOf;
+    const conditional = (tool.parameters as { allOf?: Array<{ then?: { required?: string[] } }> })
+      .allOf;
     expect(conditional?.[0]?.then?.required).toEqual(['description', 'prompt']);
     expect(`${fields.description.description}\n${fields.prompt.description}`).toMatch(/spawn/i);
     expect(fields.description.description).toMatch(/required/i);
     expect(fields.prompt.description).toMatch(/required/i);
-    expect(tool.promptGuidelines?.join('\n')).toMatch(/spawn requires non-empty description and prompt/i);
+    expect(tool.promptGuidelines?.join('\n')).toMatch(
+      /spawn requires non-empty description and prompt/i
+    );
     const model = (
       tool.parameters as { properties: { model?: { enum?: string[]; description?: string } } }
     ).properties.model;
@@ -104,7 +105,10 @@ describe('unified subagent tool', () => {
       {} as never
     );
     expect(deps.invoke).toHaveBeenLastCalledWith(
-      expect.objectContaining({ description: 'review the diff', prompt: 'review the diff\nthen stop' }),
+      expect.objectContaining({
+        description: 'review the diff',
+        prompt: 'review the diff\nthen stop',
+      }),
       undefined
     );
     await expect(

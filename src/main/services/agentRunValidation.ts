@@ -16,8 +16,7 @@ export async function validateAgentRun(input: {
     if (!checked.ok) return { ok: false, error: checked.error ?? 'Schema validation failed.' };
   }
   if (input.gate) {
-    const commandRef =
-      input.gate && 'commandRef' in input.gate ? input.gate.commandRef : undefined;
+    const commandRef = input.gate && 'commandRef' in input.gate ? input.gate.commandRef : undefined;
     return {
       ok: false,
       error: commandRef

@@ -8,20 +8,19 @@ import {
   projectDisabledBuiltinTools,
   resolveDisabledBuiltinTools,
 } from '@shared/types';
-import { effectiveSubagentAllowedModes } from '@shared/types/builtinTools';
 import type {
   AgentActionResult,
+  AgentControlContext,
+  AgentControlToolResponse,
   AgentRemoteConfig,
   AgentSpawnRequest,
+  AgentWorkerEvent,
   ApprovalDecision,
   ApprovalMode,
   ChildHistoryResult,
   ConversationReloadResult,
   McpStatusPush,
   ParentHistoryTailResult,
-  AgentControlContext,
-  AgentControlToolResponse,
-  AgentWorkerEvent,
   RendererAgentEvent,
   SpawnModelConfig,
   ThinkingLevel,
@@ -34,18 +33,17 @@ import {
   parseUpdateConversationSelectionRequest,
   THINKING_LEVELS,
 } from '@shared/types/agent';
+import { effectiveSubagentAllowedModes } from '@shared/types/builtinTools';
 import {
   parseAgentDispatchRequest,
   parseParentModelSelectionRequest,
   parseParentSourceBindingRequest,
 } from '@shared/types/mentions';
-import { app, type WebContents, ipcMain, webContents } from 'electron';
+import { app, ipcMain, type WebContents, webContents } from 'electron';
 import { EnsoSafeJournal } from '../../agent/ensoSafeJournal';
 import { titleSummaryTimeoutMs } from '../../agent/titleSummary';
 import { ActiveConversationRegistry } from '../services/activeConversationRegistry';
 import { AgentDispatchService } from '../services/agentDispatchService';
-import { AgentService } from '../services/agentService';
-import { validateAgentRun } from '../services/agentRunValidation';
 import {
   abortRetrySession,
   abortSession,
@@ -72,6 +70,7 @@ import {
   resumeCoworkerSession,
   retrySession,
   rewindSession,
+  sendAgentCommand,
   sendBrowserResultToSession,
   sendMemoryResultToSession,
   setAgentEventListener,
@@ -83,12 +82,13 @@ import {
   spawnChildSession,
   spawnSession,
   steerSession,
-  sendAgentCommand,
   stopBackgroundTask,
   stopSubagent,
   stopWorkflow,
   summarizeConversationTitle,
 } from '../services/agentHost';
+import { validateAgentRun } from '../services/agentRunValidation';
+import { AgentService } from '../services/agentService';
 import { pickBrowserFileRoot, setBrowserFileRootResolver } from '../services/browserFileRoot';
 import { browserHost } from '../services/browserHost';
 import { chatModelsRoot } from '../services/chatModels';
@@ -598,7 +598,6 @@ function wirePairSessionHost(): void {
   });
 }
 
-
 function agentControlContext(
   identity: SessionIdentity | ChildSessionIdentity
 ): AgentControlContext | undefined {
@@ -785,12 +784,20 @@ export function registerAgentHandlers(): void {
       const state = readSettingsState() ?? {};
       const projects = Array.isArray(state.projects) ? state.projects : [];
       const project = projects.find(
-        (entry) => entry && typeof entry === 'object' && (entry as { id?: unknown }).id === context.owner.projectId
+        (entry) =>
+          entry &&
+          typeof entry === 'object' &&
+          (entry as { id?: unknown }).id === context.owner.projectId
       ) as { disabledBuiltinTools?: unknown; subagentAllowedModes?: unknown } | undefined;
       const disabled = resolveDisabledBuiltinTools(state.disabledBuiltinTools, {
         disabledBuiltinTools: project?.disabledBuiltinTools,
       });
-      return new Set(effectiveSubagentAllowedModes(project?.subagentAllowedModes ?? state.subagentAllowedModes, disabled));
+      return new Set(
+        effectiveSubagentAllowedModes(
+          project?.subagentAllowedModes ?? state.subagentAllowedModes,
+          disabled
+        )
+      );
     },
     runtime: {
       spawn: (input) =>

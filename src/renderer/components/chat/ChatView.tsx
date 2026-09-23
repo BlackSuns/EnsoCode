@@ -34,8 +34,8 @@ import { CHAT_COL, type MessageTimelineHandle } from './MessageTimeline';
 import { ModelPicker } from './ModelPicker';
 import { PresetPicker } from './PresetPicker';
 import { RetryBar } from './RetryBar';
-import { dedupeSlashCommands } from './skillCompletion';
 import { StatsLine } from './StatsLine';
+import { dedupeSlashCommands } from './skillCompletion';
 import { TaskBar } from './TaskBar';
 import { WorktreeMissingDialog } from './WorktreeMissingDialog';
 import { WorktreePicker } from './WorktreePicker';
@@ -195,13 +195,7 @@ export function ChatView() {
       description: skill.description,
     }));
     // 设置里登记的同名技能优先；项目扫描和会话命令里的副本不再各占一行
-    return dedupeSlashCommands([
-      goal,
-      compact,
-      ...fromSettings,
-      ...fromProject,
-      ...chromeCommands,
-    ]);
+    return dedupeSlashCommands([goal, compact, ...fromSettings, ...fromProject, ...chromeCommands]);
   }, [t, skills, projectSkills, chromeCommands]);
 
   const timelineRef = useRef<MessageTimelineHandle>(null);

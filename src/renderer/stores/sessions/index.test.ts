@@ -522,11 +522,13 @@ describe('typed Agent child projection', () => {
         child: childIdentity(1),
       };
     });
-    const accepted = await sessionsModule.useSessionsStore.getState().dispatchAgent(
-      'builtin:scout',
-      { text: 'inspect the project', images: [], fileMentions: [] },
-      { providerId: 'parent-provider', modelId: 'parent-model' }
-    );
+    const accepted = await sessionsModule.useSessionsStore
+      .getState()
+      .dispatchAgent(
+        'builtin:scout',
+        { text: 'inspect the project', images: [], fileMentions: [] },
+        { providerId: 'parent-provider', modelId: 'parent-model' }
+      );
     expect(accepted.accepted).toBe(true);
     const first = reserve(1);
     if (first.type !== 'child-reserved') throw new Error('expected reservation');
@@ -539,7 +541,12 @@ describe('typed Agent child projection', () => {
       activeId: 'other',
       conversations: {
         ...state.conversations,
-        other: { ...state.conversations.parent, id: 'other', parentId: undefined, activeTabId: undefined },
+        other: {
+          ...state.conversations.parent,
+          id: 'other',
+          parentId: undefined,
+          activeTabId: undefined,
+        },
         parent: { ...state.conversations.parent, activeTabId: 'parent::cw-child-1' },
       },
     }));
@@ -553,11 +560,13 @@ describe('typed Agent child projection', () => {
       };
     });
     sessionsModule.useSessionsStore.setState({ activeId: 'parent' });
-    await sessionsModule.useSessionsStore.getState().dispatchAgent(
-      'builtin:scout',
-      { text: 'second', images: [], fileMentions: [] },
-      { providerId: 'parent-provider', modelId: 'parent-model' }
-    );
+    await sessionsModule.useSessionsStore
+      .getState()
+      .dispatchAgent(
+        'builtin:scout',
+        { text: 'second', images: [], fileMentions: [] },
+        { providerId: 'parent-provider', modelId: 'parent-model' }
+      );
     sessionsModule.useSessionsStore.setState({ activeId: 'other' });
     const second = reserve(2);
     if (second.type !== 'child-reserved') throw new Error('expected reservation');
@@ -1106,9 +1115,9 @@ describe('typed Agent child projection', () => {
         } as never);
         sessionsModule.useSessionsStore.getState().selectTab('parent', 'ended');
         await vi.waitFor(() =>
-          expect(sessionsModule.useSessionsStore.getState().conversations.ended.messages).toHaveLength(
-            1
-          )
+          expect(
+            sessionsModule.useSessionsStore.getState().conversations.ended.messages
+          ).toHaveLength(1)
         );
         sessionsModule.useSessionsStore.getState().selectTab('parent', undefined);
         const leftAt = Date.now();
@@ -1234,34 +1243,34 @@ describe('typed Agent child projection', () => {
       expect(conversation.ended).toBeUndefined();
     });
 
-  it('已预约的 coworker 收到模型后写入 lastModelId，输入栏能显示当前模型', () => {
-    onAgentEvent?.(reserve(1));
-    const child = childIdentity(1);
-    onAgentEvent?.({
-      type: 'coworker-update',
-      identity: child.parent,
-      seq: 2,
-      coworker: {
-        id: child.sessionId,
-        child: {
-          parentId: 'parent',
-          childGeneration: child.generation,
-          agentTypeKey: child.typeKey,
-          agentInstanceId: child.instanceId,
-          agentInstanceName: child.instanceName,
-          dispatchOrigin: 'typed-mention',
+    it('已预约的 coworker 收到模型后写入 lastModelId，输入栏能显示当前模型', () => {
+      onAgentEvent?.(reserve(1));
+      const child = childIdentity(1);
+      onAgentEvent?.({
+        type: 'coworker-update',
+        identity: child.parent,
+        seq: 2,
+        coworker: {
+          id: child.sessionId,
+          child: {
+            parentId: 'parent',
+            childGeneration: child.generation,
+            agentTypeKey: child.typeKey,
+            agentInstanceId: child.instanceId,
+            agentInstanceName: child.instanceName,
+            dispatchOrigin: 'typed-mention',
+          },
+          name: child.instanceName,
+          agentType: child.typeKey,
+          status: 'running',
+          modelId: 'claude-opus-5',
+          createdAt: 1,
         },
-        name: child.instanceName,
-        agentType: child.typeKey,
-        status: 'running',
-        modelId: 'claude-opus-5',
-        createdAt: 1,
-      },
+      });
+      expect(
+        sessionsModule.useSessionsStore.getState().conversations[child.sessionId].lastModelId
+      ).toBe('claude-opus-5');
     });
-    expect(
-      sessionsModule.useSessionsStore.getState().conversations[child.sessionId].lastModelId
-    ).toBe('claude-opus-5');
-  });
   });
 
   describe('手动雇佣委托 Main dispatch', () => {
@@ -3138,7 +3147,9 @@ describe('parent history tail hydrate', () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
     const template = sessionsModule.useSessionsStore.getState().conversations.parent;
-    const body = (text: string) => [{ role: 'assistant' as const, content: [{ type: 'text' as const, text }] }];
+    const body = (text: string) => [
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text }] },
+    ];
     sessionsModule.useSessionsStore.setState({
       conversations: {
         parent: {

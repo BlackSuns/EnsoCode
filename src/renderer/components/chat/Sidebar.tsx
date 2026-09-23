@@ -153,12 +153,7 @@ interface SidebarProps {
   onOpenSearch?: () => void;
 }
 
-export function Sidebar({
-  width,
-  collapsed,
-  onToggleCollapse,
-  onOpenSearch,
-}: SidebarProps) {
+export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: SidebarProps) {
   const { t, locale } = useI18n();
   const projects = useSettingsStore((state) => state.projects);
   const projectGroups = useSettingsStore((state) => state.projectGroups);
@@ -698,9 +693,7 @@ export function Sidebar({
             onClick={onOpenSearch}
             className={ICON_BUTTON_CLASS}
             title={
-              searchShortcut
-                ? `${t('Search anything')} (${searchShortcut})`
-                : t('Search anything')
+              searchShortcut ? `${t('Search anything')} (${searchShortcut})` : t('Search anything')
             }
           >
             <Search className="h-4 w-4" />

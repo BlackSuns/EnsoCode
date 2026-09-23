@@ -83,7 +83,9 @@ export function windowIconCandidates(input: {
   platform?: NodeJS.Platform;
 }): string[] {
   const file =
-    (input.platform ?? process.platform) === 'linux' ? WINDOW_ICON_FILE_LINUX : WINDOW_ICON_FILE_WIN;
+    (input.platform ?? process.platform) === 'linux'
+      ? WINDOW_ICON_FILE_LINUX
+      : WINDOW_ICON_FILE_WIN;
   return [
     join(input.resourcesPath, file),
     join(input.cwd, 'build', file),
