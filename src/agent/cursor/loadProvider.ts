@@ -56,9 +56,7 @@ type CursorProviderStream<TOptions extends StreamOptions> = (
   options?: TOptions
 ) => AssistantMessageEventStream;
 
-// pi 0.87 会把 systemPrompt 和 tools 折叠进 transcript 的 system messages，但 pi-cursor 1.4.36 仍读取旧字段。
-//
-// Pi 0.87 folds systemPrompt and tools into transcript system messages, while pi-cursor 1.4.36 still reads the legacy fields.
+/** pi 0.87 把 systemPrompt/tools 折进 transcript 的 system message，pi-cursor 1.4.36 仍读旧字段，这里还原回去 */
 function restoreCursorContext(context: TranscriptContext): CursorContext {
   return {
     ...context,
@@ -92,9 +90,7 @@ function wrapCompatApiProvider(): void {
   const provider = getApiProvider(CURSOR_NATIVE_API);
   if (!provider) return;
 
-  // pi-cursor 会同时向 pi-ai compat 全局注册表和 ModelRuntime 注册 provider。
-  //
-  // pi-cursor registers both a global pi-ai compat API provider and a ModelRuntime provider.
+  // pi-cursor 每次注册都先写 compat 全局表再调 registerProvider，两条路径都要包；compat 每次都是新的原始 provider，不会重复包装
   registerApiProvider(
     {
       api: provider.api,

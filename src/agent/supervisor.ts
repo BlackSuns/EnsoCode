@@ -466,17 +466,11 @@ function createEnsoResourceLoader(
   });
 }
 /**
- * Pi 的 SessionManager._persist 在会话出现第一条 assistant 消息前不写文件，以免留下空会话。纯派发父容器不会运行主 coding 回合，因此其派发通知等 custom entry 可能始终只在内存中，resume 指向的文件也不存在。
+ * pi 的 SessionManager._persist 在第一条 assistant 前不写文件；纯派发父容器永远没有 assistant，
+ * 派发通知等 custom entry 只在内存里，resume 指向的文件也不存在。所以没有 assistant 时由我们强制落盘。
  *
- * Pi's SessionManager._persist writes no file before the first assistant message to avoid empty sessions. Dispatch-only parents never run the main coding turn, so their custom entries may remain in memory and the file needed for resume may not exist.
- *
- * 无 assistant 时强制物化会话文件。Pi 0.87.1 的 `_rewriteFile()` 不更新私有 `flushed` 标记；首条 assistant 随后会用 `openSync(..., 'wx')` 重建已存在文件并抛 EEXIST。重写成功后同步标记，交回 SDK 后续追加持久化。
- *
- * Force materialization when no assistant exists. Pi 0.87.1's `_rewriteFile()` leaves the private `flushed` flag unchanged; the first assistant then tries to recreate the existing file with `openSync(..., 'wx')` and throws EEXIST. Mark it flushed after a successful rewrite so the SDK can append subsequent entries.
- *
- * 这是对 Pi 私有 API 的适配，升级时需复检；回归测试断言文件存在及可重开，而非内部方法调用。
- *
- * This adapts Pi private APIs and must be rechecked on upgrades; regression tests assert file existence and successful reopen, not the private method call.
+ * `_rewriteFile()` 不会置 `flushed`：不补上，后续 entry 不追加，首条 assistant 还会以 `wx` 重建文件抛 EEXIST。
+ * 依赖 pi 私有 API，升级需复检；回归测试断言落盘与重开结果，不断言内部调用。
  */
 export function materializeSessionFile(session: AgentSession): void {
   const hasAssistant = (session.messages as { role?: string }[] | undefined)?.some(
