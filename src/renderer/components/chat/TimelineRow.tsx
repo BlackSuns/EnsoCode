@@ -76,6 +76,7 @@ import { splitInlineMentions, splitMentionRefs } from './mentionComposer';
 import { ReadFileView } from './ReadFileView';
 import { RtkToolStatsBar } from './RtkToolStatsBar';
 import { SlashChip, slashChipClass, splitSlashCommand } from './SlashChip';
+import { StepNode, type StepNodeState } from './StepNode';
 import { TerminalOutput } from './TerminalOutput';
 import { ZoomableImage } from './ZoomableImage';
 
@@ -1773,37 +1774,7 @@ function toolIcon(name: string): LucideIcon {
 }
 
 /** 时间线节点：工具类型图标；运行中外圈强调色旋转，失败描红 */
-function StepNode({
-  icon: Icon,
-  state,
-}: {
-  icon: LucideIcon;
-  state: 'running' | 'reviewing' | 'ok' | 'error';
-}) {
-  const busy = state === 'running' || state === 'reviewing';
-  return (
-    <span
-      className={cn(
-        'relative flex size-[22px] shrink-0 items-center justify-center rounded-full border text-muted-foreground',
-        busy && 'border-transparent text-brand',
-        state === 'error' && 'border-destructive/40 text-destructive'
-      )}
-    >
-      <Icon className="size-3" />
-      {busy && (
-        <span className="absolute -inset-px animate-spin rounded-full border-[1.5px] border-brand/20 border-t-brand" />
-      )}
-    </span>
-  );
-}
-
-function ToolNode({
-  name,
-  state,
-}: {
-  name: string;
-  state: 'running' | 'reviewing' | 'ok' | 'error';
-}) {
+function ToolNode({ name, state }: { name: string; state: StepNodeState }) {
   return <StepNode icon={toolIcon(name)} state={state} />;
 }
 
