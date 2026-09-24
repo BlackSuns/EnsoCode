@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findArchMismatches } from '../src/tooling/packagedArch.mjs';
 import stripPackagedNatives from '../src/tooling/stripPackagedNatives.mjs';
 import { copyRtkDistribution } from './rtk.mjs';
 
@@ -31,4 +32,13 @@ export default async function afterPack(context) {
     context.electronPlatformName,
     archName(context.arch)
   );
+  // mac 会在 Apple 芯片上交叉打 x64：签名前拦住混进包里的别架构二进制
+  if (context.electronPlatformName === 'darwin') {
+    const arch = archName(context.arch);
+    const mismatches = findArchMismatches(context.appOutDir, arch);
+    if (mismatches.length) {
+      const list = mismatches.map(({ file, archs }) => `  ${file} (${archs.join(', ')})`);
+      throw new Error(`packaged app has binaries without ${arch}:\n${list.join('\n')}`);
+    }
+  }
 }

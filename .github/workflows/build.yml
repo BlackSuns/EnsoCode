@@ -56,13 +56,12 @@ jobs:
   build-mac:
     needs: build-app
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - arch: arm64
-            runner: macos-15
-          - arch: x64
-            runner: macos-15-intel
-    runs-on: ${{ matrix.runner }}
+        arch: [arm64, x64]
+    # x64 也在 Apple 芯片上交叉打包：Intel runner 各阶段慢 2–4 倍。
+    # 原生依赖全是 N-API 预编译，按目标架构装包即可；after-pack 校验包内 Mach-O 架构。
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -83,9 +82,11 @@ jobs:
         uses: pnpm/action-setup@v5
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # 关掉构建结果缓存：否则 ripgrep 等 postinstall 会复用本机架构的产物
+        run: pnpm install --frozen-lockfile --cpu=${{ matrix.arch }} --config.side-effects-cache=false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          npm_config_arch: ${{ matrix.arch }}
 
       - name: Import Apple Certificate
         env:
@@ -115,12 +116,29 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+      - name: Smoke test packaged natives
+        run: |
+          if [ "${{ matrix.arch }}" = x64 ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          APP=$(ls -d dist/mac*/EnsoCode.app | head -1)
+          ELECTRON_RUN_AS_NODE=1 "$APP/Contents/MacOS/EnsoCode" scripts/smoke-packaged-natives.cjs "$APP/Contents/Resources"
+
       - name: Upload latest-mac.yml
         uses: actions/upload-artifact@v6
         with:
           name: latest-mac-${{ matrix.arch }}
           path: dist/latest-mac.yml
           retention-days: 1
+
+      # 同 Windows：非 tag 构建不发布，传上来才能下载试装（x64 交叉包可拿到 Intel Mac 上验）
+      - name: Upload installer
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: mac-installer-${{ matrix.arch }}
+          path: dist/*.dmg
+          retention-days: 7
 
   build-windows:
     needs: build-app
@@ -154,6 +172,10 @@ jobs:
         run: npx electron-builder --win --x64 --publish onTag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test packaged natives
+        shell: bash
+        run: ELECTRON_RUN_AS_NODE=1 dist/win-unpacked/EnsoCode.exe scripts/smoke-packaged-natives.cjs dist/win-unpacked/resources
 
       # 非 tag 触发时 electron-builder 不发布，产物只留在 runner 上；
       # 传上来才能直接下载试装，不必为了拿个安装包去发版
@@ -207,6 +229,9 @@ jobs:
         run: npx electron-builder --linux --x64 --publish onTag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test packaged natives
+        run: ELECTRON_RUN_AS_NODE=1 dist/linux-unpacked/enso-code scripts/smoke-packaged-natives.cjs dist/linux-unpacked/resources
 
   build-relay:
     runs-on: ubuntu-latest

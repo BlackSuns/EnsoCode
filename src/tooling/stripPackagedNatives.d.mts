@@ -27,6 +27,14 @@ export function stripForeignSqlitePrebuilds(
   arch: string
 ): string[];
 
+export function stripForeignPrebuildDirs(
+  prebuildsDir: string,
+  platform: string,
+  arch: string
+): string[];
+
+export function ensurePtyHelpersExecutable(prebuildsDir: string): string[];
+
 export function afterPack(context: AfterPackContext): Promise<void>;
 
 export default afterPack;
