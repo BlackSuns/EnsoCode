@@ -29,6 +29,7 @@ const RENDERER_ONLY_PACKAGES = [
   'hast-util-sanitize',
   'lucide-react',
   'mermaid',
+  'prettier',
   'qrcode',
   'react',
   'react-dom',
