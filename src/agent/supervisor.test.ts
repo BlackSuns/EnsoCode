@@ -19,6 +19,7 @@ describe('initializeWorkerRuntime', () => {
     '%s 联网刷新失败时仍刷新其余 provider 并返回 runtime',
     async (rejectedProviderId) => {
       const runtime = {
+        getProvider: vi.fn(),
         registerProvider: vi.fn(),
         refresh: vi.fn(({ providers }: { providers: string[] }) =>
           providers[0] === rejectedProviderId

@@ -32,6 +32,7 @@ import { resolveOauthCatalogModel } from '@shared/oauthCatalog';
 import { ensureAccountProvider } from '@shared/piAccounts';
 import { resolvePiProviderBaseUrl } from '@shared/providerCatalog';
 import { ANTIGRAVITY_PROVIDER_ID, antigravityProviderConfig } from '@shared/providers/antigravity';
+import { installCodexLinkedRefresh } from '@shared/providers/codexAuth';
 import { DEVIN_PROVIDER_ID, devinProviderConfig } from '@shared/providers/devin';
 import type { SmartCompactMode } from '@shared/smartCompactMode';
 import { buildSshShellCommand, shellQuote } from '@shared/ssh';
@@ -545,6 +546,8 @@ export async function initializeWorkerRuntime(runtime: ModelRuntime): Promise<Mo
   runtime.registerProvider(ANTIGRAVITY_PROVIDER_ID, antigravityProviderConfig());
   runtime.registerProvider(DEVIN_PROVIDER_ID, devinProviderConfig());
   await loadCursorProvider(runtime);
+  // 已关联 Codex 的账号也可能在 worker 里触发刷新，必须同样接管；须在按需注册克隆之前
+  installCodexLinkedRefresh(runtime);
   // registerProvider 只触发 allowNetwork:false 的 refresh，拿到的是兜底清单；Main 侧界面
   // 展示的却是联网发现结果。必须拆成两次并各自吞错，避免一个 provider 的发现服务异常
   // 连带另一个拿不到清单；失败方只回退自己的兜底，worker 仍能启动。

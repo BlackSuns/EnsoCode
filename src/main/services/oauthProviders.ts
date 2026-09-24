@@ -1,6 +1,5 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import type { ModelRuntime as ModelRuntimeType } from '@earendil-works/pi-coding-agent';
 import { isSameChildSessionIdentity } from '@shared/builtinAgents';
@@ -24,6 +23,12 @@ import {
   parseAntigravityApiKey,
   sanitizeUpstreamBody,
 } from '@shared/providers/antigravity';
+import {
+  CODEX_PROVIDER_ID,
+  defaultCodexAuthPath,
+  installCodexLinkedRefresh,
+  parseCodexAuthJson,
+} from '@shared/providers/codexAuth';
 import { DEVIN_PROVIDER_ID, devinProviderConfig, fetchDevinUsage } from '@shared/providers/devin';
 import type {
   OauthAccount,
@@ -36,7 +41,6 @@ import type {
 import { IPC_CHANNELS, providerIdOfAccountKey, sanitizeOauthLabel } from '@shared/types';
 import { app, BrowserWindow, shell, type WebContents } from 'electron';
 import { getWindowWebContents, sendToWindow } from '../windows/createAppWindow';
-import { parseCodexAuthJson } from './codexAuthImport';
 
 // pi-ai 不在依赖树顶层，auth 交互类型从 ModelRuntime.login 签名结构化提取
 type AuthInteraction = Parameters<ModelRuntimeType['login']>[2];
@@ -75,6 +79,8 @@ export function getRuntime(): Promise<ModelRuntimeType> {
     );
     onlineCatalogProviderIds.add(CURSOR_PROVIDER_ID);
     await loadCursorProvider(runtime);
+    // 须在对齐克隆之前：克隆从基础 provider 复制 auth
+    installCodexLinkedRefresh(runtime);
     await syncAccountProviders(runtime);
     // registerProvider 内部只会跑一次 allowNetwork:false 的 refresh（拿到的是兜底清单）。
     // 扩展 provider 分开预热；单路发现服务失败不会影响另一条，也不阻塞设置页首开。
@@ -639,9 +645,6 @@ export async function oauthLogout(accountKey: string, sender?: WebContents): Pro
 
 // ---- 从 Codex Desktop / CLI 导入 ----
 
-const CODEX_PROVIDER_ID = 'openai-codex';
-const defaultCodexAuthPath = (): string => path.join(os.homedir(), '.codex', 'auth.json');
-
 /** 已存凭证对应的 ChatGPT 账号 id：优先凭证自带字段，否则从 access JWT 解 */
 function storedCodexAccountId(credential: { access: string; accountId?: unknown }): string | null {
   if (typeof credential.accountId === 'string' && credential.accountId) {
@@ -654,12 +657,12 @@ function storedCodexAccountId(credential: { access: string; accountId?: unknown 
 }
 
 /**
- * 把 `~/.codex/auth.json` 的 ChatGPT 登录态复制成本应用的一个 openai-codex 账号。
+ * 把 `~/.codex/auth.json` 的 ChatGPT 登录态导入成本应用的一个 openai-codex 账号，并标记
+ * `codexLinked`：之后与 Codex 共用同一条 token 链（刷新协议见 `@shared/providers/codexAuth`）。
  *
  * 写入必须经 pi 的 `runtime.login`（内部 proper-lockfile 加锁，且同步 runtime 快照）；
  * pi 不校验 login 返回的凭证来源，所以临时注册一个 `auth.oauth.login` 直接返回该凭证的
  * provider 克隆即可，写完立刻注销、再按 auth.json 现状重建正常克隆。
- * 只复制不共享：之后两边各自刷新自己的 token，不互相改写对方文件。
  */
 export async function importCodexOauthCredential(
   sender?: WebContents,
@@ -688,17 +691,28 @@ export async function importCodexOauthCredential(
   const { readStoredCredential } = await import('@earendil-works/pi-coding-agent');
   const file = authPath();
   const existingKeys = (await accountKeysOf(runtime)).get(CODEX_PROVIDER_ID) ?? [];
+  let duplicateKey: string | undefined;
   for (const key of existingKeys) {
     const stored = readStoredCredential(key, file);
     if (stored?.type === 'oauth' && storedCodexAccountId(stored) === credential.accountId) {
-      return { status: 'duplicate', accountKey: key };
+      if (stored.codexLinked === true) return { status: 'duplicate', accountKey: key };
+      duplicateKey = key;
+      break;
     }
   }
 
-  const accountKey = nextAccountKey(CODEX_PROVIDER_ID, existingKeys);
+  // 旧版「复制」导入或自行登录的同账号凭证：就地关联，保留两边较新的一份
+  // （同一条链上较旧那份的 refresh token 可能已被轮换作废）
+  const accountKey = duplicateKey ?? nextAccountKey(CODEX_PROVIDER_ID, existingKeys);
+  const linkedCredential = () => {
+    const stored = duplicateKey ? readStoredCredential(duplicateKey, file) : undefined;
+    return stored?.type === 'oauth' && stored.expires > credential.expires
+      ? { ...stored, codexLinked: true }
+      : { ...credential, codexLinked: true };
+  };
   const importer = Object.assign(Object.create(Object.getPrototypeOf(base)), base, {
     id: accountKey,
-    auth: { ...base.auth, oauth: { ...base.auth.oauth, login: async () => credential } },
+    auth: { ...base.auth, oauth: { ...base.auth.oauth, login: async () => linkedCredential() } },
     getModels: () => base.getModels().map((model) => ({ ...model, provider: accountKey })),
   });
   try {
@@ -716,10 +730,12 @@ export async function importCodexOauthCredential(
       ),
     };
   } finally {
-    // 裸 key 注销后回落到 pi 内置 provider；合成 key 由 sync 按凭证重建正常克隆
+    // 裸 key 注销后回落到 pi 内置 provider，须重装关联刷新；合成 key 由 sync 按凭证重建正常克隆
     runtime.unregisterProvider(accountKey);
+    installCodexLinkedRefresh(runtime);
     await syncAccountProviders(runtime);
   }
+  if (duplicateKey) return { status: 'duplicate', accountKey: duplicateKey };
   const account: OauthAccount = {
     key: accountKey,
     providerId: CODEX_PROVIDER_ID,

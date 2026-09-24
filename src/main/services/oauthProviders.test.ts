@@ -1182,6 +1182,7 @@ describe('从 Codex 本地登录态导入', () => {
         refresh: 'codex-refresh',
         expires: exp * 1000,
         accountId: 'acct_codex',
+        codexLinked: true,
       });
       const codex = (await listOauthProviders()).find((p) => p.id === 'openai-codex');
       expect(codex?.accounts.map((a) => a.key)).toEqual(['openai-codex', 'openai-codex#2']);
@@ -1197,6 +1198,111 @@ describe('从 Codex 本地登录态导入', () => {
     } finally {
       restore();
       electronMocks.windows.splice(0);
+      const { listOauthProviders } = await import('./oauthProviders');
+      await listOauthProviders();
+    }
+  });
+
+  it.each([
+    ['Codex 的较新', exp - 60, true],
+    ['本应用的较新', exp + 60, false],
+  ])(
+    '旧版复制导入的同账号凭证：再导入就地关联并保留较新的 token（%s）',
+    async (_label, storedExp, codexWins) => {
+      const ours = {
+        type: 'oauth',
+        access: fakeJwt({
+          exp: storedExp,
+          'https://api.openai.com/auth': { chatgpt_account_id: 'acct_codex' },
+        }),
+        refresh: 'ours-refresh',
+        expires: storedExp * 1000,
+        accountId: 'acct_codex',
+      };
+      const restore = withAuthJson((parsed) => {
+        parsed['openai-codex#2'] = ours;
+      });
+      writeCodexAuth({
+        auth_mode: 'chatgpt',
+        tokens: {
+          id_token: 'id',
+          access_token: codexAccess,
+          refresh_token: 'codex-refresh',
+          account_id: 'acct_codex',
+        },
+      });
+      try {
+        const { importCodexOauthCredential } = await import('./oauthProviders');
+        expect(await importCodexOauthCredential(undefined, codexAuth)).toEqual({
+          status: 'duplicate',
+          accountKey: 'openai-codex#2',
+        });
+        expect(JSON.parse(readFileSync(authFile(), 'utf8'))['openai-codex#2']).toEqual(
+          codexWins
+            ? {
+                type: 'oauth',
+                access: codexAccess,
+                refresh: 'codex-refresh',
+                expires: exp * 1000,
+                accountId: 'acct_codex',
+                codexLinked: true,
+              }
+            : { ...ours, codexLinked: true }
+        );
+      } finally {
+        restore();
+        const { listOauthProviders } = await import('./oauthProviders');
+        await listOauthProviders();
+      }
+    }
+  );
+
+  it('导入到裸 key 后 Main runtime 仍按关联方式刷新（注销临时 provider 不丢刷新包装）', async () => {
+    const restore = withAuthJson((parsed) => {
+      delete parsed['openai-codex'];
+    });
+    const home = mkdtempSync(path.join(tmpdir(), 'enso-home-'));
+    mkdirSync(path.join(home, '.codex'));
+    const homeCodexAuth = path.join(home, '.codex', 'auth.json');
+    writeFileSync(
+      homeCodexAuth,
+      JSON.stringify({
+        auth_mode: 'chatgpt',
+        tokens: {
+          id_token: 'id',
+          access_token: codexAccess,
+          refresh_token: 'codex-refresh',
+          account_id: 'acct_codex',
+        },
+      })
+    );
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('USERPROFILE', home);
+    try {
+      const { getRuntime, importCodexOauthCredential } = await import('./oauthProviders');
+      expect(await importCodexOauthCredential(undefined, homeCodexAuth)).toMatchObject({
+        status: 'imported',
+        account: { key: 'openai-codex' },
+      });
+      const oauth = (await getRuntime()).getProvider('openai-codex')?.auth.oauth;
+      // 包装在位时直接沿用 Codex 文件里较新的 token；丢了包装会走 pi 内置刷新去联网（此处 404）
+      await expect(
+        oauth?.refresh(
+          {
+            type: 'oauth',
+            access: 'stale',
+            refresh: 'stale',
+            expires: 0,
+            accountId: 'acct_codex',
+            codexLinked: true,
+          },
+          new AbortController().signal
+        )
+      ).resolves.toMatchObject({ refresh: 'codex-refresh', codexLinked: true });
+    } finally {
+      restore();
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
       const { listOauthProviders } = await import('./oauthProviders');
       await listOauthProviders();
     }
