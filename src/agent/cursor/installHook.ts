@@ -4,7 +4,7 @@ import { startCursorH2Bridge } from './h2Bridge';
 import { handlePiCursorExec, handlePiCursorInteraction } from './sessionBridge';
 
 declare global {
-  // pi-cursor Fl/jm 钩子（pnpm patch）：有会话桥才接管，否则走上游
+  // pi-cursor qi/Kg 钩子（pnpm patch）：有会话桥才接管，否则走上游；接管的 exec 不计入本地工具拒绝数
   var __ensoCursorHandleExec:
     | ((
         execCase: string | undefined,
@@ -25,7 +25,7 @@ declare global {
     | undefined;
 }
 
-/** Fl/jm 挂本进程；pi-cursor 的 h2-bridge spawn 仍改成进程内 HTTP/2。 */
+/** qi/Kg 挂本进程；pi-cursor 的 h2-bridge spawn 仍改成进程内 HTTP/2。 */
 export function installPiCursorExecHook(): void {
   wrapSpawnWithInProcessH2();
   globalThis.__ensoCursorHandleExec = (execCase, execMsg, write) =>

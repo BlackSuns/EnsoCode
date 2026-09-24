@@ -40,7 +40,7 @@
     "@electron-toolkit/utils": "^4.0.0",
     "@huggingface/tokenizers": "0.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@rahularya01/pi-cursor": "1.4.36",
+    "@rahularya01/pi-cursor": "1.4.38",
     "@vscode/ripgrep": "1.17.0",
     "better-sqlite3": "^13.0.3",
     "electron-updater": "^6.8.9",
@@ -137,7 +137,7 @@
       "better-sqlite3"
     ],
     "patchedDependencies": {
-      "@rahularya01/pi-cursor@1.4.36": "patches/@rahularya01__pi-cursor@1.4.36.patch"
+      "@rahularya01/pi-cursor@1.4.38": "patches/@rahularya01__pi-cursor@1.4.38.patch"
     }
   },
   "optionalDependencies": {
