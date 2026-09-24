@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./shared.css";
 
 @theme {
   --color-background: var(--background);
@@ -26,10 +27,6 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-brand: var(--brand);
-  --color-brand-foreground: var(--brand-foreground);
-
-  --shadow-float: var(--elevation-float);
 
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
@@ -88,9 +85,6 @@
     --input: oklch(0.922 0.003 285.82);
     --ring: oklch(0.708 0.014 285.82);
     --radius: 0.5rem;
-    --brand: oklch(0.54 0.2 280);
-    --brand-foreground: oklch(0.985 0 0);
-    --elevation-float: 0 1px 2px oklch(0.2 0.01 285 / 0.05), 0 12px 32px -12px oklch(0.2 0.02 285 / 0.18);
   }
 
   .dark {
@@ -120,35 +114,6 @@
     --border: oklch(0.269 0.014 285.82);
     --input: oklch(0.269 0.014 285.82);
     --ring: oklch(0.439 0.014 285.82);
-    --brand: oklch(0.72 0.14 280);
-    --brand-foreground: oklch(0.205 0.014 285.82);
-    --elevation-float: 0 1px 2px oklch(0 0 0 / 0.3), 0 16px 40px -12px oklch(0 0 0 / 0.55);
-  }
-
-  /* 强调色预设：默认紫罗兰写在 :root/.dark，其余由设置写入 html[data-accent] */
-  html[data-accent='indigo'] {
-    --brand: oklch(0.53 0.19 265);
-  }
-  html.dark[data-accent='indigo'] {
-    --brand: oklch(0.7 0.14 265);
-  }
-  html[data-accent='teal'] {
-    --brand: oklch(0.56 0.1 185);
-  }
-  html.dark[data-accent='teal'] {
-    --brand: oklch(0.76 0.12 185);
-  }
-  html[data-accent='amber'] {
-    --brand: oklch(0.64 0.16 55);
-  }
-  html.dark[data-accent='amber'] {
-    --brand: oklch(0.78 0.14 70);
-  }
-  html[data-accent='graphite'] {
-    --brand: oklch(0.27 0.01 285);
-  }
-  html.dark[data-accent='graphite'] {
-    --brand: oklch(0.9 0.005 285);
   }
 }
 
@@ -343,35 +308,6 @@ html.bg-image-enabled .shiki span {
 /* 聊天列铺满：覆盖 CHAT_COL 的阶梯 max-w，两侧只留 padding */
 html.enso-chat-wide .enso-chat-col {
   max-width: none;
-}
-
-/*
- * 工具时间线竖线：画在行容器上才能跨过行间距。节点 22px 居中于 30px 行高（上下缘 4px/26px），
- * 线段止于节点边缘，不从半透明节点底下穿过；带回复身份头（2rem）的行整体下移。
- */
-.enso-step-row {
-  position: relative;
-  --enso-step-top: 0px;
-}
-.enso-step-row[data-reply-head] {
-  --enso-step-top: 2rem;
-}
-.enso-step-row[data-step-prev]::before,
-.enso-step-row[data-step-next]::after {
-  content: '';
-  position: absolute;
-  left: calc(1rem + 10.5px);
-  width: 1px;
-  background-color: var(--color-border);
-  pointer-events: none;
-}
-.enso-step-row[data-step-prev]::before {
-  top: 0;
-  height: calc(var(--enso-step-top) + 4px);
-}
-.enso-step-row[data-step-next]::after {
-  top: calc(var(--enso-step-top) + 26px);
-  bottom: 0;
 }
 
 /**
@@ -785,72 +721,6 @@ html.bg-image-enabled [data-slot='composer'] {
 
 @media (prefers-reduced-motion: reduce) {
   .t-shake-in { animation: none !important; transform: none !important; }
-}
-
-/* ── Shimmer text (15) — Thinking… 流光 ──────────────────────── */
-:root {
-  --shimmer-base: var(--muted-foreground);
-  --shimmer-highlight: var(--foreground);
-}
-.t-shimmer {
-  position: relative;
-  display: inline-block;
-  color: var(--shimmer-base);
-}
-.t-shimmer::before {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image: linear-gradient(
-    90deg,
-    transparent          0%,
-    transparent         40%,
-    var(--shimmer-highlight) 50%,
-    transparent         60%,
-    transparent        100%
-  );
-  background-size: var(--shimmer-band) 100%;
-  background-repeat: no-repeat;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: t-shimmer var(--shimmer-dur) var(--shimmer-ease) infinite;
-}
-@keyframes t-shimmer {
-  0%   { background-position: 100% 0; }
-  100% { background-position: 0% 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .t-shimmer::before { animation: none !important; }
-}
-
-/* ── Accordion expand (21) — 展开内容挂载 reveal ─────────────── */
-@keyframes t-acc-reveal {
-  from { opacity: 0; filter: blur(2px); transform: translateY(4px); }
-  to   { opacity: 1; filter: blur(0);   transform: translateY(0); }
-}
-.t-acc-reveal {
-  animation: t-acc-reveal var(--acc-expand) var(--acc-ease);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .t-acc-reveal { animation: none !important; }
-}
-
-/* ── Streaming text (30) — 流式新增的块级元素柔化落地 ────────── */
-@keyframes t-stream-in {
-  from { opacity: 0; filter: blur(var(--stream-blur)); }
-  to   { opacity: 1; filter: blur(0); }
-}
-.t-stream-live > * {
-  animation: t-stream-in var(--stream-fade) var(--stream-ease);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .t-stream-live > * { animation: none !important; }
 }
 
 /* ── Texts reveal (18) ───────────────────────────────────────── */

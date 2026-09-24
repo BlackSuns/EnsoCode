@@ -1,7 +1,8 @@
 import { claimPairing, type PairedDevice, parsePairUri } from '@enso/pair';
 
-import { Camera, Loader2, Smartphone } from 'lucide-react';
+import { Camera, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { EnsoMark } from '@/components/chat/EnsoMark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { createQrScanner } from './qr';
@@ -147,7 +148,9 @@ export function PairScreen({
   return (
     <div className="flex h-full flex-col items-center justify-center gap-5 px-6 pt-safe pb-safe">
       <div className="flex flex-col items-center gap-1.5 text-center">
-        <Smartphone className="h-8 w-8 text-muted-foreground" />
+        <span className="mb-2 flex size-11 items-center justify-center rounded-[13px] border border-brand/20 bg-brand/8 text-brand dark:bg-brand/14">
+          <EnsoMark className="size-6" />
+        </span>
         <h1 className="font-medium text-lg">连接到 EnsoCode</h1>
         <p className="text-muted-foreground text-sm">
           在桌面端「设置 → 手机」生成配对码，扫码或粘贴。

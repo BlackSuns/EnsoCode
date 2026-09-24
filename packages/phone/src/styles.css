@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* 强调色 token 与时间线样式与桌面共用，复用的聊天组件依赖它 */
+@import "../../../src/renderer/styles/shared.css";
 
 /* 复用的桌面组件在包外，Tailwind v4 自动扫描不到，须显式纳入其源码目录 */
 @source "../../../src/renderer";
@@ -536,7 +538,7 @@
   border-radius: 50%;
   padding: 0;
   background: transparent;
-  color: var(--primary-foreground);
+  color: var(--brand-foreground);
   box-shadow: none;
   opacity: 1;
   touch-action: manipulation;
@@ -552,7 +554,7 @@
   position: absolute;
   inset: 5px;
   border-radius: 50%;
-  background: var(--primary);
+  background: var(--brand);
   box-shadow: none;
   transition: background-color var(--phone-press-duration) var(--phone-ease);
 }

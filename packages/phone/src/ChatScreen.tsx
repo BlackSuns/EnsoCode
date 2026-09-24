@@ -7,6 +7,7 @@ import { ApprovalBar } from '@/components/chat/ApprovalBar';
 import { AskBar } from '@/components/chat/AskBar';
 import { Composer } from '@/components/chat/Composer';
 import { ChatHostContext } from '@/components/chat/chatHost';
+import { EnsoMark } from '@/components/chat/EnsoMark';
 import { GoalBar } from '@/components/chat/GoalBar';
 import { MessageQueue } from '@/components/chat/MessageQueue';
 import {
@@ -291,7 +292,7 @@ export function ChatScreen(props: Props) {
                   className={cn(
                     'h-1.5 w-1.5 shrink-0 rounded-full',
                     child.status === 'running'
-                      ? 'animate-pulse bg-blue-500'
+                      ? 'animate-pulse bg-brand'
                       : child.status === 'failed'
                         ? 'bg-destructive'
                         : 'bg-muted-foreground/30'
@@ -303,8 +304,11 @@ export function ChatScreen(props: Props) {
         )}
 
         {sessionId === null ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-1 px-6 text-center">
-            <p className="font-medium text-lg">EnsoCode</p>
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+            <span className="mb-3 flex size-11 items-center justify-center rounded-[13px] border border-brand/20 bg-brand/8 text-brand dark:bg-brand/14">
+              <EnsoMark className="size-6" />
+            </span>
+            <p className="font-semibold text-[22px] tracking-tight">EnsoCode</p>
             <p className="text-muted-foreground text-sm">
               {props.connState === 'online' ? '从左上角选择会话，或新建一个' : props.stateLabel}
             </p>

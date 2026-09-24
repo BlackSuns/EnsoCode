@@ -241,18 +241,23 @@ export function SessionDrawer({
           open ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="flex h-12 shrink-0 items-center justify-between border-b px-3 pt-safe">
+        <div
+          className={cn(
+            'flex h-12 shrink-0 items-center justify-between px-3 pt-safe',
+            groups.length === 0 && 'border-b'
+          )}
+        >
           <span className="font-medium text-sm">项目</span>
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
         {groups.length > 0 && (
-          <div className="shrink-0 border-b px-3 py-2">
+          <div className="shrink-0 border-b px-3 pb-2">
             <Select
               items={[
                 { value: ALL_GROUP_ID, label: '全部' },
@@ -457,7 +462,7 @@ export function SessionDrawer({
             <button
               type="button"
               onClick={() => setArchivedOpen((prev) => !prev)}
-              className="flex w-full items-center gap-1 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent/30"
+              className="flex w-full items-center gap-1 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/60"
             >
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                 <ChevronRight
@@ -469,7 +474,7 @@ export function SessionDrawer({
               </span>
               <Archive className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate text-muted-foreground text-sm">已归档</span>
-              <span className="shrink-0 text-[10px] text-muted-foreground">
+              <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
                 {archivedSessions.length}
               </span>
             </button>
@@ -567,7 +572,7 @@ export function SessionDrawer({
                     type="button"
                     onClick={() => onSwitchDevice(d.pairId)}
                     className={cn(
-                      'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-accent/50',
+                      'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-muted/60',
                       isActive ? 'text-foreground' : 'text-muted-foreground'
                     )}
                   >
@@ -609,7 +614,7 @@ export function SessionDrawer({
             <button
               type="button"
               onClick={onAddDevice}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-muted-foreground text-sm transition-colors hover:bg-accent/50 hover:text-foreground"
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-muted-foreground text-sm transition-colors hover:bg-muted/60 hover:text-foreground"
             >
               <Plus className="h-4 w-4 shrink-0" />
               <span>配对新电脑</span>
@@ -645,7 +650,7 @@ function SessionRow({
       onClick={() => onSelect(session.id)}
       className={cn(
         'flex w-full items-center gap-2 rounded-lg py-2 pr-2 pl-4 text-left text-sm transition-colors',
-        active ? 'bg-muted' : 'hover:bg-muted/50'
+        active ? 'bg-brand/10 dark:bg-brand/15' : 'hover:bg-muted/60'
       )}
     >
       <StatusDot status={session.status} unread={session.unread} />
@@ -655,7 +660,7 @@ function SessionRow({
         {subtitle && <span className="ml-1.5 text-[10px] text-muted-foreground">{subtitle}</span>}
       </span>
       {session.updatedAt && (
-        <span className="shrink-0 text-[10px] text-muted-foreground">
+        <span className="shrink-0 text-[10px] text-muted-foreground/80 tabular-nums">
           {formatRelativeTime(session.updatedAt, 'zh', nowTick)}
         </span>
       )}
@@ -696,7 +701,7 @@ function ProjectGroup({
   const hidden = sessions.length - shownCount;
   return (
     <div>
-      <div className="flex w-full items-center gap-1 rounded-lg px-2 py-2 transition-colors hover:bg-accent/30">
+      <div className="flex w-full items-center gap-1 rounded-lg px-2 py-2 transition-colors hover:bg-muted/60">
         <button
           type="button"
           onClick={onToggleFold}
@@ -719,13 +724,15 @@ function ProjectGroup({
               </span>
             )}
           </span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">{sessions.length}</span>
+          <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+            {sessions.length}
+          </span>
         </button>
         {canCreate && onNew && (
           <button
             type="button"
             onClick={onNew}
-            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <MessageSquarePlus className="h-3.5 w-3.5" />
           </button>
@@ -749,7 +756,7 @@ function ProjectGroup({
                 <button
                   type="button"
                   onClick={() => onRevealMore(nextRevealedExtra(sessions.length, revealedExtra))}
-                  className="flex-1 rounded-lg py-1 text-center text-muted-foreground text-xs transition-colors hover:bg-muted/50 hover:text-foreground"
+                  className="flex-1 rounded-lg py-1 text-center text-muted-foreground text-xs transition-colors hover:bg-muted/60 hover:text-foreground"
                 >
                   {t('Show {{n}} more', { n: hidden })}
                 </button>
@@ -758,7 +765,7 @@ function ProjectGroup({
                 <button
                   type="button"
                   onClick={() => onRevealMore(prevRevealedExtra(revealedExtra))}
-                  className="flex-1 rounded-lg py-1 text-center text-muted-foreground text-xs transition-colors hover:bg-muted/50 hover:text-foreground"
+                  className="flex-1 rounded-lg py-1 text-center text-muted-foreground text-xs transition-colors hover:bg-muted/60 hover:text-foreground"
                 >
                   {t('Collapse')}
                 </button>
@@ -780,7 +787,7 @@ function StatusDot({ status, unread }: { status: string; unread?: boolean }) {
     <span
       className={cn(
         'h-1.5 w-1.5 shrink-0 rounded-full',
-        running && 'animate-pulse bg-blue-500',
+        running && 'animate-pulse bg-brand',
         failed && 'bg-destructive',
         showUnread && 'bg-green-500',
         !running && !failed && !showUnread && 'bg-muted-foreground/30'
