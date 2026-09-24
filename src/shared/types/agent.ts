@@ -1172,6 +1172,8 @@ export interface ProjectedMessage {
   errorMessage?: string;
   timestamp?: number;
   usage?: TokenUsage;
+  /** assistant 消息的模型 id，用于会话区每轮回复的身份头 */
+  model?: string;
   /** pi-ai 在流上打的首 token 延迟（ms）；优先于本地 timing */
   ttft?: number;
   /** pi-ai 整次请求墙钟（ms，含 TTFT/思考） */

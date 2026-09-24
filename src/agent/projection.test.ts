@@ -38,12 +38,23 @@ describe('projectMessage', () => {
     expect(projected).toEqual({
       role: 'assistant',
       content: [{ type: 'text', text: 'hi' }],
+      model: 'claude',
       stopReason: 'stop',
       timestamp: 123,
       usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
     });
     expect(projected).not.toHaveProperty('api');
+    expect(projected).not.toHaveProperty('provider');
     expect(projected?.usage).not.toHaveProperty('cost');
+  });
+
+  it('model 只透出 assistant 的字符串值', () => {
+    expect(projectMessage({ role: 'assistant', content: [], model: 42 })).not.toHaveProperty(
+      'model'
+    );
+    expect(projectMessage({ role: 'user', content: [], model: 'claude' })).not.toHaveProperty(
+      'model'
+    );
   });
 
   it('透出 pi 的 ttft/duration，供状态栏吞吐与 OMP 同口径', () => {

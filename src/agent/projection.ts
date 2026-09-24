@@ -154,6 +154,7 @@ export function projectMessage(value: unknown): ProjectedMessage | null {
   if (typeof value.stopReason === 'string') projected.stopReason = value.stopReason;
   if (typeof value.errorMessage === 'string') projected.errorMessage = value.errorMessage;
   if (typeof value.timestamp === 'number') projected.timestamp = value.timestamp;
+  if (value.role === 'assistant' && typeof value.model === 'string') projected.model = value.model;
   if (value.role === 'compactionSummary') {
     // pi 的 compaction 消息用 summary 字段而不是 content
     if (typeof value.summary === 'string') {
