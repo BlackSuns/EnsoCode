@@ -1062,7 +1062,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                           render={
                             (
                               <div ref={drag.setNodeRef} style={drag.style}>
-                                {/* 项目行：图标列（折叠态文件夹/hover 折叠箭头）+ 名称 + 常驻操作；整行可拖拽排序 */}
+                                {/* 项目行：图标列（折叠态文件夹/hover 折叠箭头）+ 名称 + 悬停操作；整行可拖拽排序 */}
                                 <div
                                   className="group flex w-full items-center gap-1 rounded-lg px-2 py-2 transition-colors hover:bg-muted/60"
                                   {...drag.handleProps}
@@ -1110,11 +1110,11 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                       <Pin className="h-3.5 w-3.5" />
                                     )}
                                   </button>
-                                  {/* 高频新建会话常驻;其余走三点菜单,右键仍可用 */}
+                                  {/* 操作悬停才显示，常驻会让每个项目都挂两枚图标;用 opacity 占位,名称截断不随悬停跳动 */}
                                   <button
                                     type="button"
                                     onClick={() => void newConversation(project.id)}
-                                    className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                    className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100"
                                     title={t('New conversation')}
                                   >
                                     <MessageSquarePlus className="h-3.5 w-3.5" />
@@ -1131,7 +1131,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                       transition={springStandard}
                                       className="overflow-hidden"
                                     >
-                                      <div className="mt-0.5 flex flex-col gap-y-0.5">
+                                      <div className="enso-conv-tree mt-0.5 flex flex-col gap-y-0.5">
                                         {visibleConversations.slice(0, shownCount).map((id) => (
                                           <motion.div
                                             key={id}
@@ -1257,7 +1257,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
               };
               if (resolvedGroupId === ALL_GROUP_ID && projectGroups.length > 0) {
                 return (
-                  <div className="space-y-2">
+                  <div className="space-y-4">
                     {pinnedProjects.length > 0 && (
                       <div>
                         <SidebarSectionLabel>{t('Pinned projects')}</SidebarSectionLabel>
@@ -1737,7 +1737,7 @@ function ProjectGroupHeader({
         opacity: sortableDrag.isDragging ? 0.4 : undefined,
       }}
       className={cn(
-        'group relative flex h-7 w-full select-none items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground',
+        'group relative flex h-7 w-full select-none items-center rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground',
         droppable.isOver && 'bg-brand/10 text-foreground',
         sortable && 'cursor-grab'
       )}
@@ -1748,24 +1748,23 @@ function ProjectGroupHeader({
         type="button"
         onClick={onToggle}
         onPointerDown={(event) => event.stopPropagation()}
-        className="flex min-w-0 flex-1 items-center gap-2"
+        className="flex min-w-0 flex-1 items-center gap-1.5"
       >
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          <ChevronRight
-            className={cn('size-3.5 transition-transform duration-150', !folded && 'rotate-90')}
-          />
-        </span>
-        {/* emoji/色点跟在名字右侧,不占左侧图标列,否则设了标记的分组名会比其他分组右移 */}
-        <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          <span className="min-w-0 truncate text-left">{name}</span>
-          {emoji && <span className="shrink-0 text-sm leading-none">{emoji}</span>}
-          {color && (
-            <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+        {/* 分组是小节标签而非树节点:不占左侧图标列;箭头跟在名字后,展开态悬停才出现,折叠态常驻提示 */}
+        <span className="min-w-0 truncate text-left">{name}</span>
+        {emoji && <span className="shrink-0 text-sm leading-none">{emoji}</span>}
+        {color && (
+          <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+        )}
+        <ChevronRight
+          className={cn(
+            'size-3 shrink-0 transition-[opacity,transform] duration-150',
+            !folded && 'rotate-90 opacity-0 group-hover:opacity-100'
           )}
-        </span>
+        />
         <span
           className={cn(
-            'shrink-0 text-[10px] text-muted-foreground/70 tabular-nums',
+            'ml-auto shrink-0 text-[10px] text-muted-foreground/70 tabular-nums',
             onEdit && 'transition-opacity group-hover:opacity-0'
           )}
         >
@@ -2544,7 +2543,7 @@ function ProjectOverflowMenu({ actions }: { actions: ProjectAction[] }) {
     <Menu>
       <MenuTrigger
         aria-label={t('More actions')}
-        className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground data-popup-open:bg-muted data-popup-open:text-foreground"
+        className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-popup-open:bg-muted data-popup-open:text-foreground data-popup-open:opacity-100"
         title={t('More actions')}
         onPointerDown={(event) => event.stopPropagation()}
       >
@@ -2593,10 +2592,11 @@ function ConversationDot({
     pendingAskCount: conversation.pendingAsks?.length ?? 0,
     hasRunningChild: conversation.hasRunningChild,
   });
-  // 锁进与项目行同宽的图标列:圆点/图标两种形态切换时标题不再左右跳动
+  // 锁进与项目行同宽的图标列:圆点/图标两种形态切换时标题不再左右跳动。
+  // 空闲不画点:满列空心圈没有信息量,只有运行/待回答/失败/未读才需要被看见
   return (
     <span className="flex size-4 shrink-0 items-center justify-center">
-      <ConversationStatusIndicator tone={tone} size="sm" />
+      {tone !== 'idle' && <ConversationStatusIndicator tone={tone} size="sm" />}
     </span>
   );
 }
