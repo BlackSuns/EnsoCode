@@ -635,7 +635,8 @@ export function MessageTimeline({
               Header: renderHeader,
               Footer: renderFooter,
             }}
-            itemContent={(index, item) => renderRow(item, index)}
+            // Virtuoso 传入的是含 firstItemIndex 的绝对下标，换算回 folded 下标
+            itemContent={(index, item) => renderRow(item, index - firstItemIndex)}
           />
         )}
         {!atBottom && items.length > 0 && (
