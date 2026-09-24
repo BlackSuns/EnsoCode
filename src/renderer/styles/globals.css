@@ -26,6 +26,10 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+
+  --shadow-float: var(--elevation-float);
 
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
@@ -84,6 +88,9 @@
     --input: oklch(0.922 0.003 285.82);
     --ring: oklch(0.708 0.014 285.82);
     --radius: 0.5rem;
+    --brand: oklch(0.54 0.2 280);
+    --brand-foreground: oklch(0.985 0 0);
+    --elevation-float: 0 1px 2px oklch(0.2 0.01 285 / 0.05), 0 12px 32px -12px oklch(0.2 0.02 285 / 0.18);
   }
 
   .dark {
@@ -113,6 +120,35 @@
     --border: oklch(0.269 0.014 285.82);
     --input: oklch(0.269 0.014 285.82);
     --ring: oklch(0.439 0.014 285.82);
+    --brand: oklch(0.72 0.14 280);
+    --brand-foreground: oklch(0.205 0.014 285.82);
+    --elevation-float: 0 1px 2px oklch(0 0 0 / 0.3), 0 16px 40px -12px oklch(0 0 0 / 0.55);
+  }
+
+  /* 强调色预设：默认紫罗兰写在 :root/.dark，其余由设置写入 html[data-accent] */
+  html[data-accent='indigo'] {
+    --brand: oklch(0.53 0.19 265);
+  }
+  html.dark[data-accent='indigo'] {
+    --brand: oklch(0.7 0.14 265);
+  }
+  html[data-accent='teal'] {
+    --brand: oklch(0.56 0.1 185);
+  }
+  html.dark[data-accent='teal'] {
+    --brand: oklch(0.76 0.12 185);
+  }
+  html[data-accent='amber'] {
+    --brand: oklch(0.64 0.16 55);
+  }
+  html.dark[data-accent='amber'] {
+    --brand: oklch(0.78 0.14 70);
+  }
+  html[data-accent='graphite'] {
+    --brand: oklch(0.27 0.01 285);
+  }
+  html.dark[data-accent='graphite'] {
+    --brand: oklch(0.9 0.005 285);
   }
 }
 

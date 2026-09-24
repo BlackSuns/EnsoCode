@@ -4,6 +4,7 @@ import {
   randomBytes,
   scrypt as scryptCallback,
 } from 'node:crypto';
+import { parseAccentColor } from '@shared/accentColor';
 import { isReservedAgentTypeName } from '@shared/builtinAgents';
 import { parseCompactStrategy } from '@shared/compactStrategy';
 import { parseSmartCompactMode } from '@shared/smartCompactMode';
@@ -79,6 +80,7 @@ const STATE_KEYS = [
   'disabledBuiltinTools',
   'subagentAllowedModes',
   'theme',
+  'accentColor',
   'language',
   'terminalTheme',
   'terminalFontSize',
@@ -912,6 +914,8 @@ export function validateBundle(value: unknown): ConfigSyncBundle {
     !['light', 'dark', 'system', 'sync-terminal'].includes(String(state.theme))
   )
     throw new Error('Invalid state.theme');
+  if (state.accentColor !== undefined && parseAccentColor(state.accentColor) === null)
+    throw new Error('Invalid state.accentColor');
   if (state.language !== undefined && !['en', 'zh'].includes(String(state.language)))
     throw new Error('Invalid state.language');
   for (const key of [

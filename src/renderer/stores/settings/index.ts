@@ -1,3 +1,4 @@
+import { type AccentColor, DEFAULT_ACCENT_COLOR, resolveAccentColor } from '@shared/accentColor';
 import { sanitizeDefaultModel } from '@shared/defaultModel';
 import type { Locale } from '@shared/i18n';
 import { normalizeLocale } from '@shared/i18n';
@@ -80,6 +81,7 @@ function applyAppTheme(theme: Theme, terminalTheme: string): void {
 // Apply settings side effects (theme / font / lang) — 初次加载与多窗口同步时调用
 function applySettings(state: {
   theme: Theme;
+  accentColor?: AccentColor;
   terminalTheme: string;
   terminalFontFamily: string;
   terminalFontSize: number;
@@ -94,6 +96,7 @@ function applySettings(state: {
   }
   applyTerminalFont(state.terminalFontFamily, state.terminalFontSize);
   document.documentElement.lang = normalizeLocale(state.language) === 'zh' ? 'zh-CN' : 'en';
+  document.documentElement.dataset.accent = resolveAccentColor(state.accentColor);
   document.documentElement.classList.toggle('enso-chat-wide', Boolean(state.chatWide));
 }
 
@@ -109,6 +112,7 @@ function clampNumber(value: number, min: number, max: number, fallback: number):
 
 const initialState = {
   theme: 'system' as Theme,
+  accentColor: DEFAULT_ACCENT_COLOR,
   language: getDefaultLocale(),
   terminalTheme: 'Dracula',
   terminalFontSize: 14,
@@ -223,6 +227,11 @@ export const useSettingsStore = create<SettingsState>()(
           applyAppTheme(theme, terminalTheme);
         }
         set({ theme });
+      },
+
+      setAccentColor: (accentColor) => {
+        document.documentElement.dataset.accent = accentColor;
+        set({ accentColor });
       },
 
       setLanguage: (language) => {
@@ -911,6 +920,10 @@ export const useSettingsStore = create<SettingsState>()(
         const smartCompactMode = parseSmartCompactMode(s.smartCompactMode) ?? 'auto';
         if (smartCompactMode !== s.smartCompactMode) {
           useSettingsStore.setState({ smartCompactMode });
+        }
+        const accentColor = resolveAccentColor(s.accentColor);
+        if (accentColor !== s.accentColor) {
+          useSettingsStore.setState({ accentColor });
         }
         const segments = normalizeStatusLineSegments(s.statusLineSegments);
         if (

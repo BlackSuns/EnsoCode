@@ -37,6 +37,7 @@ const MAX_WAIT_MS = 5000;
 
 export const SETTINGS_STATE_FIELDS = [
   'theme',
+  'accentColor',
   'language',
   'terminalTheme',
   'terminalFontSize',

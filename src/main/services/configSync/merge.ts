@@ -34,6 +34,7 @@ const SUMMARY_CATEGORIES: readonly Exclude<Category, 'subagentModels' | 'setting
 
 const SCALAR_SETTING_KEYS = [
   'theme',
+  'accentColor',
   'language',
   'terminalTheme',
   'terminalFontSize',
@@ -746,6 +747,7 @@ export function planImport(
   }
   for (const key of [
     'theme',
+    'accentColor',
     'language',
     'terminalTheme',
     'terminalFontSize',

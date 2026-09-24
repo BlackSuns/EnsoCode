@@ -129,6 +129,7 @@ export const CONFIG_SYNC_FIELD_POLICY = {
   backgroundComposerOpacity: { mode: 'portable' },
   backgroundCodeOpacity: { mode: 'portable' },
   backgroundSizeMode: { mode: 'portable' },
+  accentColor: { mode: 'portable' },
   backgroundRefreshNonce: { mode: 'excluded', reason: 'device appearance preference' },
   providers: { mode: 'portable' },
   defaultModel: { mode: 'portable' },

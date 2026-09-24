@@ -1,3 +1,4 @@
+import type { AccentColor } from '@shared/accentColor';
 import type { CompactStrategy } from '@shared/compactStrategy';
 import type { DefaultModelRef } from '@shared/defaultModel';
 import type { Locale } from '@shared/i18n';
@@ -93,6 +94,7 @@ export interface ConfigSyncState {
   disabledBuiltinTools?: string[];
   subagentAllowedModes?: ('task' | 'coworker')[];
   theme?: 'light' | 'dark' | 'system' | 'sync-terminal';
+  accentColor?: AccentColor;
   language?: Locale;
   terminalTheme?: string;
   terminalFontSize?: number;

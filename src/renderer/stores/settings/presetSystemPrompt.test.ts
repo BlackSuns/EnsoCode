@@ -5,6 +5,7 @@ const deleteSystemPrompt = vi.fn(async () => ({ ok: true }));
 vi.stubGlobal('navigator', { language: 'en-US' });
 vi.stubGlobal('document', {
   documentElement: {
+    dataset: {},
     lang: 'en',
     classList: { toggle: vi.fn() },
     style: { setProperty: vi.fn(), removeProperty: vi.fn() },

@@ -273,17 +273,24 @@ describe('设置持久化迁移', () => {
   });
 
   it('hydrate 收窄当前版本坏枚举、移除旧布尔，partial 缺编辑字段时保留内存模式', () => {
-    const current = { editMode: 'apply_patch' as const, theme: 'dark' };
+    const current = {
+      editMode: 'apply_patch' as const,
+      accentColor: 'violet' as const,
+      theme: 'dark',
+    };
     expect(mergeSettingsState({ editMode: 'broken' }, current)).toEqual({
       editMode: 'apply_patch',
+      accentColor: 'violet',
       theme: 'dark',
     });
     expect(mergeSettingsState({ hashlineEditEnabled: true }, current)).toEqual({
       editMode: 'apply_patch',
+      accentColor: 'violet',
       theme: 'dark',
     });
     expect(mergeSettingsState({ theme: 'light' }, current)).toEqual({
       editMode: 'apply_patch',
+      accentColor: 'violet',
       theme: 'light',
     });
   });

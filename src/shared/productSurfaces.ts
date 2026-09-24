@@ -62,6 +62,7 @@ export const PRODUCT_SURFACE_INVENTORY = {
   'general.keybindings.reset': { domain: 'general', kind: 'setting', label: 'Reset keybinding' },
 
   'appearance.theme': { domain: 'appearance', kind: 'setting', label: 'Application theme' },
+  'appearance.accent': { domain: 'appearance', kind: 'setting', label: 'Accent color' },
   'appearance.terminal-theme': {
     domain: 'appearance',
     kind: 'setting',

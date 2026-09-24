@@ -1,3 +1,4 @@
+import { type AccentColor, resolveAccentColor } from '@shared/accentColor';
 import { resolveCompactStrategy } from '@shared/compactStrategy';
 import { type EditMode, resolveEditMode } from '@shared/types';
 import { effectiveSubagentAllowedModes } from '@shared/types/builtinTools';
@@ -16,7 +17,7 @@ import { effectiveSubagentAllowedModes } from '@shared/types/builtinTools';
 /** 当前持久化数据版本；改数据形状时 +1 并在 `migrateSettings` 里加一段 */
 export const SETTINGS_VERSION = 13;
 
-export function mergeSettingsState<T extends { editMode: EditMode }>(
+export function mergeSettingsState<T extends { editMode: EditMode; accentColor: AccentColor }>(
   persisted: unknown,
   current: T
 ): T {
@@ -27,8 +28,11 @@ export function mergeSettingsState<T extends { editMode: EditMode }>(
     'editMode' in source || 'hashlineEditEnabled' in source
       ? resolveEditMode(source.editMode, hashlineEditEnabled)
       : current.editMode;
+  // 外部手改 settings.json 可能写进未知强调色，非法值落回默认
+  const accentColor =
+    'accentColor' in source ? resolveAccentColor(source.accentColor) : current.accentColor;
   void bashInterceptEnabled;
-  return { ...current, ...rest, editMode } as T;
+  return { ...current, ...rest, editMode, accentColor } as T;
 }
 
 /**

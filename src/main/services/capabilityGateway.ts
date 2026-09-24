@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { parseAccentColor } from '@shared/accentColor';
 import { isReservedAgentTypeName } from '@shared/builtinAgents';
 import {
   CAPABILITY_CATALOG,
@@ -169,6 +170,7 @@ function resultSettingField(capabilityId: string): string | null {
     'general.keybindings.set': 'keybindings',
     'general.keybindings.reset': 'keybindings',
     'appearance.theme': 'theme',
+    'appearance.accent': 'accentColor',
     'appearance.terminal-theme': 'terminalTheme',
     'appearance.terminal-font-size': 'terminalFontSize',
     'appearance.terminal-font-family': 'terminalFontFamily',
@@ -678,6 +680,11 @@ export function createCapabilityHandlers(
       );
     },
     'appearance.theme': settingValueHandler(services, 'theme', stringValue),
+    'appearance.accent': settingValueHandler(
+      services,
+      'accentColor',
+      (value) => parseAccentColor(value) !== null
+    ),
     'appearance.terminal-theme': settingValueHandler(services, 'terminalTheme', stringValue),
     'appearance.terminal-font-size': settingValueHandler(
       services,

@@ -28,6 +28,7 @@ describe('config sync portable preference contract', () => {
   it('将安全的通用偏好列为 portable，并明确保留本机背景资源与设备策略', () => {
     const portable = [
       'theme',
+      'accentColor',
       'language',
       'terminalTheme',
       'terminalFontSize',
@@ -108,6 +109,7 @@ describe('config sync portable preference contract', () => {
   it('接受所有可移植偏好的合法域值', () => {
     const input = bundle({
       theme: 'sync-terminal',
+      accentColor: 'teal',
       language: 'zh',
       terminalTheme: 'Dracula',
       terminalFontSize: 16,
@@ -173,6 +175,7 @@ describe('config sync portable preference contract', () => {
   it('拒绝越界、非法枚举和错误结构的可移植偏好', () => {
     const cases: Array<[string, unknown]> = [
       ['theme', 'neon'],
+      ['accentColor', 'neon'],
       ['language', 'fr'],
       ['terminalFontSize', 0],
       ['terminalFontWeight', '650'],

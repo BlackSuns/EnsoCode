@@ -40,6 +40,8 @@ import {
 } from '@/lib/ghosttyTheme';
 import { cn } from '@/lib/utils';
 import {
+  ACCENT_COLORS,
+  type AccentColor,
   type BackgroundSizeMode,
   type BackgroundSourceType,
   type FontWeight,
@@ -603,10 +605,29 @@ function ThemeCombobox({
   );
 }
 
+/** 色块取各预设在亮色模式下的主色，与 globals.css 的 --brand 保持一致 */
+const ACCENT_SWATCHES: Record<AccentColor, string> = {
+  violet: 'oklch(0.54 0.2 280)',
+  indigo: 'oklch(0.53 0.19 265)',
+  teal: 'oklch(0.56 0.1 185)',
+  amber: 'oklch(0.64 0.16 55)',
+  graphite: 'oklch(0.27 0.01 285)',
+};
+
+const ACCENT_LABELS = {
+  violet: 'Violet',
+  indigo: 'Indigo',
+  teal: 'Teal',
+  amber: 'Amber',
+  graphite: 'Graphite',
+} as const satisfies Record<AccentColor, string>;
+
 export function AppearanceSettings() {
   const {
     theme,
     setTheme,
+    accentColor,
+    setAccentColor,
     terminalTheme,
     setTerminalTheme,
     terminalFontSize: globalFontSize,
@@ -632,6 +653,12 @@ export function AppearanceSettings() {
     { value: 'system', icon: Monitor, label: t('System') },
     { value: 'sync-terminal', icon: Terminal, label: t('Sync terminal theme') },
   ];
+
+  const accentOptions = ACCENT_COLORS.map((value) => ({
+    value,
+    label: t(ACCENT_LABELS[value]),
+    swatch: ACCENT_SWATCHES[value],
+  }));
 
   const [localFontSize, setLocalFontSize] = React.useState(globalFontSize);
   const [localFontFamily, setLocalFontFamily] = React.useState(globalFontFamily);
@@ -738,6 +765,32 @@ export function AppearanceSettings() {
             </div>
             <span className="text-sm font-medium">{option.label}</span>
           </button>
+        ))}
+      </div>
+
+      <div data-settings-row="appearance.accent">
+        <h3 className="text-lg font-medium">{t('Accent color')}</h3>
+        <p className="text-sm text-muted-foreground">
+          {t('Highlight color used across the interface')}
+        </p>
+      </div>
+
+      <div className="flex items-center gap-3">
+        {accentOptions.map((option) => (
+          <button
+            type="button"
+            key={option.value}
+            onClick={() => setAccentColor(option.value)}
+            title={option.label}
+            aria-label={option.label}
+            aria-pressed={accentColor === option.value}
+            style={{ backgroundColor: option.swatch }}
+            className={cn(
+              'size-6 rounded-full transition-shadow',
+              accentColor === option.value &&
+                'ring-2 ring-offset-2 ring-offset-background ring-foreground/60'
+            )}
+          />
         ))}
       </div>
 

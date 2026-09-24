@@ -1,3 +1,4 @@
+import { ACCENT_COLORS } from '../accentColor';
 import { PRODUCT_SURFACE_INVENTORY, type ProductSurfaceId } from '../productSurfaces';
 import { STATUS_LINE_SEGMENT_IDS } from '../statusLine';
 import { TERMINAL_SHELLS } from '../terminalShell';
@@ -52,6 +53,13 @@ const THEME_VALUE_INPUT_SCHEMA = {
   properties: {
     value: { type: 'string', enum: ['light', 'dark', 'system', 'sync-terminal'] },
   },
+  required: ['value'],
+  additionalProperties: false,
+} as const satisfies JsonSchema;
+
+const ACCENT_VALUE_INPUT_SCHEMA = {
+  type: 'object',
+  properties: { value: { type: 'string', enum: [...ACCENT_COLORS] } },
   required: ['value'],
   additionalProperties: false,
 } as const satisfies JsonSchema;
@@ -449,6 +457,10 @@ export const CAPABILITY_CATALOG = {
   'appearance.theme': executable(
     'appearance.theme',
     reversibleGlobal('Read or change the application theme.', THEME_VALUE_INPUT_SCHEMA)
+  ),
+  'appearance.accent': executable(
+    'appearance.accent',
+    reversibleGlobal('Read or change the interface accent color.', ACCENT_VALUE_INPUT_SCHEMA)
   ),
   'appearance.terminal-theme': executable(
     'appearance.terminal-theme',
@@ -1263,6 +1275,7 @@ export const CAPABILITY_HANDLER_CONTRACT: Readonly<Record<ExecutableCapabilityId
   'general.keybindings.set': true,
   'general.keybindings.reset': true,
   'appearance.theme': true,
+  'appearance.accent': true,
   'appearance.terminal-theme': true,
   'appearance.terminal-font-size': true,
   'appearance.terminal-font-family': true,
