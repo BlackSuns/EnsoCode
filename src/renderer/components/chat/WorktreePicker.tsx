@@ -36,7 +36,14 @@ import { canAttachWorktree, existingProjectWorktrees, worktreeDisplayName } from
  * fresh 会话直接绑定；已开聊会话走完整迁移语义（主树干净检查 + release + 迁移提醒）；
  * 切回本地 = 清理 worktree，有未落地成果时弹确认（分支保留）。
  */
-export function WorktreePicker({ conversationId }: { conversationId: string }) {
+export function WorktreePicker({
+  conversationId,
+  onBranchChange,
+}: {
+  conversationId: string;
+  /** 当前分支（未知/非 git/加载中为 undefined），供会话头展示，避免重复拉取 */
+  onBranchChange?: (branch: string | undefined) => void;
+}) {
   const { t } = useI18n();
   const conversation = useSessionsStore((state) => state.conversations[conversationId]);
   const moveConversationToWorktree = useSessionsStore((state) => state.moveConversationToWorktree);
@@ -88,6 +95,10 @@ export function WorktreePicker({ conversationId }: { conversationId: string }) {
     data: WorkspaceBranches;
   } | null>(null);
   const branchData = branchSnapshot?.key === workspaceKey ? branchSnapshot.data : null;
+  const reportedBranch = branchData?.currentBranch ?? undefined;
+  useEffect(() => {
+    onBranchChange?.(reportedBranch);
+  }, [onBranchChange, reportedBranch]);
   const [branchLoading, setBranchLoading] = useState(true);
   const [branchError, setBranchError] = useState<string | null>(null);
   const [query, setQuery] = useState('');

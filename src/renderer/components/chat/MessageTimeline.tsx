@@ -695,10 +695,10 @@ export function MessageTimeline({
           <button
             type="button"
             onClick={scrollToBottom}
-            className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border bg-background p-2 text-muted-foreground shadow-md transition-colors hover:bg-muted hover:text-foreground"
-            title={t('Scroll to bottom')}
+            className="absolute bottom-4 left-1/2 z-10 inline-flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-full border bg-card px-3 text-xs text-muted-foreground shadow-float transition-colors hover:text-foreground"
           >
-            <ArrowDown className="h-4 w-4" />
+            <ArrowDown className="h-3 w-3" />
+            {t('Scroll to bottom')}
           </button>
         )}
       </div>

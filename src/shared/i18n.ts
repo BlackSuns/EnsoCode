@@ -1392,7 +1392,7 @@ export const zhTranslations: Record<string, string> = {
   Untitled: '未命名',
   '{{count}} messages': '{{count}} 条消息',
   Import: '导入',
-  'Scroll to bottom': '滚动到底部',
+  'Scroll to bottom': '回到底部',
   Rewind: '回退',
   'Rewinding…': '正在回退…',
   'Restoring files…': '正在还原文件…',

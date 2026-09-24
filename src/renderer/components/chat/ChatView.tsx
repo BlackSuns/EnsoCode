@@ -2,13 +2,14 @@ import { ENSO_AGENT_TYPE_KEY } from '@shared/builtinAgents';
 import { conversationDotTone } from '@shared/conversationDotTone';
 import { resolveChatModel, scopedDefaultModels } from '@shared/defaultModel';
 import type { AgentTypeMentionCandidate } from '@shared/types/mentions';
-import { Loader2 } from 'lucide-react';
+import { Folder, GitBranch, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { AgentChildOauthHost } from '@/components/agent/AgentChildOauthHost';
 import { addToast } from '@/components/ui/toast';
 import { toChatMentionCandidates } from '@/hooks/useMentionSearch';
 import { useI18n } from '@/i18n';
+import { cn } from '@/lib/utils';
 import {
   oauthCredentialContext,
   usableProvidersForOauthSnapshot,
@@ -156,6 +157,16 @@ export function ChatView() {
               );
 
   const project = projects.find((p) => p.id === chrome?.projectId);
+  const pickerId = chrome?.id;
+  const [localBranch, setLocalBranch] = useState<{ id: string; branch: string }>();
+  const handleBranchChange = useCallback(
+    (branch: string | undefined) =>
+      setLocalBranch(pickerId && branch ? { id: pickerId, branch } : undefined),
+    [pickerId]
+  );
+  const branch =
+    chrome?.parentWorktreeBranch ??
+    (localBranch?.id === chrome?.parentId ? localBranch?.branch : undefined);
   const skills = useSettingsStore((state) => state.skills);
   const loadLocalSkills = useSettingsStore((state) => state.loadLocalSkills);
   const [projectSkills, setProjectSkills] = useState<{ name: string; description: string }[]>([]);
@@ -256,15 +267,26 @@ export function ChatView() {
         parentId={chrome.parentId}
         displayedId={chrome.id}
         trailing={
-          <div className="flex min-w-0 shrink-0 items-center gap-1.5 pl-1.5">
+          <div
+            className={cn(
+              'flex min-w-0 shrink-0 items-center gap-1.5',
+              project &&
+                'ml-1.5 h-6 rounded-full border px-2 font-mono text-[11.5px] text-muted-foreground'
+            )}
+            title={project ? (chrome.parentWorktreePath ?? project.path) : undefined}
+          >
             {project && (
-              <span
-                className="truncate font-mono text-xs text-muted-foreground"
-                title={chrome.parentWorktreePath ?? project.path}
-              >
-                {project.name}
-                {chrome.parentWorktreeBranch ? ` · ${chrome.parentWorktreeBranch}` : ''}
-              </span>
+              <>
+                <Folder className="h-3 w-3 shrink-0" />
+                <span className="max-w-40 truncate">{project.name}</span>
+                {branch && (
+                  <>
+                    <span className="opacity-40">/</span>
+                    <GitBranch className="h-3 w-3 shrink-0" />
+                    <span className="max-w-40 truncate">{branch}</span>
+                  </>
+                )}
+              </>
             )}
             <StatusDot
               status={chrome.spawning ? 'running' : chrome.status}
@@ -392,7 +414,10 @@ export function ChatView() {
                         useSessionsStore.getState().setPreset(chrome.id, presetId)
                       }
                     />
-                    <WorktreePicker conversationId={chrome.id} />
+                    <WorktreePicker
+                      conversationId={chrome.id}
+                      onBranchChange={handleBranchChange}
+                    />
                     <ApprovalModePicker
                       mode={chrome.approvalMode ?? 'full'}
                       onSelect={(mode) =>
@@ -490,5 +515,5 @@ function StatusDot({
   hasRunningChild?: boolean;
 }) {
   const tone = conversationDotTone({ status, pendingAskCount, hasRunningChild });
-  return <ConversationStatusIndicator tone={tone} size="md" title={status} />;
+  return <ConversationStatusIndicator tone={tone} title={status} />;
 }
