@@ -581,8 +581,8 @@ export function Composer({
         ref={setDropRef}
         data-slot="composer"
         className={cn(
-          'rounded-xl border bg-background shadow-sm transition-colors focus-within:border-ring',
-          (dragging || dndOver) && 'border-ring bg-muted/30',
+          'rounded-2xl border bg-background shadow-float transition-[border-color,box-shadow] duration-200 focus-within:border-brand/45 focus-within:ring-3 focus-within:ring-brand/12',
+          (dragging || dndOver) && 'border-brand/50 bg-brand/5',
           agentRecipient && 'border-primary/35 shadow-primary/5'
         )}
         onDragOver={(event) => {
@@ -635,7 +635,7 @@ export function Composer({
           </div>
         )}
         <div
-          className={cn('flex items-start gap-1.5 px-3.5', images.length > 0 ? 'pt-1.5' : 'pt-3')}
+          className={cn('flex items-start gap-1.5 px-4', images.length > 0 ? 'pt-1.5' : 'pt-3.5')}
         >
           {recipient && (
             <MentionChip recipient={recipient} onRemove={() => setRecipient(undefined)} />
@@ -713,7 +713,7 @@ export function Composer({
           />
         </div>
         {agentRecipient && <p className="sr-only">{t('Send only to the selected Agent')}</p>}
-        <div className="flex items-center justify-between gap-1.5 px-1.5 pb-1">
+        <div className="flex items-center justify-between gap-1.5 px-2 pt-0.5 pb-2">
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
             <input
               ref={imageInputRef}
@@ -743,7 +743,7 @@ export function Composer({
             <Button
               variant="outline"
               size="icon"
-              className="h-7 w-7 shrink-0 rounded-lg"
+              className="size-8 shrink-0 rounded-[10px]"
               onClick={onAbort}
               aria-label={t('Stop')}
             >
@@ -752,7 +752,7 @@ export function Composer({
           ) : (
             <Button
               size="icon"
-              className="h-7 w-7 shrink-0 rounded-lg"
+              className="size-8 shrink-0 rounded-[10px] border-brand bg-brand text-brand-foreground shadow-brand/24 hover:bg-brand/90 disabled:opacity-35"
               onClick={handleSend}
               disabled={!hasContent || locked}
               aria-label={agentRecipient ? t('Send only to the selected Agent') : t('Send')}

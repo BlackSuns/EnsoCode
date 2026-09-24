@@ -702,6 +702,24 @@ export const zhTranslations: Record<string, string> = {
   'Ask the agent…': '想让 agent 做什么…',
   'Thinking…': '思考中…',
   'Thought process': '思考过程',
+  'Thought for {{duration}}': '思考了 {{duration}}',
+  'Working…': '生成中…',
+  'Map the project': '梳理项目结构',
+  'Entry points, modules and key dependencies': '入口、模块划分与关键依赖',
+  "Walk me through this project's structure: entry points, module layout and key dependencies.":
+    '梳理一下这个项目的结构：入口、模块划分和关键依赖。',
+  'Find potential issues': '排查潜在问题',
+  'Suspicious logic and unhandled edge cases': '找出可疑逻辑与未处理的边界情况',
+  'Review this project for potential bugs, suspicious logic and unhandled edge cases, and list them by severity.':
+    '检查这个项目里的潜在 bug、可疑逻辑和未处理的边界情况，按严重程度列出来。',
+  'Add unit tests': '补充单元测试',
+  'Cover the core modules with tests': '为核心模块补上测试',
+  'Find the core modules that lack tests and add unit tests for them.':
+    '找出缺少测试的核心模块，并为它们补充单元测试。',
+  'Summarize recent changes': '总结最近改动',
+  'A digest based on git log': '基于 git log 生成变更摘要',
+  'Summarize the recent changes in this repository based on git log.':
+    '根据 git log 总结这个仓库最近的改动。',
   'Loading Mermaid diagram...': '加载 Mermaid 图表...',
   'Mermaid render error': 'Mermaid 渲染错误',
   'Mermaid render failed': 'Mermaid 渲染失败',

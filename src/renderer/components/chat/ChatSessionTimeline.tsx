@@ -22,11 +22,13 @@ export function ChatSessionTimeline({
   conversationId,
   cwd,
   emptyTitle,
+  onSuggestion,
   timelineRef,
 }: {
   conversationId: string;
   cwd?: string;
   emptyTitle: string;
+  onSuggestion?: (prompt: string) => void;
   timelineRef: RefObject<MessageTimelineHandle | null>;
 }) {
   const projectId = useSessionsStore((state) => state.conversations[conversationId]?.projectId);
@@ -234,6 +236,7 @@ export function ChatSessionTimeline({
         lastOutputAt={lastOutputAt}
         error={terminalErrorText(messages, error)}
         emptyTitle={emptyTitle}
+        onSuggestion={onSuggestion}
         onRetryResume={
           !started && sessionFile && status === 'failed'
             ? () => void useSessionsStore.getState().resumeConversation(conversationId)

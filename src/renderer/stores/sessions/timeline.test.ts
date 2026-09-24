@@ -63,6 +63,32 @@ describe('buildTimeline', () => {
   });
 
   describe('user 消息发送时间与任务完成耗时统计', () => {
+    it('user 行记录本轮首个 assistant 回复的模型与时间，供回复身份头显示', () => {
+      const timeline = buildTimeline(
+        [
+          user('第一轮'),
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'a' }],
+            model: 'model-a',
+            timestamp: 10,
+          },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'b' }],
+            model: 'model-b',
+            timestamp: 20,
+          },
+          user('第二轮'),
+        ],
+        false
+      );
+      const users = timeline.filter((item) => item.kind === 'user');
+      expect(users[0]).toMatchObject({ replyModel: 'model-a', replyAt: 10 });
+      expect(users[1]).not.toHaveProperty('replyModel');
+      expect(users[1]).not.toHaveProperty('replyAt');
+    });
+
     it('user 消息保留发送时间戳 timestamp', () => {
       const timeline = buildTimeline(
         [{ role: 'user', content: [{ type: 'text', text: '你好' }], timestamp: 1726700000000 }],

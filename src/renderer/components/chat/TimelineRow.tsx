@@ -12,19 +12,27 @@ import {
   CircleAlert,
   CircleDot,
   Copy,
+  FilePlus,
   FileText,
+  FolderOpen,
   GitBranch,
   GitCompare,
+  Globe,
   History,
+  Layers,
   ListTodo,
   LoaderCircle,
+  type LucideIcon,
   PackageMinus,
+  Pencil,
   RefreshCw,
+  Search,
   Sparkles,
   Target,
   TerminalSquare,
   Undo2,
   Workflow,
+  Wrench,
 } from 'lucide-react';
 import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -60,6 +68,7 @@ import { CodeBlock } from './CodeBlock';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useChatHost } from './chatHost';
 import { EditDiff } from './EditDiff';
+import { EnsoMark } from './EnsoMark';
 import { renderHighlighted, useChatSearchHighlight } from './highlightQuery';
 import { Markdown } from './Markdown';
 import { mentionChipClass } from './MentionChip';
@@ -404,6 +413,9 @@ function MentionRefChips({
   );
 }
 
+const USER_BUBBLE =
+  'max-w-[80%] rounded-2xl rounded-br-md border border-brand/15 bg-brand/8 px-4 py-2.5 text-sm dark:border-brand/25 dark:bg-brand/14';
+
 /** 用户气泡：识别合成标记,渲染成系统事件行 / 角色块 / 来源徽章而非原始 XML */
 function UserText({
   text,
@@ -422,7 +434,7 @@ function UserText({
   if (hasRefs) {
     const parsed = splitSlashCommand(refs.body);
     return (
-      <div className="max-w-[80%] rounded-2xl rounded-br-md bg-muted px-4 py-2.5 text-sm">
+      <div className={USER_BUBBLE}>
         {parsed.slash ? (
           <>
             <SlashChip name={parsed.slash} />
@@ -452,7 +464,7 @@ function UserText({
       <div className="flex w-full flex-col items-end gap-1.5">
         <WorkspaceMigratedBanner note={migrated[1]} />
         {remainder && (
-          <div className="max-w-[80%] rounded-2xl rounded-br-md bg-muted px-4 py-2.5 text-sm whitespace-pre-wrap">
+          <div className={cn(USER_BUBBLE, 'whitespace-pre-wrap')}>
             <InlineMentionText text={remainder} searchQuery={searchQuery} activeNth={activeNth} />
           </div>
         )}
@@ -480,10 +492,9 @@ function UserText({
   return (
     <div
       className={cn(
-        'max-w-[80%] rounded-2xl px-4 py-2.5 text-sm',
         fromMain
-          ? 'rounded-bl-md border border-blue-500/20 bg-blue-500/8'
-          : 'rounded-br-md bg-muted whitespace-pre-wrap'
+          ? 'max-w-[80%] rounded-2xl rounded-bl-md border border-blue-500/20 bg-blue-500/8 px-4 py-2.5 text-sm'
+          : cn(USER_BUBBLE, 'whitespace-pre-wrap')
       )}
     >
       {fromMain && (
@@ -512,6 +523,26 @@ export function isCompactRow(item: TimelineItem): boolean {
     item.kind === 'tool-group' ||
     item.kind === 'thinking' ||
     (item.kind === 'tool' && isReadOnlyTool(item))
+  );
+}
+
+/** 每轮回复的身份头：标识 + 模型 + 时间，挂在本轮首个 assistant 行之上 */
+export function ReplyHeader({ model, at }: { model?: string; at?: number }) {
+  return (
+    <div className="mb-2 flex h-6 min-w-0 items-center gap-2 text-xs select-none">
+      <span className="flex size-[22px] shrink-0 items-center justify-center rounded-[7px] border border-brand/20 bg-brand/8 text-brand dark:bg-brand/14">
+        <EnsoMark className="size-3.5" />
+      </span>
+      <span className="shrink-0 text-[13px] font-semibold text-foreground">Enso</span>
+      {model && (
+        <span className="min-w-0 truncate rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+          {model}
+        </span>
+      )}
+      {typeof at === 'number' && (
+        <span className="shrink-0 text-[11px] text-muted-foreground">{formatClock(at)}</span>
+      )}
+    </div>
   );
 }
 
@@ -1070,29 +1101,25 @@ function ThinkingRow({
       <button
         type="button"
         onClick={() => setUserToggled(!expanded)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        className="flex min-h-[26px] items-center gap-2 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
       >
-        <Brain className={cn('h-3.5 w-3.5', streaming && 'animate-pulse')} />
+        <span className="flex size-[22px] shrink-0 items-center justify-center">
+          <Brain className={cn('h-3.5 w-3.5', streaming && 'animate-pulse text-brand')} />
+        </span>
         {streaming ? (
           <span className="t-shimmer" data-text={t('Thinking…')}>
             {t('Thinking…')}
           </span>
+        ) : durationMs !== null ? (
+          <span>{t('Thought for {{duration}}', { duration: formatDuration(durationMs) })}</span>
         ) : (
           <span>{t('Thought process')}</span>
         )}
-        {streaming ? (
-          <RunningElapsed itemKey={itemKey} since={startedAt} />
-        ) : (
-          durationMs !== null && (
-            <span className="font-mono text-[10px] text-muted-foreground/70 tabular-nums">
-              {formatDuration(durationMs)}
-            </span>
-          )
-        )}
+        {streaming && <RunningElapsed itemKey={itemKey} since={startedAt} />}
         <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
       </button>
       {expanded && (
-        <p className="t-acc-reveal mt-1.5 border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+        <p className="t-acc-reveal mt-1 ml-[10px] border-l-2 border-border py-0.5 pl-[19px] text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
           {text}
         </p>
       )}
@@ -1248,42 +1275,37 @@ function ToolGroupRow({
   if (item.stats.searches > 0)
     parts.push(t('searched {{count}} times', { count: item.stats.searches }));
   if (item.stats.others > 0) parts.push(t('{{count}} other calls', { count: item.stats.others }));
+  const explored: string[] = [];
   if (compact) {
-    const explored: string[] = [];
     if (item.stats.reads > 0) explored.push(t('{{count}} files', { count: item.stats.reads }));
     if (item.stats.searches > 0)
       explored.push(t('{{count}} searches', { count: item.stats.searches }));
-    return (
-      <button
-        type="button"
-        onClick={() => onToggle?.(item.key)}
-        className={cn(
-          'flex w-full items-baseline gap-1.5 text-left text-sm leading-6 transition-colors hover:text-foreground',
-          item.expanded ? 'text-foreground' : 'text-foreground/70',
-          item.exploring && 'animate-pulse'
-        )}
-      >
-        <span className="shrink-0">{item.exploring ? t('Exploring') : t('Explored')}</span>
-        <span className="min-w-0 flex-1 truncate text-muted-foreground">{explored.join(', ')}</span>
-      </button>
-    );
   }
+  const label = compact
+    ? item.exploring
+      ? t('Exploring')
+      : t('Explored')
+    : t('{{count}} tool calls', { count: item.count });
   return (
     <button
       type="button"
       onClick={() => onToggle?.(item.key)}
-      className="flex w-full items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"
+      className="group/step flex min-h-[30px] w-full items-center gap-2 rounded-lg pr-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
     >
+      <StepNode icon={Layers} state={item.exploring ? 'running' : 'ok'} />
+      {item.exploring ? (
+        <span className="t-shimmer shrink-0 font-medium" data-text={label}>
+          {label}
+        </span>
+      ) : (
+        <span className="shrink-0 font-medium text-foreground/90">{label}</span>
+      )}
+      <span className="min-w-0 flex-1 truncate">
+        {compact ? explored.join(' · ') : parts.join(' · ')}
+      </span>
       <ChevronRight
         className={cn('h-3 w-3 shrink-0 transition-transform', item.expanded && 'rotate-90')}
       />
-      <span className="font-medium">{t('{{count}} tool calls', { count: item.count })}</span>
-      {parts.length > 0 && (
-        <>
-          <span className="text-muted-foreground/50">·</span>
-          <span className="min-w-0 flex-1 truncate">{parts.join(' · ')}</span>
-        </>
-      )}
     </button>
   );
 }
@@ -1488,49 +1510,41 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
   if (item.name.startsWith('goal_')) return <GoalSignalRow item={item} />;
 
   return (
-    <div className={cn(!compact && 'rounded-lg border border-border/60 bg-muted/30')}>
-      <div className="flex items-center">
+    <div data-tool-style={compact ? 'compact' : 'full'}>
+      <div className="flex items-center gap-1">
         <button
           type="button"
           disabled={!expandable}
           onClick={() => setExpanded((v) => !v)}
           className={cn(
-            'flex min-w-0 flex-1 items-center gap-2 text-left',
-            compact
-              ? 'text-sm leading-6 text-foreground/70 transition-colors hover:text-foreground'
-              : 'px-3 py-1.5 text-xs',
-            expandable && !compact && 'cursor-pointer hover:bg-muted/50',
-            expandable && compact && 'cursor-pointer'
+            'group/step flex min-h-[30px] min-w-0 flex-1 items-center gap-2 rounded-lg pr-1.5 text-left text-[13px] transition-colors',
+            expandable && 'cursor-pointer hover:bg-muted/60'
           )}
         >
-          {(!compact || item.state !== 'ok') && <ToolStateIcon state={item.state} />}
-          <span className={cn('shrink-0', !compact && 'font-medium')}>
+          <ToolNode name={item.name} state={item.state} />
+          <span className={cn('shrink-0', compact ? 'text-foreground/80' : 'font-medium')}>
             {item.name === 'exec'
               ? t('Isolated sandbox')
               : item.name === 'apply_patch'
                 ? t('Apply patch')
                 : item.name}
           </span>
-          {item.summary && (
-            <>
-              {!compact && <span className="text-muted-foreground/50">·</span>}
-              <span
-                className={cn(
-                  'min-w-0 flex-1 truncate',
-                  compact ? 'font-mono text-[0.8em]' : 'font-mono',
-                  item.state === 'error' ? 'text-destructive' : 'text-muted-foreground'
-                )}
-              >
-                {item.state === 'error' && item.output
-                  ? item.name === 'apply_patch' && hasFileChanges
-                    ? `${headerSummary} · ${firstLine(item.output)}`
-                    : firstLine(item.output)
-                  : headerSummary}
-              </span>
-            </>
-          )}
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate font-mono text-xs',
+              item.state === 'error' ? 'text-destructive' : 'text-muted-foreground'
+            )}
+          >
+            {!item.summary
+              ? null
+              : item.state === 'error' && item.output
+                ? item.name === 'apply_patch' && hasFileChanges
+                  ? `${headerSummary} · ${firstLine(item.output)}`
+                  : firstLine(item.output)
+                : headerSummary}
+          </span>
           {item.state === 'reviewing' ? (
-            <span className="shrink-0 text-[10px] text-muted-foreground">
+            <span className="t-shimmer shrink-0 text-[11px]" data-text={t('Assistant reviewing…')}>
               {t('Assistant reviewing…')}
             </span>
           ) : item.state === 'running' && item.startedAt !== null ? (
@@ -1551,8 +1565,8 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
           {expandable && (
             <ChevronRight
               className={cn(
-                'h-3 w-3 shrink-0 text-muted-foreground transition-transform',
-                expanded && 'rotate-90'
+                'h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-[opacity,transform] group-hover/step:opacity-100',
+                expanded && 'rotate-90 opacity-100'
               )}
             />
           )}
@@ -1561,77 +1575,80 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
           <button
             type="button"
             title={t('Open in side panel')}
-            className="mr-2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             onClick={() => addSidePanelChanges()}
           >
             <GitCompare className="h-3 w-3" />
           </button>
         )}
       </div>
-      {expanded && hasDiff && item.edits && (
-        <ToolContentScroller follow={item.state === 'running'} className="t-acc-reveal">
-          <EditDiff path={item.summary} blocks={item.edits} />
-        </ToolContentScroller>
-      )}
-      {expanded && hasFileChanges && item.fileChanges && (
-        <ToolContentScroller follow={item.state === 'running'} className="t-acc-reveal">
-          {item.fileChanges.map((change) => (
-            <div
-              key={`${change.type}:${diffCacheKey(change.path, change.oldText, change.newText)}`}
-            >
-              <div className="flex items-center gap-2 border-t border-border/60 px-3 py-1 font-mono text-[10px] text-muted-foreground">
-                <span className="uppercase">{change.type}</span>
-                <span className="min-w-0 flex-1 truncate" title={change.path}>
-                  {change.path}
-                </span>
-                {change.truncated && <span>{t('Truncated preview')}</span>}
-              </div>
-              <EditDiff path={change.path} blocks={[change]} snapshot={change} />
-            </div>
-          ))}
-        </ToolContentScroller>
-      )}
-      {expanded && shouldShowToolOutputAfterFileChanges(item) && (
-        <ToolContentScroller follow={false} className="t-acc-reveal border-t border-border/60">
-          <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
-            {stripAnsi(item.output ?? '')}
-          </pre>
-        </ToolContentScroller>
-      )}
-      {expanded && hasWrite && item.writeContent && (
-        <ToolContentScroller
-          follow={item.state === 'running'}
-          className="t-acc-reveal rounded-b-lg border-t border-border/60"
-        >
-          <ReadFileView path={item.summary} contents={item.writeContent} />
-        </ToolContentScroller>
-      )}
-      {expanded && !hasDiff && !hasWrite && !hasFileChanges && (item.output || item.source) && (
-        <ToolContentScroller
-          follow={item.state === 'running'}
-          className={
-            compact
-              ? 't-acc-reveal mt-1 rounded-lg border border-border/60 bg-muted/30'
-              : 't-acc-reveal rounded-b-lg border-t border-border/60'
-          }
-        >
-          {item.name === 'exec' ? (
-            <SandboxOutput source={item.source} output={item.output} view={sandbox} />
-          ) : item.name === 'bash' ? (
-            <TerminalOutput command={item.summary} output={item.output ?? ''} />
-          ) : item.name === 'read' ? (
-            <ReadFileView path={item.summary} contents={item.output ?? ''} />
-          ) : item.name === 'subagent' && item.state !== 'error' ? (
-            <div className="px-3 py-2 text-sm">
-              <Markdown text={item.output ?? ''} />
-            </div>
-          ) : (
-            <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
-              {stripAnsi(item.output ?? '')}
-            </pre>
+      {expanded && expandable && (
+        // 展开内容收进与工具名对齐的卡片，左侧留给时间线竖线
+        <div className="t-acc-reveal mt-1 mb-1.5 ml-[30px] overflow-hidden rounded-lg border border-border/70 bg-card shadow-xs">
+          {hasDiff && item.edits && (
+            <ToolContentScroller follow={item.state === 'running'}>
+              <EditDiff path={item.summary} blocks={item.edits} />
+            </ToolContentScroller>
           )}
-          <RtkToolStatsBar value={item.rtk} />
-        </ToolContentScroller>
+          {hasFileChanges && item.fileChanges && (
+            <ToolContentScroller follow={item.state === 'running'}>
+              {item.fileChanges.map((change, index) => (
+                <div
+                  key={`${change.type}:${diffCacheKey(change.path, change.oldText, change.newText)}`}
+                >
+                  <div
+                    className={cn(
+                      'flex items-center gap-2 border-border/60 px-3 py-1 font-mono text-[10px] text-muted-foreground',
+                      (index > 0 || hasDiff) && 'border-t'
+                    )}
+                  >
+                    <span className="uppercase">{change.type}</span>
+                    <span className="min-w-0 flex-1 truncate" title={change.path}>
+                      {change.path}
+                    </span>
+                    {change.truncated && <span>{t('Truncated preview')}</span>}
+                  </div>
+                  <EditDiff path={change.path} blocks={[change]} snapshot={change} />
+                </div>
+              ))}
+            </ToolContentScroller>
+          )}
+          {shouldShowToolOutputAfterFileChanges(item) && (
+            <ToolContentScroller follow={false} className="border-t border-border/60">
+              <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+                {stripAnsi(item.output ?? '')}
+              </pre>
+            </ToolContentScroller>
+          )}
+          {hasWrite && item.writeContent && (
+            <ToolContentScroller
+              follow={item.state === 'running'}
+              className={cn((hasDiff || hasFileChanges) && 'border-t border-border/60')}
+            >
+              <ReadFileView path={item.summary} contents={item.writeContent} />
+            </ToolContentScroller>
+          )}
+          {!hasDiff && !hasWrite && !hasFileChanges && (item.output || item.source) && (
+            <ToolContentScroller follow={item.state === 'running'}>
+              {item.name === 'exec' ? (
+                <SandboxOutput source={item.source} output={item.output} view={sandbox} />
+              ) : item.name === 'bash' ? (
+                <TerminalOutput command={item.summary} output={item.output ?? ''} />
+              ) : item.name === 'read' ? (
+                <ReadFileView path={item.summary} contents={item.output ?? ''} />
+              ) : item.name === 'subagent' && item.state !== 'error' ? (
+                <div className="px-3 py-2 text-sm">
+                  <Markdown text={item.output ?? ''} />
+                </div>
+              ) : (
+                <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+                  {stripAnsi(item.output ?? '')}
+                </pre>
+              )}
+              <RtkToolStatsBar value={item.rtk} />
+            </ToolContentScroller>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1742,16 +1759,58 @@ function RunningElapsed({ itemKey, since }: { itemKey: string; since?: number })
   );
 }
 
-function ToolStateIcon({ state }: { state: 'running' | 'reviewing' | 'ok' | 'error' }) {
-  switch (state) {
-    case 'running':
-    case 'reviewing':
-      return <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />;
-    case 'error':
-      return <CircleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" />;
-    default:
-      return <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
-  }
+function toolIcon(name: string): LucideIcon {
+  if (name === 'read') return FileText;
+  if (name === 'ls') return FolderOpen;
+  if (name === 'grep' || name === 'find' || name === 'glob') return Search;
+  if (name === 'bash' || name === 'powershell' || name === 'task_output') return TerminalSquare;
+  if (name === 'edit' || name === 'apply_patch') return Pencil;
+  if (name === 'write') return FilePlus;
+  if (name === 'exec') return BoxSelect;
+  if (name === 'subagent') return Bot;
+  if (name.includes('web') || name.includes('fetch')) return Globe;
+  return Wrench;
+}
+
+/** 时间线节点：工具类型图标；运行中外圈强调色旋转，失败描红 */
+function StepNode({
+  icon: Icon,
+  state,
+}: {
+  icon: LucideIcon;
+  state: 'running' | 'reviewing' | 'ok' | 'error';
+}) {
+  const busy = state === 'running' || state === 'reviewing';
+  return (
+    <span
+      className={cn(
+        'relative flex size-[22px] shrink-0 items-center justify-center rounded-full border text-muted-foreground',
+        busy && 'border-transparent text-brand',
+        state === 'error' && 'border-destructive/40 text-destructive'
+      )}
+    >
+      <Icon className="size-3" />
+      {busy && (
+        <span className="absolute -inset-px animate-spin rounded-full border-[1.5px] border-brand/20 border-t-brand" />
+      )}
+    </span>
+  );
+}
+
+function ToolNode({
+  name,
+  state,
+}: {
+  name: string;
+  state: 'running' | 'reviewing' | 'ok' | 'error';
+}) {
+  return <StepNode icon={toolIcon(name)} state={state} />;
+}
+
+/** 以时间线节点呈现、相邻时用竖线串起的行：普通工具行与工具组头 */
+export function isToolStepRow(item: TimelineItem): boolean {
+  if (item.kind === 'tool-group') return true;
+  return item.kind === 'tool' && !item.todos && !item.name.startsWith('goal_');
 }
 
 const firstLine = (text: string): string => stripAnsi(text.split('\n', 1)[0] ?? '');

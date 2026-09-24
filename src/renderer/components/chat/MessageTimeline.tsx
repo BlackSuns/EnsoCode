@@ -23,15 +23,31 @@ import {
   type TimelineItem,
 } from '@/stores/sessions/timeline';
 import { useSettingsStore } from '@/stores/settings';
+import { EnsoMark } from './EnsoMark';
 import { ChatSearchHighlightContext } from './highlightQuery';
 import { NavRail } from './NavRail';
-import { isCompactRow, RetryTurnButton, TimelineRow } from './TimelineRow';
+import {
+  isCompactRow,
+  isToolStepRow,
+  ReplyHeader,
+  RetryTurnButton,
+  TimelineRow,
+} from './TimelineRow';
 import { nextTimelineReveal } from './timelineReveal';
 import { nextTimelineRowOrigin, type TimelineRowAnchor } from './timelineRowOrigin';
+import { WelcomeSuggestions } from './WelcomeSuggestions';
 
 /** 消息列/输入区共用的列：阶梯 max-w + 水平 padding。padding 必须在列上而不是 @container 上，否则两侧查询宽度差 2rem，会在断点附近上下错位。默认到 4xl 保持原阅读宽度，更宽再逐级加档。 */
 export const CHAT_COL =
   'enso-chat-col mx-auto w-full max-w-2xl px-4 @min-[56rem]:max-w-3xl @min-[72rem]:max-w-4xl @min-[84rem]:max-w-5xl @min-[96rem]:max-w-6xl @min-[112rem]:max-w-7xl';
+
+/** 可作为一轮回复开头、挂身份头的行 */
+const REPLY_ROW_KINDS: ReadonlySet<TimelineItem['kind']> = new Set([
+  'text',
+  'thinking',
+  'tool',
+  'tool-group',
+]);
 
 /** 空状态容器：挂载后播放错峰入场（texts-reveal，rAF 后加 is-shown 触发过渡） */
 function EmptyReveal({ className, children }: { className?: string; children: ReactNode }) {
@@ -91,6 +107,8 @@ interface MessageTimelineProps {
   error?: string;
   /** 空态标题（项目名） */
   emptyTitle: string;
+  /** 空会话建议卡片的点击回调；不传则不显示建议 */
+  onSuggestion?: (prompt: string) => void;
   /** 空时间线且 resume 失败时：再走一遍 jsonl 回放 */
   onRetryResume?: () => void;
   /**
@@ -126,6 +144,7 @@ export function MessageTimeline({
   lastOutputAt,
   error,
   emptyTitle,
+  onSuggestion,
   onRetryResume,
   virtualize = true,
   onStartReached,
@@ -406,19 +425,35 @@ export function MessageTimeline({
   // 精简模式：探索类行（组头/只读/思考）之间贴紧排；正文→探索 也收紧（正文自带 hover 操作条占位），
   // 探索→正文留一点距离
   const rowGap = (item: TimelineItem, index: number): string => {
-    if (!compact) return 'pb-4';
     const next = folded[index + 1];
+    // 时间线上相邻的工具节点贴紧，由竖线串起
+    if (next !== undefined && isToolStepRow(item) && isToolStepRow(next)) return 'pb-1';
+    if (!compact) return 'pb-4';
     const nextCompact = next !== undefined && isCompactRow(next);
     if (isCompactRow(item)) return nextCompact ? 'pb-1' : 'pb-2';
     return item.kind === 'text' && nextCompact ? 'pb-1' : 'pb-4';
   };
   const renderRow = (item: TimelineItem, index: number) => {
+    const prev = folded[index - 1];
+    const next = folded[index + 1];
+    const replyHead =
+      prev?.kind === 'user' && !prev.collapsed && REPLY_ROW_KINDS.has(item.kind) ? prev : undefined;
+    const step = isToolStepRow(item);
     return (
       <div
         key={item.key}
         data-nav-key={item.key}
-        className={cn(CHAT_COL, rowGap(item, index), '[overflow-wrap:anywhere]')}
+        data-reply-head={replyHead ? '' : undefined}
+        data-step-prev={step && prev && isToolStepRow(prev) ? '' : undefined}
+        data-step-next={step && next && isToolStepRow(next) ? '' : undefined}
+        className={cn(
+          CHAT_COL,
+          rowGap(item, index),
+          step && 'enso-step-row',
+          '[overflow-wrap:anywhere]'
+        )}
       >
+        {replyHead && <ReplyHeader model={replyHead.replyModel} at={replyHead.replyAt} />}
         <RowErrorBoundary itemKey={item.key}>
           <TimelineRow item={item} onToggleGroup={toggleGroup} onToggleTurn={setTurnCollapsed} />
         </RowErrorBoundary>
@@ -468,8 +503,11 @@ export function MessageTimeline({
   const renderFooter = () => (
     <div className={cn(CHAT_COL, 'pb-6 [overflow-wrap:anywhere]')}>
       {busy && (
-        <div className="flex items-center gap-2.5">
+        <div className="flex min-h-[26px] items-center gap-2 text-[13px]">
           <LoadingDots />
+          <span className="t-shimmer" data-text={t('Working…')}>
+            {t('Working…')}
+          </span>
           {(lastOutputAt ?? runStartedAt) !== undefined && (
             <ElapsedTimer since={(lastOutputAt ?? runStartedAt) as number} />
           )}
@@ -494,8 +532,15 @@ export function MessageTimeline({
       <div className="@container relative min-h-0 flex-1">
         <NavRail items={navItems} activeKey={activeNavKey} onJump={jumpTo} />
         {items.length === 0 && !busy ? (
-          <EmptyReveal className="flex h-full flex-col items-center justify-center gap-2 text-center">
-            <p className="t-stagger-line t-stagger-line--1 text-lg font-medium">{emptyTitle}</p>
+          <EmptyReveal className="flex h-full flex-col items-center justify-center gap-2 overflow-y-auto px-4 text-center">
+            <span className="t-stagger-line t-stagger-line--1 mb-3">
+              <span className="flex size-11 items-center justify-center rounded-[13px] border border-brand/20 bg-brand/8 text-brand dark:bg-brand/14">
+                <EnsoMark className="size-6" />
+              </span>
+            </span>
+            <p className="t-stagger-line t-stagger-line--1 text-[22px] font-semibold tracking-tight">
+              {emptyTitle}
+            </p>
             {error ? (
               <>
                 <p className="t-stagger-line t-stagger-line--2 max-w-md text-sm text-destructive whitespace-pre-wrap">
@@ -508,9 +553,16 @@ export function MessageTimeline({
                 )}
               </>
             ) : (
-              <p className="t-stagger-line t-stagger-line--2 text-sm text-muted-foreground">
-                {t('Ask the agent…')}
-              </p>
+              <>
+                <p className="t-stagger-line t-stagger-line--2 text-sm text-muted-foreground">
+                  {t('Ask the agent…')}
+                </p>
+                {onSuggestion && (
+                  <div className="t-stagger-line t-stagger-line--3 mt-5 w-full">
+                    <WelcomeSuggestions onPick={onSuggestion} />
+                  </div>
+                )}
+              </>
             )}
           </EmptyReveal>
         ) : items.length === 0 && error ? (
@@ -696,15 +748,10 @@ function HistoryPageHeader({
 
 function LoadingDots() {
   return (
-    <div className="flex items-center gap-1 py-1">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/60"
-          style={{ animationDelay: `${i * 150}ms` }}
-        />
-      ))}
-    </div>
+    <span className="relative flex size-[22px] shrink-0 items-center justify-center">
+      <span className="absolute size-2 animate-ping rounded-full bg-brand/50" />
+      <span className="relative size-2 rounded-full bg-brand" />
+    </span>
   );
 }
 

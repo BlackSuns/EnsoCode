@@ -43,7 +43,7 @@ describe('RTK tool output footer', () => {
 
     expect(html).toContain('bash');
     expect(html).toContain('git log -n 30');
-    expect(html).toContain('rounded-lg border border-border/60 bg-muted/30');
+    expect(html).toContain('data-tool-style="full"');
     expect(html).not.toContain('data-rtk-status');
     expect(html).not.toContain('abc1234 Fix command output');
     expect(html).toBe(
@@ -52,6 +52,6 @@ describe('RTK tool output footer', () => {
     const readHtml = renderToStaticMarkup(
       createElement(TimelineRow, { item: { ...item, name: 'read', rtk: undefined } })
     );
-    expect(readHtml.includes('rounded-lg border border-border/60 bg-muted/30')).toBe(!compact);
+    expect(readHtml).toContain(`data-tool-style="${compact ? 'compact' : 'full'}"`);
   });
 });

@@ -143,6 +143,8 @@ const SEGMENT_ICONS: Record<Exclude<StatusLineSegmentId, 'approval'>, LucideIcon
 
 /** 状态栏对「资源即将耗尽」统一用的警戒阈值：占用/额度达到或超过此百分比即判定紧张，标红提示 */
 const CRITICAL_PERCENT = 90;
+/** 统计条常驻的段数，其余悬停展开 */
+const STATS_ALWAYS_VISIBLE = 3;
 
 // 订阅额度的缓存/去重已提取到 hooks/useAccountUsage，与 ModelPicker/ProvidersSettings 共享同一份缓存
 
@@ -573,7 +575,16 @@ export function StatsLine({ conversationId }: StatsLineProps) {
               </span>
             );
             return (
-              <span key={id} className="flex shrink-0 items-center gap-1.5">
+              // 只常驻前 3 段（用户排序即优先级），其余悬停/聚焦时展开，降低常驻噪音
+              <span
+                key={id}
+                className={cn(
+                  'shrink-0 items-center gap-1.5',
+                  index < STATS_ALWAYS_VISIBLE
+                    ? 'flex'
+                    : 'hidden group-focus-within:flex group-hover:flex'
+                )}
+              >
                 {index > 0 && <Separator orientation="vertical" className="h-3" />}
                 {id === 'context' ? (
                   <Popover>

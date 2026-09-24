@@ -24,6 +24,9 @@ export type TimelineItem =
       turnDurationMs?: number;
       collapsed?: boolean;
       canCollapse?: boolean;
+      /** 本轮首个 assistant 回复的模型与时间，供回复身份头显示 */
+      replyModel?: string;
+      replyAt?: number;
     }
   | {
       kind: 'text';
@@ -627,6 +630,10 @@ function buildMessageTimeline(
 
     // 本轮末 step（后面只剩 toolResult 或已到新一轮 user）且轮内有多个 step 时，正文读数附带活跃总耗时。
     turnSteps += 1;
+    if (turnSteps === 1 && currentTurnUserItem) {
+      if (message.model) currentTurnUserItem.replyModel = message.model;
+      if (message.timestamp !== undefined) currentTurnUserItem.replyAt = message.timestamp;
+    }
     const stepRunMs = completedStepRunMs(message);
     if (stepRunMs !== undefined) turnActiveMs += stepRunMs;
     const isLastStepOfTurn =

@@ -161,7 +161,7 @@ function MarkdownAnchor({ children, href }: { children?: ReactNode; href?: strin
   return (
     <a
       href={href || undefined}
-      className="text-primary underline underline-offset-2"
+      className="text-brand underline decoration-brand/40 underline-offset-2 transition-colors hover:decoration-brand"
       {...(local ? {} : { target: '_blank', rel: 'noreferrer' })}
       onClick={onClick}
     >
@@ -186,14 +186,18 @@ export const markdownComponents: Components = {
   p: ({ children }) => {
     const { searchQuery, activeNth } = useContext(MarkdownCtx);
     return (
-      <p className="my-1.5 leading-relaxed first:mt-0 last:mb-0">
+      <p className="my-2 leading-[1.7] first:mt-0 last:mb-0">
         {searchQuery.trim() ? highlightNode(children, searchQuery, activeNth, { n: 0 }) : children}
       </p>
     );
   },
   a: MarkdownAnchor,
-  ul: ({ children }) => <ul className="my-1.5 list-disc pl-5 space-y-0.5">{children}</ul>,
-  ol: ({ children }) => <ol className="my-1.5 list-decimal pl-5 space-y-0.5">{children}</ol>,
+  ul: ({ children }) => (
+    <ul className="my-2 list-disc pl-5 space-y-1 marker:text-muted-foreground">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="my-2 list-decimal pl-5 space-y-1 marker:text-muted-foreground">{children}</ol>
+  ),
   h1: ({ children }) => <h1 className="mt-3 mb-1.5 text-base font-semibold">{children}</h1>,
   h2: ({ children }) => <h2 className="mt-3 mb-1.5 text-base font-semibold">{children}</h2>,
   h3: ({ children }) => <h3 className="mt-2 mb-1 text-sm font-semibold">{children}</h3>,
@@ -211,7 +215,7 @@ export const markdownComponents: Components = {
       );
     }
     return (
-      <blockquote className="my-1.5 border-l-2 border-border pl-3 text-muted-foreground">
+      <blockquote className="my-2 border-l-2 border-brand/30 pl-3 text-muted-foreground">
         {children}
       </blockquote>
     );
@@ -224,13 +228,17 @@ export const markdownComponents: Components = {
           type="button"
           onClick={() => void navigator.clipboard.writeText(value.split(':')[0])}
           title={value}
-          className="inline-flex max-w-full items-center rounded border bg-muted px-1 py-0.5 align-baseline font-mono text-xs text-primary transition-colors hover:bg-muted/70"
+          className="inline-flex max-w-full items-center rounded-[5px] border border-border/70 bg-muted/70 px-1 py-px align-baseline font-mono text-xs text-brand transition-colors hover:bg-muted"
         >
           <span className="truncate">{value}</span>
         </button>
       );
     }
-    return <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{children}</code>;
+    return (
+      <code className="rounded-[5px] border border-border/70 bg-muted/70 px-1 py-px font-mono text-xs">
+        {children}
+      </code>
+    );
   },
   pre: ({ node }) => {
     const { streaming } = useContext(MarkdownCtx);

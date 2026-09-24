@@ -26,6 +26,7 @@ import { ChatSessionTimeline } from './ChatSessionTimeline';
 import { Composer } from './Composer';
 import { ConversationStatusIndicator } from './ConversationStatusIndicator';
 import { CoworkerTabs } from './CoworkerTabs';
+import { insertComposerText, requestFocusComposer } from './composerMentionBridge';
 import { routeComposerPayload } from './composerRouting';
 import { GoalBar } from './GoalBar';
 import { MarkdownLinkContext } from './Markdown';
@@ -39,6 +40,11 @@ import { dedupeSlashCommands } from './skillCompletion';
 import { TaskBar } from './TaskBar';
 import { WorktreeMissingDialog } from './WorktreeMissingDialog';
 import { WorktreePicker } from './WorktreePicker';
+
+/** 空会话建议：填入输入框并聚焦，由用户确认后再发送 */
+const pickSuggestion = (prompt: string) => {
+  if (insertComposerText(prompt)) requestFocusComposer();
+};
 
 export function ChatView() {
   const { t } = useI18n();
@@ -272,6 +278,7 @@ export function ChatView() {
         conversationId={chrome.id}
         cwd={toolCwd}
         emptyTitle={project?.name ?? 'EnsoCode'}
+        onSuggestion={project ? pickSuggestion : undefined}
         timelineRef={timelineRef}
       />
 

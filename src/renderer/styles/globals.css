@@ -345,6 +345,35 @@ html.enso-chat-wide .enso-chat-col {
   max-width: none;
 }
 
+/*
+ * 工具时间线竖线：画在行容器上才能跨过行间距。节点 22px 居中于 30px 行高（上下缘 4px/26px），
+ * 线段止于节点边缘，不从半透明节点底下穿过；带回复身份头（2rem）的行整体下移。
+ */
+.enso-step-row {
+  position: relative;
+  --enso-step-top: 0px;
+}
+.enso-step-row[data-reply-head] {
+  --enso-step-top: 2rem;
+}
+.enso-step-row[data-step-prev]::before,
+.enso-step-row[data-step-next]::after {
+  content: '';
+  position: absolute;
+  left: calc(1rem + 10.5px);
+  width: 1px;
+  background-color: var(--color-border);
+  pointer-events: none;
+}
+.enso-step-row[data-step-prev]::before {
+  top: 0;
+  height: calc(var(--enso-step-top) + 4px);
+}
+.enso-step-row[data-step-next]::after {
+  top: calc(var(--enso-step-top) + 26px);
+  bottom: 0;
+}
+
 /**
  * @pierre/diffs（edit diff / read 文件视图）：shadow 内 host/pre/gutter/content/行
  * 多层元素都各自刷 --diffs-bg，若给它设半透明色会叠成近乎不透明。
@@ -837,6 +866,7 @@ html.bg-image-enabled [data-slot='composer'] {
   will-change: transform, opacity, filter;
 }
 .t-stagger-line--2 { transition-delay: var(--stagger-stagger); }
+.t-stagger-line--3 { transition-delay: calc(var(--stagger-stagger) * 2); }
 
 .t-stagger.is-shown .t-stagger-line {
   opacity: 1;
