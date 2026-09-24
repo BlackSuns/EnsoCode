@@ -80,7 +80,7 @@ describe('ToolOutputBudget', () => {
   });
 
   it('read 工具不外置，但能按 uri 取回 artifact', async () => {
-    const store = budget(8);
+    const store = budget(64);
     store.write('call-9', 'abcdefghijklmnop');
     const reader = withToolOutputBudget(textTool('read', 'file-body'), store);
     const file = await reader.execute(
@@ -99,6 +99,88 @@ describe('ToolOutputBudget', () => {
       undefined as never
     );
     expect(hit.content).toEqual([{ type: 'text', text: 'abcdefghijklmnop' }]);
+  });
+
+  it('receipt 指引 read/grep 可直接使用 artifact uri，而不是 bash', async () => {
+    const store = budget(16);
+    const wrapped = withToolOutputBudget(textTool('bash', 'x'.repeat(64)), store);
+    const result = await wrapped.execute(
+      'call-2',
+      { command: 'echo' },
+      undefined,
+      undefined,
+      undefined as never
+    );
+    const part = result.content[0];
+    if (part?.type !== 'text') throw new Error('expected text');
+    expect(part.text).toContain(`grep(path="${ARTIFACT_URI_SCHEME}call-2"`);
+    expect(part.text).toContain(`read(path="${ARTIFACT_URI_SCHEME}call-2"`);
+    expect(part.text).toMatch(/not.*bash/i);
+  });
+
+  it('read artifact 遵守 offset/limit 并提示续读位置', async () => {
+    const store = budget(1024);
+    const uri = store.write('call-3', ['l1', 'l2', 'l3', 'l4', 'l5'].join('\n'));
+    const reader = withToolOutputBudget(textTool('read', 'file-body'), store);
+    const hit = await reader.execute(
+      'r3',
+      { path: uri, offset: 2, limit: 2 },
+      undefined,
+      undefined,
+      undefined as never
+    );
+    const part = hit.content[0];
+    if (part?.type !== 'text') throw new Error('expected text');
+    expect(part.text.startsWith('l2\nl3')).toBe(true);
+    expect(part.text).not.toContain('l1');
+    expect(part.text).not.toContain('l4');
+    expect(part.text).toContain('offset=4');
+  });
+
+  it('read artifact 单次输出受字节预算约束', async () => {
+    const store = budget(64);
+    const uri = store.write('call-4', Array.from({ length: 50 }, (_, i) => `line-${i}`).join('\n'));
+    const reader = withToolOutputBudget(textTool('read', 'file-body'), store);
+    const hit = await reader.execute('r4', { path: uri }, undefined, undefined, undefined as never);
+    const part = hit.content[0];
+    if (part?.type !== 'text') throw new Error('expected text');
+    expect(part.text).toContain('line-0');
+    expect(part.text).not.toContain('line-49');
+    expect(part.text).toMatch(/offset=\d+/);
+  });
+
+  it('grep 可按 uri 搜索 artifact，并返回行号', async () => {
+    const store = budget(1024);
+    const uri = store.write('call-5', ['alpha', 'Beta one', 'gamma', 'beta two'].join('\n'));
+    const inner = textTool('grep', 'should-not-run');
+    const grep = withToolOutputBudget(inner, store);
+    const hit = await grep.execute(
+      'g1',
+      { path: uri, pattern: 'beta', ignoreCase: true },
+      undefined,
+      undefined,
+      undefined as never
+    );
+    const part = hit.content[0];
+    if (part?.type !== 'text') throw new Error('expected text');
+    expect(part.text).toContain('2: Beta one');
+    expect(part.text).toContain('4: beta two');
+    expect(part.text).not.toContain('alpha');
+    expect(part.text).not.toContain('should-not-run');
+  });
+
+  it('grep 未知 artifact 报错', async () => {
+    const store = budget(1024);
+    const grep = withToolOutputBudget(textTool('grep', 'x'), store);
+    await expect(
+      grep.execute(
+        'g2',
+        { path: `${ARTIFACT_URI_SCHEME}missing`, pattern: 'x' },
+        undefined,
+        undefined,
+        undefined as never
+      )
+    ).rejects.toThrow(/unknown artifact/);
   });
 
   it('落盘失败时退回 head/tail 预览', async () => {
