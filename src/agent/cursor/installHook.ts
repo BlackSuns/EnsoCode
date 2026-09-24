@@ -1,7 +1,11 @@
 import type { SpawnOptions } from 'node:child_process';
 import * as nodeModule from 'node:module';
 import { startCursorH2Bridge } from './h2Bridge';
-import { handlePiCursorExec, handlePiCursorInteraction } from './sessionBridge';
+import {
+  getBoundCursorBridge,
+  handlePiCursorExec,
+  handlePiCursorInteraction,
+} from './sessionBridge';
 
 declare global {
   // pi-cursor qi/Kg 钩子（pnpm patch）：有会话桥才接管，否则走上游；接管的 exec 不计入本地工具拒绝数
@@ -23,6 +27,8 @@ declare global {
         write: (bytes: Uint8Array) => void
       ) => { handled: boolean; action: string; queryCase: string } | false)
     | undefined;
+  // 为 true 时补丁不注入上游"原生本地工具已禁用"的 root prompt 规则
+  var __ensoCursorHandlesNativeTools: (() => boolean) | undefined;
 }
 
 /** qi/Kg 挂本进程；pi-cursor 的 h2-bridge spawn 仍改成进程内 HTTP/2。 */
@@ -32,6 +38,7 @@ export function installPiCursorExecHook(): void {
     handlePiCursorExec(execCase, execMsg, write);
   globalThis.__ensoCursorHandleInteraction = (query, write) =>
     handlePiCursorInteraction(query, write);
+  globalThis.__ensoCursorHandlesNativeTools = () => getBoundCursorBridge() !== undefined;
 }
 
 let spawnWrapped = false;

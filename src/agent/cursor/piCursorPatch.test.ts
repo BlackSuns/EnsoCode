@@ -21,6 +21,15 @@ describe('pi-cursor pnpm patch', () => {
     expect(bundle).toMatch(/&&!\w+\.__ensoHandled&&\(\w+\.localToolRejections=/);
   });
 
+  // 上游 1.4.37 起在 root prompt 注入"原生本地工具已禁用"规则；Enso 会话桥接管原生工具时不能注入，否则模型拒绝读文件
+  it('skips the native-tools-disabled rule while Enso owns native tools', () => {
+    const require = createRequire(import.meta.url);
+    const bundle = readFileSync(require.resolve('@rahularya01/pi-cursor'), 'utf8');
+    expect(bundle).toMatch(
+      /globalThis\.__ensoCursorHandlesNativeTools\?\.\(\)\?\(\w+\(\)\?\w+\(\w+,\w+\):\[\]\):/
+    );
+  });
+
   // 上游 1.4.32 已不再发 model_details（#23）。回归守卫：补丁只挂 hook，不能把字段加回去。
   it('keeps the upstream Run request without modelDetails', () => {
     const require = createRequire(import.meta.url);
