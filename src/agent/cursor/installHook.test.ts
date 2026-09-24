@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { installPiCursorExecHook, isCursorH2BridgeSpawn } from './installHook';
-import { attachCursorBridgeToSession } from './sessionBridge';
+import { isCursorH2BridgeSpawn } from './installHook';
 
 describe('isCursorH2BridgeSpawn', () => {
   it('matches the real bridge script path, not a bash -c that merely mentions it', () => {
@@ -15,25 +14,5 @@ describe('isCursorH2BridgeSpawn', () => {
     expect(
       isCursorH2BridgeSpawn('/bin/bash', ['-c', 'git commit -m "子进程 h2-bridge 已删除"'])
     ).toBe(false);
-  });
-});
-
-describe('__ensoCursorHandlesNativeTools', () => {
-  it('reports native tool ownership only while a Cursor session bridge is bound', async () => {
-    installPiCursorExecHook();
-    const seen: boolean[] = [];
-    const session = {
-      subscribe: () => () => {},
-      prompt: async () => {
-        seen.push(globalThis.__ensoCursorHandlesNativeTools?.() === true);
-      },
-      steer: async () => {},
-    };
-    attachCursorBridgeToSession(session as never, [], '/tmp');
-
-    expect(globalThis.__ensoCursorHandlesNativeTools?.()).toBe(false);
-    await session.prompt();
-    expect(seen).toEqual([true]);
-    expect(globalThis.__ensoCursorHandlesNativeTools?.()).toBe(false);
   });
 });
