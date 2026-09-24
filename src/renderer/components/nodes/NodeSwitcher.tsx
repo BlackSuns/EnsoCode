@@ -118,7 +118,7 @@ function NodeOption({
       className={cn(
         'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
         selected
-          ? 'bg-primary/10 text-foreground'
+          ? 'bg-brand/10 text-foreground'
           : 'text-muted-foreground hover:bg-muted hover:text-foreground'
       )}
     >
@@ -127,7 +127,7 @@ function NodeOption({
         {label}
         {hint && <span className="ml-1.5 text-[10px] text-muted-foreground">{hint}</span>}
       </span>
-      {selected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+      {selected && <Check className="h-3.5 w-3.5 shrink-0 text-brand" />}
     </button>
   );
 }

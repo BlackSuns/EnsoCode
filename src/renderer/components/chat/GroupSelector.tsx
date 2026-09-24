@@ -42,11 +42,11 @@ export function GroupSelector({
   };
 
   return (
-    <div className="relative border-b">
+    <div className="relative px-2">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="group flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-sm transition-colors hover:bg-accent/50"
+        className="group flex h-9 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-sm transition-colors hover:bg-muted/60"
       >
         {!isAll && !isUngrouped && selected?.emoji && (
           <span className="w-5 shrink-0 text-center text-base">{selected.emoji}</span>
@@ -59,7 +59,7 @@ export function GroupSelector({
           />
         )}
         <span className="min-w-0 flex-1 truncate text-left font-medium">{label}</span>
-        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-muted px-1.5 text-xs text-muted-foreground">
+        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums">
           {count}
         </span>
         <ChevronDown
@@ -71,7 +71,7 @@ export function GroupSelector({
         <span
           role="button"
           tabIndex={0}
-          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+          className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           title={isAll || isUngrouped ? t('New group') : t('Edit group')}
           onClick={(event) => {
             event.stopPropagation();
@@ -96,7 +96,7 @@ export function GroupSelector({
             onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}
             role="presentation"
           />
-          <div className="absolute top-full right-0 left-0 z-50 mt-1 rounded-lg border bg-popover p-1 shadow-lg">
+          <div className="absolute top-full right-2 left-2 z-50 mt-1 rounded-lg border bg-popover p-1 shadow-float">
             <SelectorRow
               dropId={selectorGroupDropId(ALL_GROUP_ID)}
               label={t('All')}
@@ -132,7 +132,7 @@ export function GroupSelector({
                 event.stopPropagation();
                 closeAnd(onAddGroup);
               }}
-              className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             >
               <Plus className="h-4 w-4" />
               <span>{t('New group')}</span>
@@ -174,8 +174,8 @@ function SelectorRow({
         onSelect();
       }}
       className={cn(
-        'group/item flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/50',
-        isOver && 'bg-accent/60'
+        'group/item flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/60',
+        isOver && 'bg-brand/10'
       )}
     >
       {emoji !== undefined && <span className="w-5 shrink-0 text-center text-base">{emoji}</span>}
@@ -189,7 +189,7 @@ function SelectorRow({
       <span className="min-w-0 flex-1 truncate text-left">{label}</span>
       <span className="shrink-0 text-xs text-muted-foreground">{count}</span>
       {selected ? (
-        <Check className="h-4 w-4 shrink-0 text-primary" />
+        <Check className="h-4 w-4 shrink-0 text-brand" />
       ) : onEdit ? (
         <span
           role="button"

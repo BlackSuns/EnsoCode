@@ -47,7 +47,7 @@ export function ConversationStatusIndicator({
         'shrink-0 rounded-full',
         DOT_SIZE[size],
         tone === 'attention' && 'animate-pulse bg-destructive',
-        tone === 'running' && 'animate-pulse bg-blue-500',
+        tone === 'running' && 'animate-pulse bg-brand',
         tone === 'failed' && 'bg-destructive',
         tone === 'unread' && 'bg-green-500',
         tone === 'idle' && 'border border-muted-foreground/50',

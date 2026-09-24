@@ -272,7 +272,7 @@ function TabPill({
         className={cn(
           'h-1.5 w-1.5 shrink-0 rounded-full',
           status === 'running'
-            ? 'animate-pulse bg-blue-500'
+            ? 'animate-pulse bg-brand'
             : status === 'failed'
               ? 'bg-destructive'
               : 'bg-muted-foreground/30'

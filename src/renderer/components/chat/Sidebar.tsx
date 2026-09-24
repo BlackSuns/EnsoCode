@@ -144,7 +144,7 @@ import { WorktreeRenameDialog } from './WorktreeRenameDialog';
 const ARCHIVE_PURGE_DAYS = [7, 15, 30] as const;
 
 const ICON_BUTTON_CLASS =
-  'flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground';
+  'flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground';
 
 interface SidebarProps {
   width?: number;
@@ -736,7 +736,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
         </div>
       )}
       <div className={cn('flex h-full min-h-0 flex-col', collapsed && 'hidden')} style={{ width }}>
-        <div className="flex h-12 shrink-0 items-center justify-between border-b pr-3 pl-1.5">
+        <div className="flex h-12 shrink-0 items-center justify-between pr-3 pl-1.5">
           {/* 节点切换器：本机 / 已连的远程 EnsoCode 桌面 */}
           <NodeSwitcher />
           <div className="flex items-center">
@@ -809,7 +809,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
               value={listQuery}
               onChange={(e) => setListQuery(e.target.value)}
               placeholder={t('Search conversations...')}
-              className="h-8 text-xs [&_input]:pl-8"
+              className="h-8 border-transparent bg-muted/60 text-xs shadow-none ring-brand/15 before:hidden has-focus-visible:border-brand/45 [&_input]:pl-8"
             />
           </div>
         </div>
@@ -819,7 +819,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
             <button
               type="button"
               onClick={() => setAddOpen(true)}
-              className="w-full rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground transition-colors hover:border-ring hover:text-foreground"
+              className="w-full rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground transition-colors hover:border-brand/50 hover:text-foreground"
             >
               {t('Add a project to start')}
             </button>
@@ -1064,7 +1064,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                               <div ref={drag.setNodeRef} style={drag.style}>
                                 {/* 项目行：图标列（折叠态文件夹/hover 折叠箭头）+ 名称 + 常驻操作；整行可拖拽排序 */}
                                 <div
-                                  className="group flex w-full items-center gap-1 rounded-lg px-2 py-2 transition-colors hover:bg-accent/30"
+                                  className="group flex w-full items-center gap-1 rounded-lg px-2 py-2 transition-colors hover:bg-muted/60"
                                   {...drag.handleProps}
                                 >
                                   <button
@@ -1101,7 +1101,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                   <button
                                     type="button"
                                     onClick={() => togglePinProject(project.id)}
-                                    className="hidden shrink-0 rounded p-1 text-muted-foreground group-hover:block hover:bg-muted hover:text-foreground"
+                                    className="hidden shrink-0 rounded-md p-1 text-muted-foreground group-hover:block hover:bg-muted hover:text-foreground"
                                     title={projectPinned ? t('Unpin project') : t('Pin project')}
                                   >
                                     {projectPinned ? (
@@ -1114,7 +1114,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                   <button
                                     type="button"
                                     onClick={() => void newConversation(project.id)}
-                                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                    className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                                     title={t('New conversation')}
                                   >
                                     <MessageSquarePlus className="h-3.5 w-3.5" />
@@ -1191,7 +1191,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                                               ),
                                                             }))
                                                           }
-                                                          className="flex-1 rounded-lg py-1 text-center text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                                                          className="flex-1 rounded-lg py-1 text-center text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
                                                         >
                                                           {t('Show {{n}} more', {
                                                             n: hiddenIds.length,
@@ -1227,7 +1227,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                                       ),
                                                     }))
                                                   }
-                                                  className="flex-1 rounded-lg py-1 text-center text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                                                  className="flex-1 rounded-lg py-1 text-center text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
                                                 >
                                                   {t('Collapse')}
                                                 </button>
@@ -1432,7 +1432,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                 </motion.div>
               )}
             </AnimatePresence>
-            <div className="group flex items-center gap-1 rounded-lg pr-1 transition-colors hover:bg-accent/30">
+            <div className="group flex items-center gap-1 rounded-lg pr-1 transition-colors hover:bg-muted/60">
               <button
                 type="button"
                 onClick={() => setArchivedOpen((open) => !open)}
@@ -1449,7 +1449,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                 <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
                   {t('Archived')}
                 </span>
-                <span className="shrink-0 text-[10px] text-muted-foreground">
+                <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
                   {archivedIds.length}
                 </span>
               </button>
@@ -1467,7 +1467,13 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
           </div>
         )}
 
-        <div className="flex shrink-0 items-center justify-between border-t p-2">
+        {/* 有归档区时它的上边线已隔开列表，底栏不再叠一条 */}
+        <div
+          className={cn(
+            'flex shrink-0 items-center justify-between p-2',
+            slicedArchivedGroups.length === 0 && 'border-t'
+          )}
+        >
           <button
             type="button"
             onClick={onToggleCollapse}
@@ -1667,7 +1673,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
             />
           ) : (
             (dragPayload?.type === 'chat' || dragPayload?.type === 'workspace-file') && (
-              <div className="flex w-56 items-center gap-2 rounded-lg border bg-background/95 px-3 py-1.5 text-sm shadow-md">
+              <div className="flex w-56 items-center gap-2 rounded-lg border bg-background/95 px-3 py-1.5 text-sm shadow-float">
                 {dragPayload.type === 'workspace-file' ? (
                   <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                 ) : (
@@ -1731,8 +1737,8 @@ function ProjectGroupHeader({
         opacity: sortableDrag.isDragging ? 0.4 : undefined,
       }}
       className={cn(
-        'group relative flex h-7 w-full select-none items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground',
-        droppable.isOver && 'bg-accent/40 text-foreground',
+        'group relative flex h-7 w-full select-none items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground',
+        droppable.isOver && 'bg-brand/10 text-foreground',
         sortable && 'cursor-grab'
       )}
       {...(sortable ? sortableDrag.listeners : {})}
@@ -1775,7 +1781,7 @@ function ProjectGroupHeader({
             onEdit();
           }}
           onPointerDown={(event) => event.stopPropagation()}
-          className="absolute inset-y-0 right-1 my-auto flex size-5 items-center justify-center rounded opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+          className="absolute inset-y-0 right-1 my-auto flex size-5 items-center justify-center rounded-md opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
@@ -1814,7 +1820,7 @@ function ProjectDragPreview({
   const hiddenCount = Math.max(0, sessionIds.length - shownIds.length);
   return (
     <div
-      className="pointer-events-none rounded-lg border bg-background/95 py-0.5 shadow-md"
+      className="pointer-events-none rounded-lg border bg-background/95 py-0.5 shadow-float"
       style={{ width: width ?? 224 }}
     >
       <div className="flex items-center gap-2 px-2 py-2 text-sm font-medium">
@@ -2023,7 +2029,7 @@ function PinnedDropZone({
   return (
     <div
       ref={setNodeRef}
-      className={cn('rounded-lg', isOver && draggingChat && 'bg-accent/40 ring-1 ring-ring')}
+      className={cn('rounded-lg', isOver && draggingChat && 'bg-brand/8 ring-1 ring-brand/40')}
       {...rest}
     >
       {children}
@@ -2151,8 +2157,8 @@ function ConversationRow({
         // 会话行与项目行共用图标/文字基准，worktree 与浏览器/终端计数在第二行
         'group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-0.5 rounded-lg py-1.5 pr-2 pl-2 text-sm transition-colors',
         active
-          ? 'bg-muted text-foreground'
-          : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+          ? 'bg-brand/10 text-foreground dark:bg-brand/15'
+          : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
       )}
       onClick={() => {
         if (!renaming) onSelect(id);
@@ -2215,7 +2221,7 @@ function ConversationRow({
                   aria-hidden
                 />
               )}
-              <span className="shrink-0 text-[10px] text-muted-foreground group-hover:hidden">
+              <span className="shrink-0 text-[10px] text-muted-foreground/80 tabular-nums group-hover:hidden">
                 {formatRelativeTime(
                   conversation.lastActiveAt ?? conversation.createdAt,
                   locale,
@@ -2538,7 +2544,7 @@ function ProjectOverflowMenu({ actions }: { actions: ProjectAction[] }) {
     <Menu>
       <MenuTrigger
         aria-label={t('More actions')}
-        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground data-popup-open:bg-muted data-popup-open:text-foreground"
+        className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground data-popup-open:bg-muted data-popup-open:text-foreground"
         title={t('More actions')}
         onPointerDown={(event) => event.stopPropagation()}
       >

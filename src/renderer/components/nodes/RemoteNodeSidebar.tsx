@@ -108,13 +108,13 @@ export function RemoteNodeSidebar({
       onClick={() => onSelect(c.id)}
       className={cn(
         'group flex w-full items-center gap-2 rounded-lg py-1.5 pr-2 pl-4 text-left text-sm transition-colors',
-        activeId === c.id ? 'bg-muted' : 'hover:bg-muted/50'
+        activeId === c.id ? 'bg-brand/10 dark:bg-brand/15' : 'hover:bg-muted/60'
       )}
     >
       <span
         className={cn(
           'h-2 w-2 shrink-0 rounded-full',
-          c.status === 'running' && 'animate-pulse bg-blue-500',
+          c.status === 'running' && 'animate-pulse bg-brand',
           c.status === 'failed' && 'bg-destructive',
           c.status === 'idle' && (c.unread ? 'bg-emerald-500' : 'bg-muted-foreground/30')
         )}
@@ -124,7 +124,7 @@ export function RemoteNodeSidebar({
         {subtitle && <span className="ml-1.5 text-[10px] text-muted-foreground">{subtitle}</span>}
       </span>
       {c.updatedAt !== undefined && (
-        <span className="shrink-0 text-[10px] text-muted-foreground">
+        <span className="shrink-0 text-[10px] text-muted-foreground/80 tabular-nums">
           {formatRelativeTime(c.updatedAt, locale, nowTick)}
         </span>
       )}
@@ -136,7 +136,7 @@ export function RemoteNodeSidebar({
       className="flex shrink-0 flex-col overflow-hidden border-r bg-background"
       style={{ width }}
     >
-      <div className="flex h-12 shrink-0 items-center justify-between border-b pr-3 pl-1.5">
+      <div className="flex h-12 shrink-0 items-center justify-between pr-3 pl-1.5">
         <NodeSwitcher />
         <button
           type="button"
@@ -148,19 +148,20 @@ export function RemoteNodeSidebar({
           <SquarePen className="h-4 w-4" />
         </button>
       </div>
-      <div className="shrink-0 border-b px-2 py-2">
+      {/* 顶部只在列表上方留一条分隔线 */}
+      <div className={cn('shrink-0 px-2 py-2', groups.length === 0 && 'border-b')}>
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('Search conversations...')}
-            className="h-8 text-xs [&_input]:pl-8"
+            className="h-8 border-transparent bg-muted/60 text-xs shadow-none ring-brand/15 before:hidden has-focus-visible:border-brand/45 [&_input]:pl-8"
           />
         </div>
       </div>
       {groups.length > 0 && (
-        <div className="shrink-0 border-b px-2 py-2">
+        <div className="shrink-0 border-b px-2 pb-2">
           <Select
             items={[
               { value: ALL_GROUP_ID, label: t('All') },
@@ -278,7 +279,7 @@ export function RemoteNodeSidebar({
               <button
                 type="button"
                 onClick={() => setFolded((prev) => ({ ...prev, [project.id]: !isFolded }))}
-                className="flex w-full items-center gap-1.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/50"
+                className="flex w-full items-center gap-1.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/60"
               >
                 {isFolded ? (
                   <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -320,7 +321,7 @@ export function RemoteNodeSidebar({
             <button
               type="button"
               onClick={() => setArchivedOpen((v) => !v)}
-              className="flex w-full items-center gap-1.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/50"
+              className="flex w-full items-center gap-1.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/60"
             >
               <Archive className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate font-medium text-sm">{t('Archived')}</span>
