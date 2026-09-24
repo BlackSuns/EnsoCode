@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@rahularya01/pi-cursor@1.4.38':
-    hash: 5bdc005bd4255c562b3e794fd5c1f98a4f1cb3fe86adb0f516db6283c80a4542
+    hash: d0eae472c453f3d0466fb4b330a6137b37cb2913f5221d1850a1efcd94f54627
     path: patches/@rahularya01__pi-cursor@1.4.38.patch
 
 importers:
@@ -39,7 +39,7 @@ importers:
         version: 1.30.0(zod@4.4.3)
       '@rahularya01/pi-cursor':
         specifier: 1.4.38
-        version: 1.4.38(patch_hash=5bdc005bd4255c562b3e794fd5c1f98a4f1cb3fe86adb0f516db6283c80a4542)(@earendil-works/pi-ai@0.87.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))(@earendil-works/pi-coding-agent@0.87.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))
+        version: 1.4.38(patch_hash=d0eae472c453f3d0466fb4b330a6137b37cb2913f5221d1850a1efcd94f54627)(@earendil-works/pi-ai@0.87.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))(@earendil-works/pi-coding-agent@0.87.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))
       '@vscode/ripgrep':
         specifier: 1.17.0
         version: 1.17.0
@@ -6974,7 +6974,7 @@ snapshots:
 
   '@protobufjs/utf8@1.1.2': {}
 
-  '@rahularya01/pi-cursor@1.4.38(patch_hash=5bdc005bd4255c562b3e794fd5c1f98a4f1cb3fe86adb0f516db6283c80a4542)(@earendil-works/pi-ai@0.87.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))(@earendil-works/pi-coding-agent@0.87.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))':
+  '@rahularya01/pi-cursor@1.4.38(patch_hash=d0eae472c453f3d0466fb4b330a6137b37cb2913f5221d1850a1efcd94f54627)(@earendil-works/pi-ai@0.87.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))(@earendil-works/pi-coding-agent@0.87.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3))':
     dependencies:
       '@bufbuild/protobuf': 2.13.0
       '@earendil-works/pi-ai': 0.87.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)

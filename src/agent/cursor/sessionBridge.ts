@@ -236,8 +236,7 @@ function execFrameFromCase(
         path: str(args.path) || undefined,
         glob: str(args.glob) || undefined,
       };
-    case 'shellArgs':
-    case 'shellStreamArgs':
+    // 原生 shellArgs/shellStreamArgs 不接管：回写后 Cursor 不再推进，交给 pi-cursor 引导走 Pi bash
     case 'piBash':
       return {
         type: 'shell',

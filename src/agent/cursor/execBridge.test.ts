@@ -265,4 +265,40 @@ describe('createCursorSessionBridge', () => {
     expect(writes.length).toBe(1);
     expect(writes[0]?.length).toBeGreaterThan(5);
   });
+
+  // Cursor 原生 shell 回写后服务端不再推进（9 月中起必挂），交还 pi-cursor 拒绝并引导走 Pi bash 工具
+  it('prompt 期间原生 shell 帧不接管', async () => {
+    const invoked: unknown[] = [];
+    const handled: unknown[] = [];
+    const session = {
+      subscribe() {
+        return () => {};
+      },
+      prompt: async () => {
+        for (const execCase of ['shellArgs', 'shellStreamArgs']) {
+          handled.push(
+            handlePiCursorExec(
+              execCase,
+              { id: 1, execId: 'ex', message: { value: { command: 'pwd', toolCallId: 's1' } } },
+              () => {}
+            )
+          );
+        }
+      },
+      steer: async () => {},
+    };
+    attachCursorBridgeToSession(
+      session as never,
+      [
+        fakeTool('bash', async (_id, args) => {
+          invoked.push(args);
+          return { content: [{ type: 'text', text: '/tmp' }] };
+        }),
+      ],
+      '/tmp'
+    );
+    await session.prompt();
+    expect(handled).toEqual([false, false]);
+    expect(invoked).toEqual([]);
+  });
 });

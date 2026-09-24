@@ -21,6 +21,19 @@ describe('pi-cursor pnpm patch', () => {
     expect(bundle).toMatch(/&&!\w+\.__ensoHandled&&\(\w+\.localToolRejections=/);
   });
 
+  // Rahularya01/pi-cursor#40：GetDynamicTools 不列 pi 命名空间，Claude 类模型据此放弃；规则和拒绝文案都要指明 CallDynamicTool
+  it('guides models to CallDynamicTool when the pi namespace is missing from discovery', () => {
+    const require = createRequire(import.meta.url);
+    const bundle = readFileSync(require.resolve('@rahularya01/pi-cursor'), 'utf8');
+    // 规则文案在双引号字符串里（引号转义），拒绝文案在模板字符串里
+    expect(bundle).toContain(
+      'call them with CallDynamicTool using namespace \\"pi\\" and toolName \\"mcp_pi_<name>\\"'
+    );
+    expect(bundle).toContain(
+      'call them with CallDynamicTool using namespace "pi" and toolName set to the listed name'
+    );
+  });
+
   // 上游 1.4.32 已不再发 model_details（#23）。回归守卫：补丁只挂 hook，不能把字段加回去。
   it('keeps the upstream Run request without modelDetails', () => {
     const require = createRequire(import.meta.url);
