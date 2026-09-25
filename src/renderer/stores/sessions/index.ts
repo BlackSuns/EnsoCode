@@ -518,6 +518,47 @@ export const useSessionsStore = create<SessionsState>()(
        */
       const pendingTitleBaselines = new Map<string, string>();
       const rewindInFlight = new Set<string>();
+      const forkWakeInFlight = new Set<string>();
+
+      /** 唤醒后等该会话 worker 真正 ready（spawn ack 后 spawning 仍在，需等其 snapshot） */
+      function waitForWorkerReady(
+        conversationId: string,
+        sessionFile: string | undefined
+      ): Promise<'ready' | 'failed'> {
+        return new Promise((resolve) => {
+          let settled = false;
+          const finish = (next: 'ready' | 'failed') => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            unsubscribe();
+            resolve(next);
+          };
+          const check = () => {
+            const next = rewindWorkerPhase(get().conversations[conversationId], sessionFile);
+            if (next !== 'wait') finish(next);
+          };
+          const unsubscribe = useSessionsStore.subscribe(check);
+          const timer = setTimeout(() => finish('failed'), 30_000);
+          check();
+        });
+      }
+
+      /** 冷主会话分叉前先 resume；fork 需要源会话的活 generation */
+      async function wakeForFork(conversationId: string): Promise<boolean> {
+        const conversation = get().conversations[conversationId];
+        if (!conversation || conversation.started) return true;
+        if (!canWakeConversationForRewind(conversation) || forkWakeInFlight.has(conversationId)) {
+          return false;
+        }
+        forkWakeInFlight.add(conversationId);
+        try {
+          await get().resumeConversation(conversationId);
+          return (await waitForWorkerReady(conversationId, conversation.sessionFile)) === 'ready';
+        } finally {
+          forkWakeInFlight.delete(conversationId);
+        }
+      }
 
       const rewindDraftGuard = new Map<string, string>();
       /** 回退目标的绝对保留长度；回退中快照超过这个长度视为未截断的旧会话 */
@@ -3541,23 +3582,7 @@ export const useSessionsStore = create<SessionsState>()(
               if (!get().conversations[conversationId]?.started) {
                 await get().resumeConversation(conversationId);
               }
-              const phase = await new Promise<'ready' | 'failed'>((resolve) => {
-                let settled = false;
-                const finish = (next: 'ready' | 'failed') => {
-                  if (settled) return;
-                  settled = true;
-                  clearTimeout(timer);
-                  unsubscribe();
-                  resolve(next);
-                };
-                const check = () => {
-                  const next = rewindWorkerPhase(get().conversations[conversationId], sessionFile);
-                  if (next !== 'wait') finish(next);
-                };
-                const unsubscribe = useSessionsStore.subscribe(check);
-                const timer = setTimeout(() => finish('failed'), 30_000);
-                check();
-              });
+              const phase = await waitForWorkerReady(conversationId, sessionFile);
               const after = get().conversations[conversationId];
               if (
                 phase === 'ready' &&
@@ -3589,10 +3614,12 @@ export const useSessionsStore = create<SessionsState>()(
         },
 
         async forkFromMessage(conversationId, userIndexFromEnd) {
+          if (!(await wakeForFork(conversationId))) return null;
           return forkConversation(get, set, conversationId, { userIndexFromEnd });
         },
 
         async forkFromEntry(conversationId, entryId) {
+          if (!(await wakeForFork(conversationId))) return null;
           return forkConversation(get, set, conversationId, { entryId });
         },
 

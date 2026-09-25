@@ -124,6 +124,9 @@ const agentRelease = vi.fn(async (_id: string) => ({ ok: true }));
 const btwSpawn = vi.fn(async () => ({ ok: true }));
 const btwDispose = vi.fn(async () => ({ ok: true }));
 const agentRewind = vi.fn(async () => ({ ok: true }));
+const agentFork = vi.fn(async (_sourceId: string, _targetId: string, _anchor: unknown) => ({
+  ok: true,
+}));
 const requestSnapshot = vi.fn(async () => ({ ok: true }));
 const agentSetPlanMode = vi.fn(
   async (_id: string, _active: boolean) =>
@@ -176,6 +179,7 @@ vi.stubGlobal('window', {
       abort: agentAbort,
       release: agentRelease,
       rewind: agentRewind,
+      fork: agentFork,
       steer: vi.fn(async () => ({ ok: true })),
       setPlanMode: agentSetPlanMode,
     },
@@ -4166,6 +4170,73 @@ describe('rewind 在 failed 状态放行、running 仍拦截', () => {
     sessionsModule.useSessionsStore.getState().rewind('coworker', 0, false);
     expect(agentSpawn).not.toHaveBeenCalled();
     expect(agentRewind).not.toHaveBeenCalled();
+  });
+
+  it('冷加载主会话分支：先 resume，含该会话 snapshot 后才 fork', async () => {
+    enableRewindResumeModel();
+    agentFork.mockClear();
+    let finishSpawn: ((value: { ok: true }) => void) | undefined;
+    agentSpawn.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSpawn = resolve;
+        })
+    );
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: false,
+          spawning: false,
+          status: 'idle' as const,
+          sessionFile: '/tmp/cold.jsonl',
+          lastProviderId: 'p1',
+          lastModelId: 'm1',
+        },
+      },
+    }));
+    nextConversationId = 'forked';
+    const forked = sessionsModule.useSessionsStore.getState().forkFromMessage('parent', 1);
+    await vi.waitFor(() =>
+      expect(agentSpawn).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'parent', resumeFile: '/tmp/cold.jsonl' })
+      )
+    );
+    finishSpawn?.({ ok: true });
+    await vi.waitFor(() =>
+      expect(sessionsModule.useSessionsStore.getState().conversations.parent.started).toBe(true)
+    );
+    expect(agentFork).not.toHaveBeenCalled();
+    emitRewindSnapshot();
+    await expect(forked).resolves.toBe('forked');
+    expect(agentFork).toHaveBeenCalledWith('parent', 'forked', { userIndexFromEnd: 1 });
+  });
+
+  it('冷会话 resume 失败不 fork、不建分支会话', async () => {
+    enableRewindResumeModel();
+    agentFork.mockClear();
+    agentSpawn.mockResolvedValueOnce({ ok: false });
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: false,
+          spawning: false,
+          status: 'idle' as const,
+          sessionFile: '/tmp/cold.jsonl',
+          lastProviderId: 'p1',
+          lastModelId: 'm1',
+        },
+      },
+    }));
+    nextConversationId = 'forked';
+    await expect(
+      sessionsModule.useSessionsStore.getState().forkFromMessage('parent', 0)
+    ).resolves.toBe(null);
+    expect(agentFork).not.toHaveBeenCalled();
+    expect(sessionsModule.useSessionsStore.getState().conversations.forked).toBeUndefined();
   });
 });
 

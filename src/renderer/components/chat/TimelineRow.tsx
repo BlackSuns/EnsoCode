@@ -54,8 +54,10 @@ import { TOOL_LABEL_KEYS } from '@/lib/toolLabels';
 import { cn } from '@/lib/utils';
 import { useSessionsStore } from '@/stores/sessions';
 import {
+  canShowConversationFork,
   canShowConversationRewind,
   resolveRewindConfirm,
+  userIndexFromEndForTurnKey,
 } from '@/stores/sessions/conversationRewind';
 import { formatDuration, formatTokens } from '@/stores/sessions/stats';
 import {
@@ -827,33 +829,6 @@ export function RetryTurnButton() {
   );
 }
 
-function userIndexFromEndAt(conversation: { messages: { role: string }[] }, messageIndex: number) {
-  if (conversation.messages[messageIndex]?.role !== 'user') return null;
-  // 从末尾数的 user 序号:worker 侧与 jsonl 分支按尾部对齐(容忍 compaction)
-  return conversation.messages.slice(messageIndex + 1).filter((message) => message.role === 'user')
-    .length;
-}
-
-function userIndexFromEndForTurn(
-  conversation: { messages: { role: string }[] },
-  messageIndex: number
-) {
-  for (let i = messageIndex; i >= 0; i--) {
-    if (conversation.messages[i]?.role === 'user') return userIndexFromEndAt(conversation, i);
-  }
-  return null;
-}
-
-function canActOnDisplayedSession(
-  state: ReturnType<typeof useSessionsStore.getState>,
-  host: ReturnType<typeof useChatHost>,
-  statusOk: (status: string) => boolean
-) {
-  if (host && !host.canRewind) return false;
-  const conversation = displayedConversation(state);
-  return Boolean(conversation?.started && !conversation.spawning && statusOk(conversation.status));
-}
-
 /** 回退：failed 也可；未 ready 的 spawning / 冷会话走 store 唤醒，不在这里强行显示不安全入口 */
 function canRewindDisplayedSession(
   state: ReturnType<typeof useSessionsStore.getState>,
@@ -862,26 +837,16 @@ function canRewindDisplayedSession(
   return canShowConversationRewind(displayedConversation(state), host);
 }
 
-function canForkDisplayedSession(
-  state: ReturnType<typeof useSessionsStore.getState>,
-  host: ReturnType<typeof useChatHost>
-) {
-  if (host?.canFork === false) return false;
-  return canActOnDisplayedSession(state, host, (status) => status === 'idle');
-}
-
 const userActionClass =
   'flex items-center gap-1 text-[11px] text-muted-foreground transition-opacity hover:text-foreground';
 
-/** 分叉入口：与回退并列；仅 idle 且已 spawn 的 root 显示 */
+/** 分叉入口：与回退并列；idle 的 root 显示，冷会话点击时由 store 先唤醒 */
 function ForkButton({ messageIndex }: { messageIndex: number }) {
   const { t } = useI18n();
   const host = useChatHost();
-  const canFork = useSessionsStore((state) => {
-    if (!canForkDisplayedSession(state, host)) return false;
-    const conversation = displayedConversation(state);
-    return Boolean(conversation && !conversation.parentId && !conversation.historyOnly);
-  });
+  const canFork = useSessionsStore((state) =>
+    canShowConversationFork(displayedConversation(state), host)
+  );
   if (!canFork) return null;
   return (
     <button
@@ -892,7 +857,7 @@ function ForkButton({ messageIndex }: { messageIndex: number }) {
         const state = useSessionsStore.getState();
         const conversation = displayedConversation(state);
         if (!conversation) return;
-        const userIndexFromEnd = userIndexFromEndForTurn(conversation, messageIndex);
+        const userIndexFromEnd = userIndexFromEndForTurnKey(conversation, messageIndex);
         if (userIndexFromEnd === null) return;
         void state.forkFromMessage(conversation.id, userIndexFromEnd);
       }}
