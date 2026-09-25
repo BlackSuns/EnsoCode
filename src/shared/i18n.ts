@@ -371,6 +371,7 @@ export const zhTranslations: Record<string, string> = {
   'Authorized. Takes effect in new conversations.': '已授权，新会话生效。',
   'Always loaded': '常驻',
   'On demand': '按需',
+  'Load mode': '加载方式',
   'On demand: tool descriptions are not preloaded into context; the model connects through the mcp tool when needed. Suits servers with many or rarely used tools. Takes effect in new conversations.':
     '按需：不预先把工具说明放进上下文，模型用到时经 mcp 工具连接；适合工具多、不常用的 server。新会话生效。',
   '{{count}} tools': '{{count}} 个工具',

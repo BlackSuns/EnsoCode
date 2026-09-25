@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { type McpServerStatus, useMcpStatusStore } from '@/stores/mcpStatus';
@@ -238,21 +239,29 @@ export function McpSettings() {
                             server.enabled && occupancy.pending && !occupancy.rows[server.id]
                           }
                         />
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          className="text-xs"
+                        <Tabs
+                          value={deferred ? 'deferred' : 'direct'}
+                          onValueChange={(value) =>
+                            updateMcpServer(server.id, {
+                              loadMode: value === 'deferred' ? 'deferred' : 'direct',
+                            })
+                          }
                           title={t(
                             'On demand: tool descriptions are not preloaded into context; the model connects through the mcp tool when needed. Suits servers with many or rarely used tools. Takes effect in new conversations.'
                           )}
-                          onClick={() =>
-                            updateMcpServer(server.id, {
-                              loadMode: deferred ? 'direct' : 'deferred',
-                            })
-                          }
                         >
-                          {deferred ? t('On demand') : t('Always loaded')}
-                        </Button>
+                          <TabsList aria-label={t('Load mode')}>
+                            <TabsTab value="direct" className="h-6 px-2 text-xs sm:h-6 sm:text-xs">
+                              {t('Always loaded')}
+                            </TabsTab>
+                            <TabsTab
+                              value="deferred"
+                              className="h-6 px-2 text-xs sm:h-6 sm:text-xs"
+                            >
+                              {t('On demand')}
+                            </TabsTab>
+                          </TabsList>
+                        </Tabs>
                         <Switch
                           checked={server.enabled}
                           onCheckedChange={(enabled) => updateMcpServer(server.id, { enabled })}
