@@ -8,9 +8,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  Circle,
   CircleAlert,
-  CircleDot,
   Copy,
   FilePlus,
   FileText,
@@ -78,6 +76,7 @@ import { RtkToolStatsBar } from './RtkToolStatsBar';
 import { SlashChip, slashChipClass, splitSlashCommand } from './SlashChip';
 import { StepNode, type StepNodeState } from './StepNode';
 import { TerminalOutput } from './TerminalOutput';
+import { TodoList } from './TodoBar';
 import { ZoomableImage } from './ZoomableImage';
 
 const perfEqual = (a?: TurnPerf, b?: TurnPerf): boolean =>
@@ -1718,30 +1717,7 @@ function TodoRow({ todos }: { todos: TodoItem[] }) {
           {done}/{todos.length}
         </span>
       </div>
-      <ul className="space-y-0.5 text-xs">
-        {todos.map((todo) => (
-          <li key={todo.content} className="flex items-start gap-1.5">
-            {todo.status === 'completed' ? (
-              <Check className="mt-0.5 h-3 w-3 shrink-0 text-green-600 dark:text-green-500" />
-            ) : todo.status === 'in_progress' ? (
-              <CircleDot className="mt-0.5 h-3 w-3 shrink-0 text-blue-500" />
-            ) : (
-              <Circle className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/50" />
-            )}
-            <span
-              className={cn(
-                todo.status === 'completed'
-                  ? 'text-muted-foreground line-through'
-                  : todo.status === 'in_progress'
-                    ? 'font-medium'
-                    : 'text-muted-foreground'
-              )}
-            >
-              {todo.content}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <TodoList todos={todos} />
     </div>
   );
 }

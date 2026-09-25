@@ -204,6 +204,10 @@ export const zhTranslations: Record<string, string> = {
     'read/grep/find/ls 显示为单行，agent 运行中也折叠连续的工具调用',
   'Auto-collapse previous turns': '自动折叠历史轮次',
   'Collapse activity after reply': '回答完成后折叠过程',
+  'Pin unfinished todos': '固定显示未完成待办',
+  'Keep the latest todo list above the input while it has unfinished items, so it does not scroll away with the timeline':
+    '最新任务清单还有未完成项时，固定显示在输入框上方，不随时间线滚走',
+  'Hide until the todo list updates': '隐藏，清单更新后再显示',
   'When a reply finishes, fold consecutive thinking and tool calls (including edits and commands) into one summary row; failed calls stay visible':
     '回答结束后，把连续的思考和工具调用（包括编辑、命令）折成一行摘要；失败的调用仍单独显示',
   'Worked for {{duration}}': '已工作 {{duration}}',
