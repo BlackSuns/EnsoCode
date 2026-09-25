@@ -148,7 +148,7 @@ const initialState = {
   expandLiveEdits: true,
   expandLiveReasoning: true,
   autoCollapseTurns: false,
-  collapseCompletedActivity: false,
+  collapseCompletedActivity: true,
   pinUnfinishedTodos: true,
   chatWide: false,
   notifyMainAgentOnly: true,
