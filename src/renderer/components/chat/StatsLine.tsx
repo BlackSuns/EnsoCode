@@ -486,6 +486,8 @@ export function StatsLine({ conversationId }: StatsLineProps) {
   // 只在 store 里的原始值真的变化时才重新计算，不会每次 render 都产生新数组打断记忆化。
   const enabledSegments = useMemo(() => sanitizeStatusLineSegments(rawSegments), [rawSegments]);
   const [hoveredId, setHoveredId] = useState<StatusLineSegmentId | null>(null);
+  // 上下文弹层打开期间保持展开：否则鼠标移向弹层时悬停段收起，居中的锚点横移，弹层跟着跳
+  const [contextOpen, setContextOpen] = useState(false);
 
   const accountKey = useMemo(() => {
     if (!enabledSegments.includes('usage')) return undefined;
@@ -571,13 +573,13 @@ export function StatsLine({ conversationId }: StatsLineProps) {
                 key={id}
                 className={cn(
                   'shrink-0 items-center',
-                  isStatusLineSegmentPinned(id, index)
+                  contextOpen || isStatusLineSegmentPinned(id, index)
                     ? 'flex'
                     : 'hidden group-focus-within:flex group-hover:flex'
                 )}
               >
                 {id === 'context' ? (
-                  <Popover>
+                  <Popover open={contextOpen} onOpenChange={setContextOpen}>
                     <PopoverTrigger className="rounded-sm outline-none">{segment}</PopoverTrigger>
                     <PopoverPopup side="top" className="w-72 [&_[data-slot=popover-viewport]]:p-0">
                       <ContextInspector
