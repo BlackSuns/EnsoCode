@@ -1216,7 +1216,11 @@ export const useSessionsStore = create<SessionsState>()(
                     ...(metadata
                       ? {
                           generation: metadata.childGeneration,
-                          child: metadata,
+                          // worker 回流的 metadata 不带 mode，沿用 Main 预约时的权威值
+                          child:
+                            metadata.mode || !existing.child?.mode
+                              ? metadata
+                              : { ...metadata, mode: existing.child.mode },
                           agentType: metadata.agentTypeKey,
                         }
                       : {}),

@@ -1280,6 +1280,29 @@ describe('typed Agent child projection', () => {
         sessionsModule.useSessionsStore.getState().conversations[child.sessionId].lastModelId
       ).toBe('claude-opus-5');
     });
+
+    it('worker 回流的 coworker-update 不带 mode 时保留 Main 预约的 task / coworker 模式', () => {
+      const reserved = reserve(1);
+      if (reserved.type !== 'child-reserved') throw new Error('expected reservation');
+      onAgentEvent?.({ ...reserved, metadata: { ...reserved.metadata, mode: 'task' } });
+      const child = childIdentity(1);
+      onAgentEvent?.({
+        type: 'coworker-update',
+        identity: child.parent,
+        seq: 2,
+        coworker: {
+          id: child.sessionId,
+          child: { ...reserved.metadata },
+          name: child.instanceName,
+          agentType: child.typeKey,
+          status: 'running',
+          createdAt: 1,
+        },
+      });
+      expect(
+        sessionsModule.useSessionsStore.getState().conversations[child.sessionId].child?.mode
+      ).toBe('task');
+    });
   });
 
   describe('手动雇佣委托 Main dispatch', () => {
