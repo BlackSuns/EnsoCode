@@ -124,7 +124,7 @@ const APPROVAL_ICONS: Record<ApprovalMode, LucideIcon> = {
 };
 
 /** 设置弹层里代表每段的 icon（全部 13 段恒有值），`approval` 的 icon 随档位变化；
- *  状态栏本体只给 `INLINE_ICON_SEGMENTS` 画图标。 */
+ *  状态栏本体的 `context` 段在窗口已知时用进度条代替图标。 */
 const SEGMENT_ICONS: Record<Exclude<StatusLineSegmentId, 'approval'>, LucideIcon> = {
   model: Cpu,
   context: Gauge,
@@ -146,20 +146,6 @@ const CRITICAL_PERCENT = 90;
 const WARNING_PERCENT = 70;
 /** 统计条常驻的段数，其余悬停展开 */
 const STATS_ALWAYS_VISIBLE = 3;
-/** 状态栏内联的段名前缀（纯数字段不带前缀认不出） */
-const INLINE_LABEL_KEYS: Partial<Record<StatusLineSegmentId, string>> = {
-  context: 'Context',
-  cache: 'Cache',
-  turns: 'Turns',
-};
-/** 值本身不自解释、状态栏里仍需图标的段（approval 纯图标） */
-const INLINE_ICON_SEGMENTS = new Set<StatusLineSegmentId>([
-  'approval',
-  'cwd',
-  'sessionName',
-  'coworkers',
-  'usage',
-]);
 
 // 订阅额度的缓存/去重已提取到 hooks/useAccountUsage，与 ModelPicker/ProvidersSettings 共享同一份缓存
 
@@ -229,7 +215,10 @@ export function resolveSegmentIcons(
 /** 上下文占用进度条，比纯数字更直观地传达「还剩多少」。 */
 function ContextMeter({ percent, critical }: { percent: number; critical: boolean }) {
   return (
-    <span aria-hidden className="h-1 w-9 shrink-0 overflow-hidden rounded-full bg-muted">
+    <span
+      aria-hidden
+      className="h-1 w-7 shrink-0 overflow-hidden rounded-full bg-muted-foreground/20"
+    >
       <span
         className={cn(
           'block h-full rounded-full',
@@ -237,7 +226,7 @@ function ContextMeter({ percent, critical }: { percent: number; critical: boolea
             ? 'bg-destructive'
             : percent >= WARNING_PERCENT
               ? 'bg-warning'
-              : 'bg-muted-foreground/60'
+              : 'bg-muted-foreground/70'
         )}
         style={{ width: `${percent}%` }}
       />
@@ -332,7 +321,7 @@ function buildSegmentValues(
       conversation.lastModelId;
     const level = conversation.reasoningEnabled ? conversation.thinkingLevel : undefined;
     values.model = {
-      compact: level ? `${label}·${t(THINKING_LEVEL_SHORT_KEYS[level])}` : label,
+      compact: level ? `${label} · ${t(THINKING_LEVEL_SHORT_KEYS[level])}` : label,
       full: level ? `${label} · ${t(THINKING_LEVEL_FULL_KEYS[level])}` : label,
     };
   }
@@ -383,7 +372,7 @@ function buildSegmentValues(
     durationFull.push(t('Tool calls {{duration}}', { duration: formatDuration(totalToolMs) }));
   }
   if (durationCompact.length > 0) {
-    values.duration = { compact: durationCompact.join('·'), full: durationFull.join(' · ') };
+    values.duration = { compact: durationCompact.join(' · '), full: durationFull.join(' · ') };
   }
 
   // 会话墙钟：createdAt 只在创建/导入时写一次、resume 不重写，是稳定的「会话开始」时刻；
@@ -403,11 +392,11 @@ function buildSegmentValues(
     );
   }
   if (stats.tokensPerSecond !== null) {
-    speedCompact.push(`${stats.tokensPerSecond}tok/s`);
+    speedCompact.push(`${stats.tokensPerSecond} tok/s`);
     speedFull.push(t('{{speed}} tok/s', { speed: stats.tokensPerSecond }));
   }
   if (speedCompact.length > 0) {
-    values.speed = { compact: speedCompact.join('·'), full: speedFull.join(' · ') };
+    values.speed = { compact: speedCompact.join(' · '), full: speedFull.join(' · ') };
   }
 
   if (stats.inputTokens > 0 || stats.outputTokens > 0) {
@@ -483,7 +472,7 @@ function buildSegmentValues(
   return values;
 }
 
-/** composer 下方的会话统计条：段位驱动的紧凑呈现，纯数字段带短段名、不自解释的段带图标。
+/** composer 下方的会话统计条：段位驱动、每段「图标 + 值」的紧凑呈现，段名只在悬停提示与设置弹层里。
  *  段位顺序 = `statusLineSegments` 数组自身顺序（用户可在设置弹层拖拽），预设不进存储，
  *  见 `statusLinePresetOf`。外层恒占一行高度（h-7）：避免统计从无到有时输入框跳动；
  *  全部段位关掉时仍渲染空容器 + hover 齿轮，否则用户关完就再也打不开设置。 */
@@ -545,12 +534,11 @@ export function StatsLine({ conversationId }: StatsLineProps) {
       className="group relative flex h-7 items-center justify-center px-1"
     >
       {visibleSegments.length > 0 && (
-        <div className="flex min-w-0 flex-nowrap items-center gap-2.5 overflow-hidden font-mono">
+        <div className="flex min-w-0 flex-nowrap items-center gap-3 overflow-hidden">
           {visibleSegments.map((id, index) => {
             const value = values[id];
             if (!value) return null;
             const Icon = icons[id];
-            const labelKey = INLINE_LABEL_KEYS[id];
             const segment = (
               <span
                 title={`${t(SEGMENT_LABEL_KEYS[id])} · ${value.full}`}
@@ -558,19 +546,19 @@ export function StatsLine({ conversationId }: StatsLineProps) {
                 onMouseLeave={() => setHoveredId((current) => (current === id ? null : current))}
                 className={cn(
                   'relative flex items-center gap-1 text-[11px] tabular-nums',
-                  value.critical ? 'text-destructive' : 'text-muted-foreground'
+                  value.critical ? 'text-destructive' : 'text-muted-foreground/80'
                 )}
               >
-                {labelKey && <span className="shrink-0">{t(labelKey)}</span>}
-                {id === 'context' && value.percent !== undefined && (
+                {id === 'context' && value.percent !== undefined ? (
                   <ContextMeter percent={value.percent} critical={Boolean(value.critical)} />
+                ) : (
+                  <Icon className="h-3 w-3 shrink-0 opacity-75" />
                 )}
-                {INLINE_ICON_SEGMENTS.has(id) && <Icon className="h-3 w-3 shrink-0" />}
                 {value.compact && <span className="truncate">{value.compact}</span>}
                 {hoveredId === id && id !== 'context' && (
                   <div
                     style={{ zIndex: Z_INDEX.TOOLTIP }}
-                    className="-translate-x-1/2 pointer-events-none absolute bottom-full left-1/2 mb-1.5 w-max max-w-56 overflow-hidden rounded-md border bg-popover px-2 py-1 font-sans text-popover-foreground shadow-md"
+                    className="-translate-x-1/2 pointer-events-none absolute bottom-full left-1/2 mb-1.5 w-max max-w-56 overflow-hidden rounded-md border bg-popover px-2 py-1 text-popover-foreground shadow-md"
                   >
                     <span className="break-words font-medium">{t(SEGMENT_LABEL_KEYS[id])}</span>
                     <span className="ml-1 break-words text-muted-foreground">{value.full}</span>
@@ -583,17 +571,12 @@ export function StatsLine({ conversationId }: StatsLineProps) {
               <span
                 key={id}
                 className={cn(
-                  'shrink-0 items-center gap-2.5',
+                  'shrink-0 items-center',
                   index < STATS_ALWAYS_VISIBLE
                     ? 'flex'
                     : 'hidden group-focus-within:flex group-hover:flex'
                 )}
               >
-                {index > 0 && (
-                  <span aria-hidden className="text-[11px] text-muted-foreground/40">
-                    ·
-                  </span>
-                )}
                 {id === 'context' ? (
                   <Popover>
                     <PopoverTrigger className="rounded-sm outline-none">{segment}</PopoverTrigger>
