@@ -1343,8 +1343,13 @@ export function foldTimeline(
     sourceItems = nextItems;
   }
   const lastUserIndex = sourceItems.findLastIndex((item) => item.kind === 'user');
+  // 生成中只有最后一段正文之后的尾段仍在进行；被正文隔开的前段已完成，可立即折叠
+  const liveFrom = Math.max(
+    lastUserIndex,
+    sourceItems.findLastIndex((item) => item.kind === 'text')
+  );
   const activityAt = (index: number): boolean =>
-    options.collapseCompletedActivity === true && !(running && index > lastUserIndex);
+    options.collapseCompletedActivity === true && !(running && index > liveFrom);
   const inSegment = (s: TimelineItem, index: number): boolean =>
     s.kind === 'thinking' ||
     (s.kind === 'tool' &&

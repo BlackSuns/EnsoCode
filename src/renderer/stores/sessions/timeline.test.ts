@@ -2546,7 +2546,7 @@ describe('foldTimeline 回答完成后折叠过程（collapseCompletedActivity�
     expect(kinds(folded)).toEqual(['user', 'tool-group', 'bash', 'goal_complete', 'tool-group']);
   });
 
-  it('正在生成的最新一轮保持原有行为，历史轮次照常折叠', () => {
+  it('正在生成的最新一轮：仍在进行的尾段保持原有行为，历史轮次照常折叠', () => {
     const items = [
       userItem('u1'),
       toolItem('a', 'edit', [textItem('x')]),
@@ -2558,6 +2558,30 @@ describe('foldTimeline 回答完成后折叠过程（collapseCompletedActivity�
     ];
     const folded = foldTimeline(items, true, new Set(), on);
     expect(kinds(folded)).toEqual(['user', 'tool-group', 'text', 'user', 'edit', 'bash']);
+  });
+
+  it('正在生成的最新一轮：被正文隔开的已完成段立即折叠', () => {
+    const items = [
+      userItem('u'),
+      thinkingItem('t1'),
+      toolItem('a', 'edit', [textItem('x')]),
+      toolItem('b', 'bash'),
+      textItem('mid'),
+      toolItem('c', 'edit', [textItem('y')]),
+      toolItem('d', 'bash'),
+    ];
+    expect(kinds(foldTimeline(items, true, new Set(), on))).toEqual([
+      'user',
+      'tool-group',
+      'text',
+      'edit',
+      'bash',
+    ]);
+    expect(kinds(foldTimeline([...items.slice(0, 5)], true, new Set(), on))).toEqual([
+      'user',
+      'tool-group',
+      'text',
+    ]);
   });
 
   it('没有耗时打点时 workedMs 为 0；开关关闭时行为不变', () => {
