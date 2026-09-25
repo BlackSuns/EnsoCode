@@ -1,6 +1,6 @@
 import { coworkerTabTone } from '@shared/conversationDotTone';
 import { BUILTIN_AGENT_TYPES } from '@shared/types/assets';
-import { Bot, MessageCircle, Pencil, Plus, RefreshCw, X } from 'lucide-react';
+import { Bot, MessageCircle, Pencil, Plus, RefreshCw, X, Zap } from 'lucide-react';
 import * as React from 'react';
 import { ConversationStatusIndicator } from '@/components/chat/ConversationStatusIndicator';
 import { ConversationTitleEdit } from '@/components/chat/ConversationTitleEdit';
@@ -105,7 +105,13 @@ export function CoworkerTabs({
                   tabClass(displayedId === coworker.id),
                   displayedId !== coworker.id && 'group-hover/tab:bg-muted/50'
                 )}
-                leading={<Bot className="h-3 w-3 shrink-0" />}
+                leading={
+                  coworker.mode === 'task' ? (
+                    <Zap className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <Bot className="h-3 w-3 shrink-0" />
+                  )
+                }
                 trailing={
                   <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center group-hover/tab:invisible">
                     <ConversationStatusIndicator tone={tone} size="sm" />
