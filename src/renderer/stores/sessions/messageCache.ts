@@ -104,19 +104,22 @@ export function chatSurfaceBusy(conversation: {
   return needsHistoryHydration(conversation) || conversation.spawning;
 }
 
-/** 时间线脚点：空窗读历史 / spawn / 乐观未确认 / running 立刻出 loading */
-export function chatTimelineBusy(conversation: {
+/** 时间线脚点：running / 乐观未确认 = 生成中；冷会话 spawn / 空窗读历史 = 加载中 */
+export function chatTimelineActivity(conversation: {
   started?: boolean;
   sessionFile?: string;
   messages: readonly { optimistic?: boolean }[];
   spawning: boolean;
   status?: string;
   historyLoadAttempted?: boolean;
-}): boolean {
-  return (
+}): 'working' | 'loading' | null {
+  if (
     conversation.status === 'running' ||
+    conversation.messages.some((message) => message.optimistic)
+  )
+    return 'working';
+  if (
     conversation.spawning ||
-    conversation.messages.some((message) => message.optimistic) ||
     needsHistoryHydration({
       started: conversation.started === true,
       sessionFile: conversation.sessionFile,
@@ -124,7 +127,9 @@ export function chatTimelineBusy(conversation: {
       spawning: conversation.spawning,
       historyLoadAttempted: conversation.historyLoadAttempted,
     })
-  );
+  )
+    return 'loading';
+  return null;
 }
 
 export function isBulkyAgentEvent(type: string): boolean {

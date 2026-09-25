@@ -3,7 +3,7 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useOpenChangesOnEdit } from '@/hooks/useOpenChangesOnEdit';
 import { eventToBinding } from '@/lib/keybindings';
 import { useSessionsStore } from '@/stores/sessions';
-import { chatTimelineBusy } from '@/stores/sessions/messageCache';
+import { chatTimelineActivity } from '@/stores/sessions/messageCache';
 import {
   buildTimeline,
   patchStreamingTimeline,
@@ -118,7 +118,7 @@ export function ChatSessionTimeline({
   ]);
   useOpenChangesOnEdit(timeline, conversationId);
 
-  const timelineBusy = chatTimelineBusy({
+  const timelineActivity = chatTimelineActivity({
     started,
     sessionFile,
     messages,
@@ -230,7 +230,8 @@ export function ChatSessionTimeline({
         key={conversationId}
         ref={timelineRef}
         items={timeline}
-        busy={timelineBusy}
+        busy={timelineActivity !== null}
+        loading={timelineActivity === 'loading'}
         running={running}
         runStartedAt={runStartedAt}
         lastOutputAt={lastOutputAt}

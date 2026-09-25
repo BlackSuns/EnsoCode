@@ -98,6 +98,8 @@ interface MessageTimelineProps {
   ref?: Ref<MessageTimelineHandle>;
   items: TimelineItem[];
   busy: boolean;
+  /** busy 来自加载（冷会话恢复 / 读历史 / 等快照），脚点显示「加载中」而非「生成中」 */
+  loading?: boolean;
   /** 会话 running：进行中的最后一轮工具行不折叠 */
   running: boolean;
   /** 本次 running 的起点，无任何返回时作计时兜底起点 */
@@ -139,6 +141,7 @@ export function MessageTimeline({
   ref,
   items,
   busy,
+  loading = false,
   running,
   runStartedAt,
   lastOutputAt,
@@ -515,10 +518,10 @@ export function MessageTimeline({
       {busy && (
         <div className="flex min-h-[26px] items-center gap-2 text-[13px]">
           <LoadingDots />
-          <span className="t-shimmer" data-text={t('Working…')}>
-            {t('Working…')}
+          <span className="t-shimmer" data-text={loading ? t('Loading…') : t('Working…')}>
+            {loading ? t('Loading…') : t('Working…')}
           </span>
-          {(lastOutputAt ?? runStartedAt) !== undefined && (
+          {!loading && (lastOutputAt ?? runStartedAt) !== undefined && (
             <ElapsedTimer since={(lastOutputAt ?? runStartedAt) as number} />
           )}
         </div>

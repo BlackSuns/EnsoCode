@@ -181,6 +181,7 @@ export function RemoteNodeChat(props: RemoteNodeChatProps) {
             items={timeline}
             // view 为 null = 快照尚未到达，显示加载态而非空态
             busy={running || view === null}
+            loading={!running && view === null}
             running={running}
             error={undefined}
             emptyTitle={entry?.projectName || node.label}

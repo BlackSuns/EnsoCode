@@ -320,6 +320,7 @@ export function ChatScreen(props: Props) {
             items={timeline}
             // 本地已有正文就不要盖「正在读取历史」；无正文且同步中才是加载态
             busy={view === null ? Boolean(props.syncing) : running}
+            loading={view === null}
             running={running}
             error={undefined}
             emptyTitle={props.projectName || 'EnsoCode'}

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   btwHotSessionIds,
   chatSurfaceBusy,
-  chatTimelineBusy,
+  chatTimelineActivity,
   evictColdMessages,
   evictStampedColdMessages,
   isBulkyAgentEvent,
@@ -281,45 +281,34 @@ describe('chatSurfaceBusy', () => {
     ).toBe(true);
   });
 
-  it('尾巴上屏后 spawn 仍要在时间线出 loading', () => {
+  it('时间线脚点：running 与乐观未确认的发送算生成中', () => {
+    expect(chatTimelineActivity({ messages: [{}], spawning: false, status: 'running' })).toBe(
+      'working'
+    );
     expect(
-      chatTimelineBusy({
-        messages: [{}],
-        spawning: true,
-        status: 'idle',
-      })
-    ).toBe(true);
+      chatTimelineActivity({ messages: [{ optimistic: true }], spawning: false, status: 'idle' })
+    ).toBe('working');
     expect(
-      chatTimelineBusy({
-        messages: [{ optimistic: true }],
-        spawning: false,
-        status: 'idle',
-      })
-    ).toBe(true);
-    expect(
-      chatTimelineBusy({
-        messages: [{}],
-        spawning: false,
-        status: 'idle',
-      })
-    ).toBe(false);
+      chatTimelineActivity({ messages: [{ optimistic: true }], spawning: true, status: 'idle' })
+    ).toBe('working');
   });
 
-  it('空窗等尾巴时时间线 busy，避免露出空聊天态', () => {
+  it('时间线脚点：冷会话恢复（spawn / 读历史）是加载中，不是生成中', () => {
+    expect(chatTimelineActivity({ messages: [{}], spawning: true, status: 'idle' })).toBe(
+      'loading'
+    );
     expect(
-      chatTimelineBusy({
+      chatTimelineActivity({
         started: false,
         sessionFile: '/tmp/s.jsonl',
         messages: [],
         spawning: false,
       })
-    ).toBe(true);
-    expect(
-      chatTimelineBusy({
-        started: false,
-        messages: [],
-        spawning: false,
-      })
-    ).toBe(false);
+    ).toBe('loading');
+  });
+
+  it('时间线脚点：空闲与空草稿无脚点', () => {
+    expect(chatTimelineActivity({ messages: [{}], spawning: false, status: 'idle' })).toBeNull();
+    expect(chatTimelineActivity({ started: false, messages: [], spawning: false })).toBeNull();
   });
 });
