@@ -47,6 +47,7 @@ import {
 import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover';
 import { type TFunction, useI18n } from '@/i18n';
 import { diffCacheKey } from '@/lib/diffCacheKey';
+import { parseMcpToolName } from '@/lib/mcpToolName';
 import { addSidePanelChanges } from '@/lib/sidePanelDock';
 import { stripAnsi } from '@/lib/terminalText';
 import { TOOL_LABEL_KEYS } from '@/lib/toolLabels';
@@ -1556,6 +1557,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
   const hasFileChanges = Boolean(item.fileChanges && item.fileChanges.length > 0);
   const sandbox = item.name === 'exec' ? parseSandboxOutput(item.output) : null;
   const labelKey = TOOL_LABEL_KEYS[item.name];
+  const mcp = parseMcpToolName(item.name);
   const headerSummary =
     item.nestedPending && item.state === 'running'
       ? `${item.summary} · ${item.nestedPending} pending`
@@ -1598,7 +1600,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
         >
           <ToolNode name={item.name} state={item.state} />
           <span className={cn('shrink-0', compact ? 'text-foreground/80' : 'font-medium')}>
-            {labelKey ? t(labelKey) : item.name}
+            {labelKey ? t(labelKey) : (mcp?.tool ?? item.name)}
           </span>
           <span
             className={cn(
@@ -1656,6 +1658,11 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
       {expanded && expandable && (
         // 展开内容收进与工具名对齐的卡片，左侧留给时间线竖线
         <div className="t-acc-reveal mt-1 mb-1.5 ml-[30px] overflow-hidden rounded-lg border border-border/70 bg-card shadow-xs">
+          {mcp && (
+            <div className="truncate border-b border-border/60 px-3 py-1 font-mono text-[10px] text-muted-foreground">
+              {mcp.server}.{mcp.tool}
+            </div>
+          )}
           {hasDiff && item.edits && (
             <ToolContentScroller follow={item.state === 'running'}>
               <EditDiff path={item.summary} blocks={item.edits} />
