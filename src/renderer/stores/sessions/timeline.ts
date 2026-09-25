@@ -8,6 +8,7 @@ import type {
   TurnPerf,
 } from '@shared/types/agent';
 import type { ProjectedApplyPatchOutcome, ProjectedFileChange } from '@shared/types/fileChanges';
+import { unwrapMcpProxyCall } from '@/lib/mcpToolName';
 
 /** edit 工具的单个替换块（pi edit 工具参数 edits[] 的元素） */
 export interface EditBlock {
@@ -777,17 +778,18 @@ function buildMessageTimeline(
               : result.output
             : (partial ?? null) || null;
           const sandboxView = part.name === 'exec' ? parseSandboxOutput(output) : null;
+          const call = unwrapMcpProxyCall(part.name, part.arguments);
           items.push({
             kind: 'tool',
             key,
-            name: part.name,
+            name: call.name,
             summary: execSource
               ? summarizeExecSource(execSource)
               : part.name === 'apply_patch' && result?.fileChanges?.length
                 ? result.fileChanges.length === 1
                   ? toProjectRelativePath(result.fileChanges[0].path, cwd)
                   : `${result.fileChanges.length} files`
-                : summarizeArgs(part.arguments, cwd),
+                : (call.summary ?? summarizeArgs(call.args, cwd)),
             source: execSource,
             output,
             nestedPending: nestedPendingCount(part.id, pendingApprovals) || undefined,

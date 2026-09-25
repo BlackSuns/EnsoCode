@@ -145,6 +145,7 @@ const MCP_KEYS = [
   'url',
   'connectTimeoutSec',
   'callTimeoutSec',
+  'loadMode',
   'source',
   'enabled',
   'omittedFields',
@@ -554,6 +555,8 @@ function validateMcp(raw: unknown): RecordValue {
     )
       throw new Error(`Invalid MCP ${key}`);
   }
+  if (entry.loadMode !== undefined && entry.loadMode !== 'direct' && entry.loadMode !== 'deferred')
+    throw new Error('Invalid MCP loadMode');
   stringField(entry, 'source', 'MCP server');
   booleanField(entry, 'enabled', 'MCP server');
   const omittedFields = optionalStringArray(entry.omittedFields, 'MCP server.omittedFields');

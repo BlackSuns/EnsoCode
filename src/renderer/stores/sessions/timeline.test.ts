@@ -1959,6 +1959,34 @@ describe('工具路径摘要相对化', () => {
   });
 });
 
+describe('mcp 代理调用行', () => {
+  const proxy = (args: Record<string, unknown>) =>
+    buildTimeline(
+      [
+        {
+          role: 'assistant',
+          content: [{ type: 'toolCall', id: 't1', name: 'mcp', arguments: args }],
+        },
+      ],
+      false,
+      []
+    )[0];
+
+  it('call 行按真实工具名与内层参数展示', () => {
+    expect(
+      proxy({ action: 'call', tool: 'mcp__github__search_issues', arguments: { query: 'bug' } })
+    ).toMatchObject({ name: 'mcp__github__search_issues', summary: 'bug' });
+  });
+
+  it('list / describe 保留代理名并摘要目标', () => {
+    expect(proxy({ action: 'list' })).toMatchObject({ name: 'mcp', summary: 'list' });
+    expect(proxy({ action: 'describe', tool: 'mcp__github__search_issues' })).toMatchObject({
+      name: 'mcp',
+      summary: 'mcp__github__search_issues',
+    });
+  });
+});
+
 describe('compaction 摘要行', () => {
   it('compactionSummary 消息渲染为 compaction 行，带摘要与压缩前 token 数', () => {
     const timeline = buildTimeline(

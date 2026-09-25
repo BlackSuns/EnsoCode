@@ -81,5 +81,13 @@ mcp({ action: 'call', tool: string, arguments?: object })
 | `shared/types/agent.test.ts` | spawn 命令 `loadMode` 合法值保留、非法值丢弃 |
 | `main/services/agentHost` 相关测试 | 预热跳过 deferred；spawn 配置带 `loadMode` |
 | `renderer/stores/sessions/timeline.test.ts` | 代理 `call` 行摘要为真实工具名 |
+| `main/services/mcpToolCatalog.test.ts` | 工具名读回、签名不符作废、不落 env 明文、retain 清理、坏文件当空库 |
 
 真机（至少两厂商，如 Max Claude + Antigravity Gemini）：把一个大 server 设为按需，完成需要它的任务；确认 list → call 路径、审批卡显示真实名、首调懒连接、连续多轮缓存命中率不下降。
+
+## 实现验证（2026-09-25）
+
+隔离 userData 真机：fast-context 设为按需、semble 常驻。
+- Claude（claude-opus-4-6，anthropic-messages）：首轮直接 `call`，审批卡显示 `mcp__fast-context__fast_context_search`，时间线行显示真实工具；同会话后续请求 cacheRead 持续增长。
+- Gemini（gemini-3-flash-preview，google-generative-ai）：首调把 semble 的参数套给 fast-context，校验失败回带签名后下一步即改对并执行；代理 schema 被 Google 接受。
+- 设置页：按需 server 的占用不计入顶部合计；探测后 `mcp-tool-catalog.json` 写入工具名，spawn 目录带名字。

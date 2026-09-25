@@ -126,6 +126,7 @@ import { readHarnessRuleFiles, resolveHarnessSkillRoots } from './harnessAssets'
 import { type ContextMessage, sanitizeContextMessages } from './imageContext';
 import { createIsolatedSandboxTool } from './isolatedSandbox';
 import { McpManager } from './mcp';
+import { createMcpProxyTool, isDeferredMcp } from './mcpProxy';
 import { createMessageCoworkerTool } from './messageCoworker';
 import { createMessageMainTool } from './messageMain';
 import { ParentNotifier } from './notify';
@@ -843,7 +844,9 @@ export class SessionSupervisor {
       return;
     }
     if (command.type === 'warm-mcp') {
-      void this.mcp.toolsFor(command.servers);
+      const deferred = command.servers.filter(isDeferredMcp);
+      for (const server of deferred) this.mcp.refresh(server);
+      void this.mcp.toolsFor(command.servers.filter((server) => !isDeferredMcp(server)));
       return;
     }
     if (command.type === 'pin-sessions') {
@@ -1515,9 +1518,11 @@ export class SessionSupervisor {
         : {}),
     });
     const toolsStart = Date.now();
+    const deferredMcp = mcpServers.filter(isDeferredMcp);
+    const directMcp = mcpServers.filter((server) => !isDeferredMcp(server));
     const [, mcpTools] = await Promise.all([
       resourceLoader.reload(),
-      mcpServers.length > 0 ? this.mcp.toolsFor(mcpServers, 3000) : Promise.resolve([]),
+      directMcp.length > 0 ? this.mcp.toolsFor(directMcp, 3000) : Promise.resolve([]),
     ]);
     const toolsMs = Date.now() - toolsStart;
     if (approvalReviewer) this.approvalReviewer = approvalReviewer;
@@ -1713,8 +1718,18 @@ export class SessionSupervisor {
         ...mutations,
       ];
     };
-    const wrapMcpTools = (toolGate: ApprovalGate): Def[] =>
-      mcpTools.map((tool) => withApproval(toolGate, 'mcp', tool));
+    const wrapMcpTools = (toolGate: ApprovalGate): Def[] => [
+      ...mcpTools.map((tool) => withApproval(toolGate, 'mcp', tool)),
+      ...(deferredMcp.length > 0
+        ? [
+            createMcpProxyTool({
+              servers: deferredMcp,
+              resolve: (server) => this.mcp.resolve(server),
+              wrap: (tool) => withApproval(toolGate, 'mcp', tool),
+            }),
+          ]
+        : []),
+    ];
     const buildCoreTools = (): Def[] => [
       ...buildBaseTools(gate, checkpoints),
       ...wrapMcpTools(gate),
@@ -2066,7 +2081,7 @@ export class SessionSupervisor {
     else ensureAssistantUsage(session.messages as unknown[]);
     console.log(
       `[spawn] ${sessionId.slice(0, 8)} total ${Date.now() - spawnStart}ms` +
-        ` (tools ${toolsMs}ms, mcp ${mcpTools.length} tools, cwd ${cwd})`
+        ` (tools ${toolsMs}ms, mcp ${mcpTools.length} tools + ${deferredMcp.length} deferred servers, cwd ${cwd})`
     );
 
     managedRef = this.registerManagedSession(identity, session, gate, model.modelId, {

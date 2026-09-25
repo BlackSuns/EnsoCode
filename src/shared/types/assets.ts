@@ -38,9 +38,13 @@ export interface McpServerEntry {
   connectTimeoutSec?: number;
   /** 单次 callTool 超时（秒）；缺省 120 */
   callTimeoutSec?: number;
+  /** deferred：不注入工具 schema，经 `mcp` 代理工具按需连接；缺省 direct */
+  loadMode?: McpLoadMode;
   source: string;
   enabled: boolean;
 }
+
+export type McpLoadMode = 'direct' | 'deferred';
 
 /** 注入组合预设：会话级选用的 skill/MCP/指令文件集合。
  *  默认预设不入库（DEFAULT_PRESET_ID 运行时合成，语义 = 跟随各条目的 enabled 开关）；
