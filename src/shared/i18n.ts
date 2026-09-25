@@ -1322,7 +1322,7 @@ export const zhTranslations: Record<string, string> = {
   'Select model': '选择模型',
   Toolset: '工具集',
   'All tools (bash/edit/write)': '全部工具(bash/edit/write)',
-  'Read-only (read/grep/find/ls)': '只读(read/grep/find/ls)',
+  'Read-only (read/grep/find/ls + bound MCP)': '只读(read/grep/find/ls + 绑定的 MCP)',
   Stop: '停止',
   'Attach image': '添加图片',
   'Stop task': '停止任务',

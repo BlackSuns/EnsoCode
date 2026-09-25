@@ -126,7 +126,7 @@ export interface AgentTypeEntry {
   /** 类型级推理覆盖（与模型选型模式无关）；缺省 = 跟随模型条目 / 父会话 */
   reasoning?: ModelReasoningOverride;
   thinkingLevel?: ModelThinkingLevelOverride;
-  /** 工具集：all 全部 / readonly 仅只读（read+grep/find/ls,无 bash/edit/write/MCP） */
+  /** 工具集：all 全部 / readonly 仅只读（read+grep/find/ls + 本类型绑定的 MCP，无 bash/edit/write） */
   tools: 'all' | 'readonly';
   /** 可写路径 glob 白名单（相对 cwd，posix）；只约束 edit/write；缺省不限 */
   writeScope?: string[];
