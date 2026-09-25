@@ -1,4 +1,4 @@
-import { ENSO_AGENT_TYPE_KEY } from '@shared/builtinAgents';
+import { agentTypeDisplayName, ENSO_AGENT_TYPE_KEY } from '@shared/builtinAgents';
 import { conversationDotTone } from '@shared/conversationDotTone';
 import { resolveChatModel, scopedDefaultModels } from '@shared/defaultModel';
 import { planPhase } from '@shared/planMode';
@@ -54,6 +54,7 @@ const pickSuggestion = (prompt: string) => {
 export function ChatView() {
   const { t } = useI18n();
   const providers = useSettingsStore((state) => state.providers);
+  const customAgentTypes = useSettingsStore((state) => state.agentTypes);
   const defaultModel = useSettingsStore((state) => state.defaultModel);
   const projects = useSettingsStore((state) => state.projects);
   const projectGroups = useSettingsStore((state) => state.projectGroups);
@@ -479,7 +480,9 @@ export function ChatView() {
                 )}
                 {chrome.displayedParentId && (
                   <span className="text-[11px] text-muted-foreground">
-                    {chrome.agentType ?? 'coworker'}
+                    {chrome.agentType
+                      ? agentTypeDisplayName(chrome.agentType, customAgentTypes)
+                      : 'coworker'}
                     {chrome.lastModelId ? ` · ${chrome.lastModelId}` : ''}
                   </span>
                 )}
