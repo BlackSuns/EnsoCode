@@ -154,7 +154,7 @@ function PlanReviewBar({
             {t('Request changes')}
           </button>
         )}
-        <div className="flex items-center">
+        <div className="flex">
           <button
             type="button"
             disabled={busy}
@@ -168,7 +168,7 @@ function PlanReviewBar({
             <PopoverTrigger
               disabled={busy}
               aria-label={t('Choose the approval mode for execution')}
-              className="rounded-r-md border-primary-foreground/20 border-l bg-primary px-1 py-1 text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              className="flex items-center rounded-r-md border-primary-foreground/20 border-l bg-primary px-1 text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               <ChevronDown className="h-3.5 w-3.5" />
             </PopoverTrigger>
