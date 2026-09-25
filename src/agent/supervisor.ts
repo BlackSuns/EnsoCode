@@ -177,7 +177,7 @@ import {
   titleRejectReason,
   titleSummaryTimeoutMs,
 } from './titleSummary';
-import { createTodoTool } from './todo';
+import { createTodoTool, TodoStaleReminder } from './todo';
 import { decorateSessionTools } from './toolDecorators';
 import { ToolOutputBudget } from './toolOutputBudget';
 import { BrowserInvoker, createBrowserTools, withNavigateApproval } from './tools/browser';
@@ -1569,6 +1569,8 @@ export class SessionSupervisor {
       const pending = takePendingReminders();
       return pending.map((text) => `<background-task-update>\n${text}\n</background-task-update>`);
     });
+    const todoReminder = new TodoStaleReminder();
+    reminders.register('todo-stale', () => todoReminder.take(), -1);
     const runaway = new RunawayGuard();
     const budget = new ToolOutputBudget({
       rootDir: path.join(this.options.sessionDir, 'tool-output', sessionId),
@@ -1970,7 +1972,7 @@ export class SessionSupervisor {
         ? createBrowserTools(browser).map((tool) => withNavigateApproval(gate, tool))
         : []),
       ...(memory ? createMemoryTools(memory, { language: memoryLanguage }) : []),
-      ...(toolEnabled('todo') ? [createTodoTool()] : []),
+      ...(toolEnabled('todo') ? [createTodoTool((todos) => todoReminder.update(todos))] : []),
       ...(toolEnabled('ask_user') ? [createAskTool(askManager)] : []),
       ...(toolEnabled('subagent') ? [unifiedSubagentTool] : []),
       ...(toolEnabled('workflow') && toolEnabled('subagent')
