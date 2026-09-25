@@ -135,12 +135,50 @@ function matchRank(
   return doc.projectId === currentProjectId ? 2 : 3;
 }
 
-function pickField(doc: WorkspaceSearchDoc, tokens: string[]): WorkspaceSearchField | undefined {
-  const matched = doc.fields.filter((field) => fieldMatches(field.text, tokens));
+function pickField(
+  doc: WorkspaceSearchDoc,
+  tokens: string[],
+  query: string
+): WorkspaceSearchField | undefined {
+  const idPrefix = query.trim().toLowerCase();
+  const matched = doc.fields.filter((field) =>
+    field.field === 'id'
+      ? field.text.toLowerCase().startsWith(idPrefix)
+      : fieldMatches(field.text, tokens)
+  );
   if (matched.length === 0) return undefined;
   return FIELD_PRIORITY.map((kind) => matched.find((field) => field.field === kind)).find(
     (field): field is WorkspaceSearchField => Boolean(field)
   );
+}
+
+type RankedHit = WorkspaceSearchHit & { rank: number; lastActiveAt: number };
+
+function rankedHit(
+  doc: WorkspaceSearchDoc,
+  match: Pick<WorkspaceSearchHit, 'field' | 'snippet' | 'nearby'>,
+  query: string,
+  currentProjectId: string
+): RankedHit {
+  return {
+    conversationId: doc.conversationId,
+    projectId: doc.projectId,
+    title: doc.title,
+    field: match.field,
+    snippet: match.snippet,
+    ...(match.nearby ? { nearby: match.nearby } : {}),
+    ...(doc.isCurrent ? { isCurrent: true } : {}),
+    ...(doc.archived ? { archived: true } : {}),
+    ...(doc.parentConversationId ? { parentConversationId: doc.parentConversationId } : {}),
+    ...(doc.coworkerId ? { coworkerId: doc.coworkerId } : {}),
+    rank: matchRank(doc, match.field, query, currentProjectId),
+    lastActiveAt: doc.lastActiveAt,
+  };
+}
+
+function sortAndLimit(hits: RankedHit[], limit = WORKSPACE_SEARCH_RESULT_LIMIT) {
+  hits.sort((left, right) => left.rank - right.rank || right.lastActiveAt - left.lastActiveAt);
+  return hits.slice(0, limit).map(({ rank: _rank, lastActiveAt: _lastActiveAt, ...hit }) => hit);
 }
 
 /**
@@ -155,30 +193,41 @@ export function searchWorkspace(
   const tokens = queryTokens(query);
   if (tokens.length === 0) return [];
 
-  const limit = options.limit ?? WORKSPACE_SEARCH_RESULT_LIMIT;
-  const hits: Array<WorkspaceSearchHit & { rank: number; lastActiveAt: number }> = [];
-
+  const hits: RankedHit[] = [];
   for (const doc of docs) {
     if (!inScope(doc, options)) continue;
-    const field = pickField(doc, tokens);
+    const field = pickField(doc, tokens, query);
     if (!field) continue;
     const nearby = nearbyOf(field.text, tokens);
-    hits.push({
-      conversationId: doc.conversationId,
-      projectId: doc.projectId,
-      title: doc.title,
-      field: field.field,
-      snippet: snippetOf(field.text, tokens),
-      ...(nearby ? { nearby } : {}),
-      ...(doc.isCurrent ? { isCurrent: true } : {}),
-      ...(doc.archived ? { archived: true } : {}),
-      ...(doc.parentConversationId ? { parentConversationId: doc.parentConversationId } : {}),
-      ...(doc.coworkerId ? { coworkerId: doc.coworkerId } : {}),
-      rank: matchRank(doc, field.field, query, options.currentProjectId),
-      lastActiveAt: doc.lastActiveAt,
-    });
+    hits.push(
+      rankedHit(
+        doc,
+        { field: field.field, snippet: snippetOf(field.text, tokens), nearby },
+        query,
+        options.currentProjectId
+      )
+    );
   }
+  return sortAndLimit(hits, options.limit);
+}
 
-  hits.sort((left, right) => left.rank - right.rank || right.lastActiveAt - left.lastActiveAt);
-  return hits.slice(0, limit).map(({ rank: _rank, lastActiveAt: _lastActiveAt, ...hit }) => hit);
+/**
+ * 合并本地热命中与 Main 冷命中（冷命中只补未加载的正文）。
+ * 会话元数据以本地投影 docs 为准；投影里没有的会话打不开，丢弃。同一会话热命中优先。
+ */
+export function mergeWorkspaceHits(
+  docs: WorkspaceSearchDoc[],
+  hot: WorkspaceSearchHit[],
+  cold: WorkspaceSearchHit[],
+  query: string,
+  options: WorkspaceSearchOptions
+): WorkspaceSearchHit[] {
+  const byId = new Map(docs.map((doc) => [doc.conversationId, doc] as const));
+  const hits = new Map<string, RankedHit>();
+  for (const hit of [...hot, ...cold]) {
+    const doc = byId.get(hit.conversationId);
+    if (!doc || hits.has(hit.conversationId) || !inScope(doc, options)) continue;
+    hits.set(hit.conversationId, rankedHit(doc, hit, query, options.currentProjectId));
+  }
+  return sortAndLimit([...hits.values()], options.limit);
 }

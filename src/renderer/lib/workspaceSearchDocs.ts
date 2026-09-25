@@ -1,7 +1,52 @@
 import type { ProjectedMessage } from '@shared/types/agent';
-import type { WorkspaceSearchDoc, WorkspaceSearchField } from '@shared/workspaceSearch';
+import type {
+  WorkspaceSearchDoc,
+  WorkspaceSearchField,
+  WorkspaceSearchScope,
+} from '@shared/workspaceSearch';
 
 const TOOL_SNIPPET = 120;
+const RECENT_LIMIT = 8;
+
+interface RecentSource {
+  projectId: string;
+  parentId?: string;
+  archived?: boolean;
+  started: boolean;
+  sessionFile?: string;
+  createdAt: number;
+  lastActiveAt?: number;
+  messages: readonly { timestamp?: number }[];
+}
+
+/** 重启恢复的会话 messages 为空、started 为 false，但有 sessionFile，不算空草稿 */
+export function isDraftEmptyConversation(
+  conversation: Pick<RecentSource, 'started' | 'sessionFile' | 'messages'>
+): boolean {
+  return !conversation.started && !conversation.sessionFile && conversation.messages.length === 0;
+}
+
+export function conversationActivityAt(
+  conversation: Pick<RecentSource, 'createdAt' | 'lastActiveAt' | 'messages'>
+): number {
+  return (
+    conversation.messages.at(-1)?.timestamp ?? conversation.lastActiveAt ?? conversation.createdAt
+  );
+}
+
+export function recentConversations<T extends RecentSource>(
+  conversations: readonly T[],
+  options: { scope: WorkspaceSearchScope; currentProjectId: string; limit?: number }
+): T[] {
+  return conversations
+    .filter((conversation) => {
+      if (conversation.parentId || isDraftEmptyConversation(conversation)) return false;
+      if (conversation.archived && options.scope !== 'all-including-archived') return false;
+      return options.scope !== 'project' || conversation.projectId === options.currentProjectId;
+    })
+    .sort((left, right) => conversationActivityAt(right) - conversationActivityAt(left))
+    .slice(0, options.limit ?? RECENT_LIMIT);
+}
 
 function textOf(message: ProjectedMessage): string {
   return message.content

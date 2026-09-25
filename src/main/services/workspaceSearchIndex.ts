@@ -53,12 +53,8 @@ export function buildColdSearchDocs(
       projectName: row.projectName,
       title,
       lastActiveAt: info.modified.getTime(),
-      fields: [
-        { field: 'title', text: title },
-        { field: 'project', text: row.projectName },
-        { field: 'id', text: row.conversationId },
-        { field: 'body', text: info.allMessagesText },
-      ],
+      // 标题/项目名/id 以 renderer 投影为准，冷索引只补未加载的正文
+      fields: [{ field: 'body', text: info.allMessagesText }],
     });
   }
   return docs;

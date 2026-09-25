@@ -6,7 +6,7 @@ import {
   searchSettingsEntries,
 } from '@shared/searchAnything';
 import type { WorkspaceSearchHit, WorkspaceSearchScope } from '@shared/workspaceSearch';
-import { searchWorkspace } from '@shared/workspaceSearch';
+import { mergeWorkspaceHits, searchWorkspace } from '@shared/workspaceSearch';
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { requestOpenChatFind } from '@/components/chat/ChatFindBar';
 import {
@@ -22,9 +22,16 @@ import {
 } from '@/components/ui/command';
 import { useI18n } from '@/i18n';
 import { addSidePanelBrowser } from '@/lib/sidePanelDock';
-import { conversationToSearchDoc } from '@/lib/workspaceSearchDocs';
+import {
+  conversationActivityAt,
+  conversationToSearchDoc,
+  isDraftEmptyConversation,
+  recentConversations,
+} from '@/lib/workspaceSearchDocs';
 import { useSessionsStore } from '@/stores/sessions';
 import { useSettingsStore } from '@/stores/settings';
+
+const NO_HITS: WorkspaceSearchHit[] = [];
 
 export function WorkspaceSearchDialog({
   open,
@@ -36,11 +43,11 @@ export function WorkspaceSearchDialog({
   const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<WorkspaceSearchScope>('project');
-  const [coldHits, setColdHits] = useState<WorkspaceSearchHit[]>([]);
+  // 冷结果带上发起时的查询键，查询变化后旧结果立即失效，不混进新查询
+  const [cold, setCold] = useState<{ key: string; hits: WorkspaceSearchHit[] }>();
   const [browserTabs, setBrowserTabs] = useState<BrowserSearchTab[]>([]);
   const [sshConnections, setSshConnections] = useState<Array<{ id: string; name: string }>>([]);
   const conversations = useSessionsStore((state) => state.conversations);
-  const order = useSessionsStore((state) => state.order);
   const activeId = useSessionsStore((state) => state.activeId);
   const projects = useSettingsStore((state) => state.projects);
   const providers = useSettingsStore((state) => state.providers);
@@ -49,8 +56,12 @@ export function WorkspaceSearchDialog({
   const instructions = useSettingsStore((state) => state.instructions);
   const currentProjectId =
     (activeId ? conversations[activeId]?.projectId : undefined) ?? projects[0]?.id ?? '';
+  const trimmed = query.trim();
+  const coldKey = `${scope}\n${currentProjectId}\n${trimmed}`;
+  const coldHits = cold?.key === coldKey ? cold.hits : NO_HITS;
 
   const docs = useMemo(() => {
+    if (!open) return [];
     const viewed = activeId ? conversations[activeId] : undefined;
     const viewedChild = viewed?.activeTabId;
     const currentId = viewedChild && conversations[viewedChild] ? viewedChild : activeId;
@@ -61,36 +72,27 @@ export function WorkspaceSearchDialog({
         projectId: conversation.projectId,
         projectName: project?.name ?? conversation.projectId,
         title: conversation.title,
-        lastActiveAt:
-          conversation.messages.at(-1)?.timestamp ??
-          conversation.lastActiveAt ??
-          conversation.createdAt,
+        lastActiveAt: conversationActivityAt(conversation),
         archived: conversation.archived,
-        isDraftEmpty: !conversation.started && conversation.messages.length === 0,
+        isDraftEmpty: isDraftEmptyConversation(conversation),
         isCurrent: conversation.id === currentId,
         parentConversationId: conversation.parentId,
         coworkerId: conversation.parentId ? conversation.id : undefined,
         messages: conversation.messages,
       });
     });
-  }, [activeId, conversations, projects]);
+  }, [activeId, conversations, open, projects]);
 
   const hotHits = useMemo(
-    () => (query.trim() ? searchWorkspace(docs, query, { currentProjectId, scope }) : []),
-    [currentProjectId, docs, query, scope]
+    () => (trimmed ? searchWorkspace(docs, query, { currentProjectId, scope }) : NO_HITS),
+    [currentProjectId, docs, query, scope, trimmed]
   );
 
-  const recent = useMemo(() => {
-    return order
-      .map((id) => conversations[id])
-      .filter((conversation): conversation is NonNullable<typeof conversation> => {
-        if (!conversation || conversation.parentId) return false;
-        if (conversation.archived && scope !== 'all-including-archived') return false;
-        if (scope === 'project' && conversation.projectId !== currentProjectId) return false;
-        return conversation.started || conversation.messages.length > 0;
-      })
-      .slice(0, 8);
-  }, [conversations, currentProjectId, order, scope]);
+  const recent = useMemo(
+    () =>
+      open ? recentConversations(Object.values(conversations), { scope, currentProjectId }) : [],
+    [conversations, currentProjectId, open, scope]
+  );
 
   const settingsCatalog = useMemo(
     () =>
@@ -106,10 +108,10 @@ export function WorkspaceSearchDialog({
 
   const settingsHits = useMemo(
     () =>
-      query.trim()
+      trimmed
         ? searchSettingsEntries(settingsCatalog, query, { translate: (text) => t(text) })
         : [],
-    [query, settingsCatalog, t]
+    [query, settingsCatalog, t, trimmed]
   );
 
   const browserHits = useMemo(
@@ -134,7 +136,7 @@ export function WorkspaceSearchDialog({
   useEffect(() => {
     if (!open) {
       setQuery('');
-      setColdHits([]);
+      setCold(undefined);
       return;
     }
     void window.electronAPI.browser
@@ -151,32 +153,31 @@ export function WorkspaceSearchDialog({
       .catch(() => {
         setSshConnections([]);
       });
-    const trimmed = query.trim();
-    if (!trimmed || !currentProjectId) {
-      setColdHits([]);
-      return;
-    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !trimmed || !currentProjectId) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void window.electronAPI.workspaceSearch
         .query({ query: trimmed, currentProjectId, scope })
         .then((result) => {
-          if (!cancelled) setColdHits(result.hits);
+          if (!cancelled) setCold({ key: coldKey, hits: result.hits });
         })
         .catch(() => {
-          if (!cancelled) setColdHits([]);
+          if (!cancelled) setCold({ key: coldKey, hits: [] });
         });
     }, 80);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [currentProjectId, open, query, scope]);
+  }, [coldKey, currentProjectId, open, scope, trimmed]);
 
-  const hits = useMemo(() => {
-    const seen = new Set(hotHits.map((hit) => hit.conversationId));
-    return [...hotHits, ...coldHits.filter((hit) => !seen.has(hit.conversationId))];
-  }, [coldHits, hotHits]);
+  const hits = useMemo(
+    () => mergeWorkspaceHits(docs, hotHits, coldHits, query, { currentProjectId, scope }),
+    [coldHits, currentProjectId, docs, hotHits, query, scope]
+  );
 
   const openHit = (
     hit: Pick<
@@ -226,7 +227,6 @@ export function WorkspaceSearchDialog({
     onOpenChange(false);
   };
 
-  const trimmed = query.trim();
   const empty =
     trimmed.length > 0 &&
     hits.length === 0 &&
