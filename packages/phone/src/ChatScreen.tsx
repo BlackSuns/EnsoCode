@@ -17,6 +17,7 @@ import {
 } from '@/components/chat/MessageTimeline';
 import { RetryBar } from '@/components/chat/RetryBar';
 import { TaskBar } from '@/components/chat/TaskBar';
+import { TodoBar } from '@/components/chat/TodoBar';
 import { cn } from '@/lib/utils';
 import { buildTimeline } from '@/stores/sessions/timeline';
 import type { ConnState, SessionView } from './client';
@@ -352,6 +353,7 @@ export function ChatScreen(props: Props) {
               {props.goal && (
                 <GoalBar conversationId={sessionId} goal={{ ...props.goal, noProgressRuns: 0 }} />
               )}
+              <TodoBar key={sessionId} conversationId={sessionId} />
               {/* 后台任务 / subagent 胶囊：停止按钮经 stub 发 pair 命令 */}
               <TaskBar
                 sessionId={sessionId}

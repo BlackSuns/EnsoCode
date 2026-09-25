@@ -179,4 +179,8 @@ export interface PairCatalogPayload {
   terminalFontFamily?: string;
   compactReadOnlyTools?: boolean;
   expandLiveEdits?: boolean;
+  expandLiveReasoning?: boolean;
+  autoCollapseTurns?: boolean;
+  collapseCompletedActivity?: boolean;
+  pinUnfinishedTodos?: boolean;
 }

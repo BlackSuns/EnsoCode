@@ -303,6 +303,11 @@ export type HostToPhone =
       compactReadOnlyTools?: boolean;
       /** 桌面「运行中自动展开文件改动」偏好；缺省（旧桌面）时手机按默认开处理 */
       expandLiveEdits?: boolean;
+      /** 桌面时间线折叠 / 待办条偏好；缺省（旧桌面）时手机按桌面默认值 */
+      expandLiveReasoning?: boolean;
+      autoCollapseTurns?: boolean;
+      collapseCompletedActivity?: boolean;
+      pinUnfinishedTodos?: boolean;
     }
   | { type: 'agent-event'; event: unknown; cursor?: PairSyncCursor }
   | PairSessionSync

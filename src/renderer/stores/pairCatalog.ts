@@ -140,6 +140,10 @@ function buildPayload(): PairCatalogPayload {
     terminalFontFamily: settings.terminalFontFamily,
     compactReadOnlyTools: settings.compactReadOnlyTools,
     expandLiveEdits: settings.expandLiveEdits,
+    expandLiveReasoning: settings.expandLiveReasoning,
+    autoCollapseTurns: settings.autoCollapseTurns,
+    collapseCompletedActivity: settings.collapseCompletedActivity,
+    pinUnfinishedTodos: settings.pinUnfinishedTodos,
   };
 }
 
@@ -156,6 +160,10 @@ function catalogPushFingerprint(payload: PairCatalogPayload): string {
     terminalFontFamily: payload.terminalFontFamily,
     compactReadOnlyTools: payload.compactReadOnlyTools,
     expandLiveEdits: payload.expandLiveEdits,
+    expandLiveReasoning: payload.expandLiveReasoning,
+    autoCollapseTurns: payload.autoCollapseTurns,
+    collapseCompletedActivity: payload.collapseCompletedActivity,
+    pinUnfinishedTodos: payload.pinUnfinishedTodos,
   });
 }
 
@@ -204,6 +212,10 @@ export function bindPairCatalogSync(): void {
       state.terminalFontFamily !== prev.terminalFontFamily ||
       state.compactReadOnlyTools !== prev.compactReadOnlyTools ||
       state.expandLiveEdits !== prev.expandLiveEdits ||
+      state.expandLiveReasoning !== prev.expandLiveReasoning ||
+      state.autoCollapseTurns !== prev.autoCollapseTurns ||
+      state.collapseCompletedActivity !== prev.collapseCompletedActivity ||
+      state.pinUnfinishedTodos !== prev.pinUnfinishedTodos ||
       state.skills !== prev.skills
     ) {
       schedulePush();
