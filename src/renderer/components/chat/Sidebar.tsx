@@ -1161,7 +1161,6 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                       animate="animate"
                                       exit="exit"
                                       variants={heightVariants}
-                                      transition={springStandard}
                                       className="overflow-hidden"
                                     >
                                       <div className="enso-conv-tree mt-0.5 flex flex-col gap-y-0.5">
@@ -1326,7 +1325,6 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
                                 animate="animate"
                                 exit="exit"
                                 variants={heightVariants}
-                                transition={springStandard}
                                 className="overflow-hidden"
                               >
                                 <div className="space-y-1 pt-0.5">
