@@ -73,7 +73,7 @@ export function CoworkerTabs({
 
   return (
     <div className="flex items-center gap-1 border-b px-2 py-1">
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
         <RenameableTab
           id={parentId}
           label={parentTitle || t('New conversation')}
