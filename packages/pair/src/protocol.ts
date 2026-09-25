@@ -206,6 +206,16 @@ export interface CatalogEntry {
   };
   /** 斜杠命令（技能名），仅当前订阅会话下发 */
   slashCommands?: { name: string; description: string }[];
+  /** 状态栏用量统计（桌面按全量消息算好），仅当前订阅会话下发 */
+  stats?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheHitPercent?: number;
+    ttftAvgMs?: number;
+    tokensPerSecond?: number;
+    contextUsed?: number;
+    contextWindow?: number;
+  };
 }
 export interface ProjectEntry {
   id: string;

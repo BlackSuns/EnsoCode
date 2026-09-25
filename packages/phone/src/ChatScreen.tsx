@@ -22,6 +22,7 @@ import { buildTimeline } from '@/stores/sessions/timeline';
 import type { ConnState, SessionView } from './client';
 import { compressImage } from './image';
 import { appendEchoMessages, type QueueSendEcho } from './queueSendEcho';
+import { SessionStatsLine } from './SessionStatsLine';
 import { setDisplayedConversation } from './stubs/sessions-store';
 
 interface Props {
@@ -55,6 +56,8 @@ interface Props {
   echoes?: QueueSendEcho[];
   /** 会话目标（桌面下发）：GoalBar 展示与暂停/继续/清除 */
   goal?: CatalogEntry['goal'];
+  /** 输入框下状态栏的用量统计（桌面下发） */
+  stats?: CatalogEntry['stats'];
   slashCommands?: SlashCommand[];
   onSend(text: string, images: AttachedImage[]): void;
   onAbort(): void;
@@ -385,6 +388,7 @@ export function ChatScreen(props: Props) {
                 }}
                 onAbort={props.onAbort}
               />
+              <SessionStatsLine stats={props.stats} />
             </div>
           </div>
         )}

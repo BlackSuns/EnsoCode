@@ -74,6 +74,18 @@ export type PairQueueAction =
   | { type: 'task-stop'; sessionId: string; taskId: string }
   | { type: 'subagent-stop'; sessionId: string; agentId: string };
 
+/** 状态栏 token/缓存/速度/上下文四段的数据；手机只持有尾窗消息，由桌面按全量算好下发 */
+export interface SessionUsageStats {
+  inputTokens: number;
+  outputTokens: number;
+  cacheHitPercent?: number;
+  ttftAvgMs?: number;
+  tokensPerSecond?: number;
+  contextUsed?: number;
+  /** 已知窗口（占用优先、会话其次）；未知时不下发 */
+  contextWindow?: number;
+}
+
 /** renderer 推给 main 的目录快照。providers 必须已剥掉 apiKey/baseUrl。 */
 export interface PairCatalogPayload {
   catalog: {
@@ -104,6 +116,7 @@ export interface PairCatalogPayload {
       autoTurns: number;
     };
     slashCommands?: { name: string; description: string }[];
+    stats?: SessionUsageStats;
   }[];
   /** 置顶组手动拖拽顺序（会话 id）；项目手动顺序已直接体现在 projects 排序里 */
   pinnedOrder?: string[];

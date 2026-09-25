@@ -254,6 +254,39 @@ function parseCatalogEntry(value: unknown): CatalogEntry | null {
   if (queued) out.queued = queued;
   if (goal) out.goal = goal;
   if (slashCommands) out.slashCommands = slashCommands;
+  const stats = parseStats(value.stats);
+  if (stats) out.stats = stats;
+  return out;
+}
+
+/** 统计只是展示用：脏值丢统计本身，不连累目录条目 */
+function parseStats(value: unknown): CatalogEntry['stats'] {
+  if (
+    !isRecord(value) ||
+    !isUint(value.inputTokens) ||
+    !isUint(value.outputTokens) ||
+    !optional(value, 'cacheHitPercent', isFiniteNumber) ||
+    !optional(value, 'ttftAvgMs', isFiniteNumber) ||
+    !optional(value, 'tokensPerSecond', isFiniteNumber) ||
+    !optional(value, 'contextUsed', isUint) ||
+    !optional(value, 'contextWindow', isUint)
+  ) {
+    return undefined;
+  }
+  const out: NonNullable<CatalogEntry['stats']> = {
+    inputTokens: value.inputTokens,
+    outputTokens: value.outputTokens,
+  };
+  for (const key of [
+    'cacheHitPercent',
+    'ttftAvgMs',
+    'tokensPerSecond',
+    'contextUsed',
+    'contextWindow',
+  ] as const) {
+    const field = value[key];
+    if (typeof field === 'number') out[key] = field;
+  }
   return out;
 }
 

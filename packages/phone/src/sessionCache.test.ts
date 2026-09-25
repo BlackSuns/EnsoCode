@@ -111,6 +111,15 @@ const data = (
       queued: [{ id: 'q1', text: 'later' }],
       goal: { text: 'ship', status: 'active', autoTurns: 1 },
       slashCommands: [{ name: 'review', description: 'Review changes' }],
+      stats: {
+        inputTokens: 1200,
+        outputTokens: 30,
+        cacheHitPercent: 80,
+        ttftAvgMs: 812.5,
+        tokensPerSecond: 42.5,
+        contextUsed: 5000,
+        contextWindow: 200_000,
+      },
     },
   ],
   pinnedOrder: [id],
@@ -159,6 +168,7 @@ describe('phone session cache', () => {
       compaction: 'queued',
     });
     expect(a?.catalog[0]?.pendingApprovalCount).toBe(2);
+    expect(a?.catalog[0]?.stats).toEqual(rich.catalog[0]?.stats);
     expect(b?.sessions[0]?.id).toBe('b');
     expect(b?.sessions[0]?.view.messages.get(3)?.content[0]).toEqual({
       type: 'text',
@@ -408,6 +418,17 @@ describe('phone session cache', () => {
     const loaded = await cache.load('pair-a');
     expect(loaded?.catalog.map((entry) => entry.id)).toEqual(['session-1']);
     expect(loaded?.sessions[0]?.cursor).toEqual({ epoch: 'epoch-1', seq: 9 });
+  });
+
+  it('会话统计脏值只丢统计，不丢目录条目', async () => {
+    const backend = new MemoryBackend();
+    const cache = createPhoneCacheStore({ backend });
+    const dirty = data();
+    Object.assign(dirty.catalog[0], { stats: { inputTokens: -1, outputTokens: 'x' } });
+    await cache.save('pair-a', dirty);
+    const loaded = await cache.load('pair-a');
+    expect(loaded?.catalog[0]?.id).toBe('session-1');
+    expect(loaded?.catalog[0]).not.toHaveProperty('stats');
   });
 
   it('编码失败时保留旧缓存，不能把已有正文删成打开后再读历史', async () => {
