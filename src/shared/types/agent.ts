@@ -31,6 +31,7 @@ import {
 import { PRODUCT_SURFACE_INVENTORY, type ProductSurfaceId } from '../productSurfaces';
 import { parseRtkToolStats, type RtkToolStats } from '../rtk';
 import { parseSmartCompactMode } from '../smartCompactMode';
+import { parseSshTimeoutSeconds } from '../sshTimeout';
 import { WINDOWS_LOCAL_SHELLS, type WindowsLocalShell } from '../windowsLocalShell';
 import { type EditMode, isEditMode } from './editMode';
 import {
@@ -1261,6 +1262,8 @@ export interface AgentRemoteConfig {
   port?: number;
   /** 仅 password 认证、仅 spawn 内存,禁止落盘 */
   password?: string;
+  /** 远端单次命令超时（设置项 sshTimeoutSeconds） */
+  timeoutSeconds?: number;
 }
 
 /** 普通新会话 Renderer 请求；child 派发不复用此结构。 */
@@ -1883,10 +1886,13 @@ function isValidCreateProjectRemoteFields(value: Record<string, unknown>): boole
 export function parseAgentRemoteConfig(value: unknown): AgentRemoteConfig | null {
   if (
     !isRecord(value) ||
-    !hasOnlyKeys(value, ['host', 'auth', 'port', 'password']) ||
+    !hasOnlyKeys(value, ['host', 'auth', 'port', 'password', 'timeoutSeconds']) ||
     !isNonEmptyString(value.host) ||
     (value.auth !== 'key' && value.auth !== 'password')
   ) {
+    return null;
+  }
+  if (value.timeoutSeconds !== undefined && parseSshTimeoutSeconds(value.timeoutSeconds) === null) {
     return null;
   }
   if (

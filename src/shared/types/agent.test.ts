@@ -718,6 +718,13 @@ describe('parent/child commands', () => {
         remote: { host: 'h', auth: 'key', password: 'nope' },
       })
     ).toBeNull();
+    const withTimeout = { ...base, remote: { host: 'h', auth: 'key', timeoutSeconds: 60 } };
+    expect(parseAgentCommand(withTimeout)).toEqual(withTimeout);
+    for (const timeoutSeconds of [0, 12.5, '60']) {
+      expect(
+        parseAgentCommand({ ...base, remote: { host: 'h', auth: 'key', timeoutSeconds } })
+      ).toBeNull();
+    }
   });
 
   it('release-parent 可解析（Move to worktree 依赖；漏白名单会被 worker 静默丢弃）', () => {
