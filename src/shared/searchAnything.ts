@@ -101,20 +101,25 @@ export function searchBrowserTabs(
 export function searchSettingsEntries(
   entries: SettingsSearchEntry[],
   query: string,
-  limit = SEARCH_ANYTHING_SETTINGS_LIMIT
+  options: { translate?: (text: string) => string; limit?: number } = {}
 ): SettingsSearchEntry[] {
   const tokens = tokenize(query);
   if (tokens.length === 0) return [];
+  // 界面显示的是译文，原文与译文都参与匹配
+  const matches = (text = '') =>
+    fieldMatches(text, tokens) ||
+    (!!options.translate && fieldMatches(options.translate(text), tokens));
   const hits: Array<SettingsSearchEntry & { rank: number }> = [];
   for (const entry of entries) {
-    const titleHit = fieldMatches(entry.title, tokens);
-    const otherHit =
-      fieldMatches(entry.id, tokens) || fieldMatches(entry.description ?? '', tokens);
+    const titleHit = matches(entry.title);
+    const otherHit = fieldMatches(entry.id, tokens) || matches(entry.description);
     if (!titleHit && !otherHit) continue;
     hits.push({ ...entry, rank: titleHit ? 0 : 1 });
   }
   hits.sort((a, b) => a.rank - b.rank || a.id.localeCompare(b.id));
-  return hits.slice(0, limit).map(({ rank: _rank, ...entry }) => entry);
+  return hits
+    .slice(0, options.limit ?? SEARCH_ANYTHING_SETTINGS_LIMIT)
+    .map(({ rank: _rank, ...entry }) => entry);
 }
 
 const STATIC_CATALOG: SettingsSearchEntry[] = [
@@ -123,13 +128,14 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
     id: 'general.windowsLocalShell',
     category: 'general',
     title: 'Windows local command shell',
-    description: 'PowerShell or Git Bash for the local Windows agent',
+    description:
+      'Only the Windows local agent command tool. SSH and other platforms stay on bash. Takes effect on the next session.',
   },
   {
     id: 'general.terminalShell',
     category: 'general',
     title: 'Terminal shell',
-    description: 'Shell launched by new side panel terminals',
+    description: 'Applies to new side panel terminals. SSH projects keep the remote login shell.',
   },
   {
     id: 'general.openChangesOnFileEdit',
@@ -168,7 +174,7 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
     category: 'general',
     title: 'Context compaction strategy',
     description:
-      'Standard, smart compaction (Enso verified summary) or continuous memory (background observations). Falls back to default compact on failure. Takes effect on the next session. Choose Auto/Fast/Balanced/Thorough (budget and tail) and a dedicated summary or background memory model, or follow the session model.',
+      'Standard uses default compact. Smart compaction uses Enso verified summary at compact time. Continuous memory records observations in the background so compact keeps more context; both fall back to default compact on failure and take effect on the next session.',
   },
   {
     id: 'general.generationStallTimeout',
@@ -183,7 +189,7 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
   },
   { id: 'general.updates', category: 'general', title: 'Updates' },
   { id: 'shortcuts.root', category: 'shortcuts', title: 'Shortcuts' },
-  { id: 'appearance.theme', category: 'appearance', title: 'Theme' },
+  { id: 'appearance.theme', category: 'appearance', title: 'Theme mode' },
   { id: 'providers.root', category: 'providers', title: 'Model Providers' },
   { id: 'presets.root', category: 'presets', title: 'Presets' },
   { id: 'agents.root', category: 'agents', title: 'Agent types' },
@@ -216,7 +222,7 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
     id: 'phone.root',
     category: 'phone',
     title: 'Devices',
-    description: 'Generate a pairing code',
+    description: 'Generate a pairing code to let a phone or another desktop connect.',
   },
   { id: 'ssh.root', category: 'ssh', title: 'SSH' },
 ];

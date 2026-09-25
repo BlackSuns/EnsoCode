@@ -105,8 +105,11 @@ export function WorkspaceSearchDialog({
   );
 
   const settingsHits = useMemo(
-    () => (query.trim() ? searchSettingsEntries(settingsCatalog, query) : []),
-    [query, settingsCatalog]
+    () =>
+      query.trim()
+        ? searchSettingsEntries(settingsCatalog, query, { translate: (text) => t(text) })
+        : [],
+    [query, settingsCatalog, t]
   );
 
   const browserHits = useMemo(
