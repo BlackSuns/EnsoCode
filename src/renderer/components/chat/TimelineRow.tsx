@@ -49,6 +49,7 @@ import { type TFunction, useI18n } from '@/i18n';
 import { diffCacheKey } from '@/lib/diffCacheKey';
 import { addSidePanelChanges } from '@/lib/sidePanelDock';
 import { stripAnsi } from '@/lib/terminalText';
+import { TOOL_LABEL_KEYS } from '@/lib/toolLabels';
 import { cn } from '@/lib/utils';
 import { useSessionsStore } from '@/stores/sessions';
 import {
@@ -1554,6 +1555,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
   const hasWrite = Boolean(item.writeContent);
   const hasFileChanges = Boolean(item.fileChanges && item.fileChanges.length > 0);
   const sandbox = item.name === 'exec' ? parseSandboxOutput(item.output) : null;
+  const labelKey = TOOL_LABEL_KEYS[item.name];
   const headerSummary =
     item.nestedPending && item.state === 'running'
       ? `${item.summary} · ${item.nestedPending} pending`
@@ -1596,11 +1598,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
         >
           <ToolNode name={item.name} state={item.state} />
           <span className={cn('shrink-0', compact ? 'text-foreground/80' : 'font-medium')}>
-            {item.name === 'exec'
-              ? t('Isolated sandbox')
-              : item.name === 'apply_patch'
-                ? t('Apply patch')
-                : item.name}
+            {labelKey ? t(labelKey) : item.name}
           </span>
           <span
             className={cn(
