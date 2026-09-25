@@ -45,7 +45,7 @@ phase = pending ? awaiting_review : active ? planning : executing ? executing : 
 
 - 待审时用户直接发消息（`prompt` / `steer` 命令）→ `superseded`，继续规划；worker 内部通知不触发。
 - 待审时关闭 Plan / 点「放弃并退出 Plan」→ `mode:false`，折叠为 `discarded`。
-- 批准 → `approved`，`active=false`，进入执行态并以 `<plan-approved>` 新消息发出全文；再次进入 Plan 或点执行条的结束（`finished`）退出执行态。
+- 批准 → `approved`，`active=false`，进入执行态并以 `<plan-approved>` 新消息发出全文；再次进入 Plan、点执行条的结束，或轮次正常收尾时批准后建过 todo 且最新清单全部完成（worker 自动写 `finished`；中断 / 出错的轮不算，没建 todo 则留给用户手动结束），退出执行态。
 - 修改意见 → `revised`，以 `<plan-feedback>` 新消息发出，模型需提交完整修订版。
 
 ## 工具门（planning / awaiting_review 生效）
@@ -65,7 +65,7 @@ phase = pending ? awaiting_review : active ? planning : executing ? executing : 
 
 - Composer 工具行「计划」开关，开启时边框高亮、占位「描述任务，先产出计划」；`/plan [任务]` 开启并发送，`/plan off` 关闭。
 - 审批条（待审时）：标题 + Markdown 预览，「放弃并退出 Plan」「修改意见」「批准并执行 ▾」（下拉选执行时的审批档位）；输入框不锁。
-- 执行条：「执行计划 {title}」，可展开全文、可结束。
+- 执行条：「执行计划 {title}」，可展开全文、可结束；todo 全部完成后自动收起。
 - 时间线：`submit_plan` 渲染为可展开计划卡片且不被过程折叠吞掉；Plan 提示前缀渲染为系统行；批准消息渲染为「已批准计划」系统行；修改意见渲染为带标签的用户气泡；回退回填时去掉前缀。
 
 ## 验证记录

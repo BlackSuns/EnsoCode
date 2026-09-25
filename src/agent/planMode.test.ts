@@ -239,4 +239,60 @@ describe('PlanController', () => {
     controller.compacted();
     expect(controller.takeNote()).toMatch(/^<active-plan id="p1">[\s\S]*1\. A/);
   });
+
+  describe('执行轮结束自动结束执行态', () => {
+    const todo = (statuses: string[], isError = false) => ({
+      type: 'message',
+      message: {
+        role: 'toolResult',
+        toolName: 'todo',
+        isError,
+        details: { todos: statuses.map((status, i) => ({ content: `s${i}`, status })) },
+      },
+    });
+    const assistant = (stopReason: string) => ({
+      type: 'message',
+      message: { role: 'assistant', stopReason, content: [] },
+    });
+    const approved = (initial: unknown[] = []) => {
+      const made = make(initial);
+      made.controller.setActive(true);
+      made.controller.submit({ planId: 'p1', title: 'T', text: '1. A' });
+      made.controller.respond('p1', 'approve');
+      return made;
+    };
+
+    it('批准后建过 todo 且最新清单全部完成才结束', () => {
+      const { controller, entries, changes } = approved([todo(['completed'])]);
+      controller.turnSettled();
+      expect(planPhase(controller.state())).toBe('executing');
+      entries.push(todo(['completed', 'in_progress']), assistant('stop'));
+      controller.turnSettled();
+      expect(planPhase(controller.state())).toBe('executing');
+      entries.push(todo(['completed', 'completed']), todo(['pending'], true), assistant('stop'));
+      const before = changes.length;
+      controller.turnSettled();
+      expect(planPhase(controller.state())).toBe('off');
+      expect(changes.length).toBe(before + 1);
+      expect(entries.at(-1)).toMatchObject({ data: { kind: 'finished', planId: 'p1' } });
+    });
+
+    it('做完后清空清单也算完成', () => {
+      const { controller, entries } = approved();
+      entries.push(todo(['completed']), todo([]), assistant('stop'));
+      controller.turnSettled();
+      expect(planPhase(controller.state())).toBe('off');
+    });
+
+    it('被中断的轮不结束；非执行态不写条目', () => {
+      const { controller, entries } = approved();
+      entries.push(todo(['completed']), assistant('aborted'));
+      controller.turnSettled();
+      expect(planPhase(controller.state())).toBe('executing');
+      const idle = make();
+      idle.entries.push(todo(['completed']), assistant('stop'));
+      idle.controller.turnSettled();
+      expect(idle.entries).toHaveLength(2);
+    });
+  });
 });

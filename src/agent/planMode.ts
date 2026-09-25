@@ -2,6 +2,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import {
   activePlanNote,
   foldPlanState,
+  PLAN_ENTRY_TYPE,
   PLAN_MODE_OFF_NOTE,
   PLAN_MODE_ON_NOTE,
   PLAN_TEXT_MAX,
@@ -10,6 +11,7 @@ import {
   type PlanEntry,
   type PlanRespondAction,
   type PlanState,
+  parsePlanEntry,
   planFeedbackText,
   planKickoffText,
   planPhase,
@@ -122,6 +124,14 @@ export class PlanController implements PlanHost {
     else if (this.current.executing) this.note = activePlanNote(this.current.executing);
   }
 
+  /** 轮次正常收尾：执行态下批准后建过 todo 且最新清单全部完成，自动结束执行态 */
+  turnSettled(): void {
+    const executing = this.current.executing;
+    if (!executing || !executionDone(this.store.branch(), executing.planId)) return;
+    this.append({ v: 1, kind: 'finished', planId: executing.planId, at: Date.now() });
+    this.onChange(this.current);
+  }
+
   takeNote(): string | undefined {
     const note = this.note;
     this.note = undefined;
@@ -134,6 +144,39 @@ export class PlanController implements PlanHost {
     this.store.append(entry);
     this.current = foldPlanState(this.store.branch());
   }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+function executionDone(entries: readonly unknown[], planId: string): boolean {
+  const start = entries.findLastIndex((raw) => {
+    if (!isRecord(raw) || raw.type !== 'custom' || raw.customType !== PLAN_ENTRY_TYPE) return false;
+    const entry = parsePlanEntry(raw.data);
+    return entry?.kind === 'resolved' && entry.planId === planId && entry.action === 'approved';
+  });
+  if (start < 0) return false;
+  let sawItems = false;
+  let done = false;
+  let interrupted = false;
+  for (const raw of entries.slice(start + 1)) {
+    const message = isRecord(raw) && raw.type === 'message' ? raw.message : undefined;
+    if (!isRecord(message)) continue;
+    if (message.role === 'assistant') {
+      interrupted = message.stopReason === 'aborted' || message.stopReason === 'error';
+    } else if (
+      message.role === 'toolResult' &&
+      message.toolName === 'todo' &&
+      !message.isError &&
+      isRecord(message.details) &&
+      Array.isArray(message.details.todos)
+    ) {
+      const todos: unknown[] = message.details.todos;
+      sawItems ||= todos.length > 0;
+      done = todos.every((item) => isRecord(item) && item.status === 'completed');
+    }
+  }
+  return sawItems && done && !interrupted;
 }
 
 const DENIED_TOOLS = new Set(['edit', 'write', 'apply_patch', 'todo', 'workflow']);

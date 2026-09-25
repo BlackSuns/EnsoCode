@@ -2913,6 +2913,7 @@ export class SessionSupervisor {
         managed.currentTurnId = undefined;
         managed.status = 'idle';
         this.emitStatus(managed);
+        managed.plan?.turnSettled();
         managed.contextUsage.setPendingSnapshot(undefined);
         this.emitSessionMeta(managed);
         // 本轮摘要随 turn-completed 下发：renderer 冷会话没有正文，只能由 worker 切
