@@ -10,6 +10,7 @@ import {
   shouldAutoExpandAppliedFileChanges,
   shouldPrefetchOlderHistory,
   shouldShowToolOutputAfterFileChanges,
+  summarizeSandboxCalls,
   type TimelineItem,
   terminalErrorText,
   thinkingRowExpanded,
@@ -734,6 +735,18 @@ describe('buildTimeline', () => {
         { name: 'ls', ok: true },
       ],
     });
+  });
+
+  it('exec 调用按工具名首次出现顺序计数', () => {
+    expect(
+      summarizeSandboxCalls([
+        { name: 'grep', ok: true },
+        { name: 'read', ok: true },
+        { name: 'grep', ok: false },
+        { name: 'grep', ok: true },
+      ])
+    ).toBe('grep ×3 read ×1');
+    expect(summarizeSandboxCalls([])).toBe('');
   });
 
   it('Hashline edit 从头部提取路径并从 toolResult 生成 edits', () => {

@@ -302,6 +302,12 @@ export interface SandboxView {
   calls: SandboxCallView[];
 }
 
+export function summarizeSandboxCalls(calls: SandboxCallView[]): string {
+  const counts = new Map<string, number>();
+  for (const call of calls) counts.set(call.name, (counts.get(call.name) ?? 0) + 1);
+  return [...counts].map(([name, count]) => `${name} ×${count}`).join(' ');
+}
+
 export function parseSandboxOutput(output: string | null): SandboxView | null {
   if (!output?.trim()) return null;
   try {
