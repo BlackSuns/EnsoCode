@@ -60,6 +60,14 @@ export const STATUS_LINE_PRESETS: Readonly<
 export const DEFAULT_STATUS_LINE_SEGMENTS: readonly StatusLineSegmentId[] =
   STATUS_LINE_PRESETS.default;
 
+/** 状态栏常驻的段数（用户排序即优先级），其余悬停展开 */
+const STATUS_LINE_PINNED_COUNT = 3;
+
+/** 该段是否常驻：前 N 段常驻；上下文占用是唯一需要随时留意的余量，排在哪都常驻 */
+export function isStatusLineSegmentPinned(id: StatusLineSegmentId, index: number): boolean {
+  return id === 'context' || index < STATUS_LINE_PINNED_COUNT;
+}
+
 /**
  * 当前段位序列等价于哪个预设；都不等价即 `'custom'`。
  *

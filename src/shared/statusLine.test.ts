@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_STATUS_LINE_SEGMENTS,
+  isStatusLineSegmentPinned,
   normalizeStatusLineSegments,
   reorderStatusLineSegments,
   STATUS_LINE_PRESET_IDS,
@@ -161,5 +162,18 @@ describe('预设定义自身的约束', () => {
       for (const id of preset) expect(valid.has(id)).toBe(true);
       expect(new Set(preset).size).toBe(preset.length);
     }
+  });
+});
+
+describe('isStatusLineSegmentPinned', () => {
+  it('常驻前 3 段，其余悬停才展开', () => {
+    expect(isStatusLineSegmentPinned('model', 0)).toBe(true);
+    expect(isStatusLineSegmentPinned('cache', 2)).toBe(true);
+    expect(isStatusLineSegmentPinned('turns', 3)).toBe(false);
+  });
+
+  it('上下文无论排在第几段都常驻', () => {
+    expect(isStatusLineSegmentPinned('context', 3)).toBe(true);
+    expect(isStatusLineSegmentPinned('context', 9)).toBe(true);
   });
 });

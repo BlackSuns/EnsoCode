@@ -1,5 +1,6 @@
 import {
   DEFAULT_STATUS_LINE_SEGMENTS,
+  isStatusLineSegmentPinned,
   STATUS_LINE_SEGMENT_IDS,
   type StatusLineSegmentId,
 } from '@shared/statusLine';
@@ -144,8 +145,6 @@ const SEGMENT_ICONS: Record<Exclude<StatusLineSegmentId, 'approval'>, LucideIcon
 const CRITICAL_PERCENT = 90;
 /** 上下文进度条转为警示色的阈值 */
 const WARNING_PERCENT = 70;
-/** 统计条常驻的段数，其余悬停展开 */
-const STATS_ALWAYS_VISIBLE = 3;
 
 // 订阅额度的缓存/去重已提取到 hooks/useAccountUsage，与 ModelPicker/ProvidersSettings 共享同一份缓存
 
@@ -567,12 +566,12 @@ export function StatsLine({ conversationId }: StatsLineProps) {
               </span>
             );
             return (
-              // 只常驻前 3 段（用户排序即优先级），其余悬停/聚焦时展开，降低常驻噪音
+              // 常驻段见 isStatusLineSegmentPinned，其余悬停/聚焦时展开，降低常驻噪音
               <span
                 key={id}
                 className={cn(
                   'shrink-0 items-center',
-                  index < STATS_ALWAYS_VISIBLE
+                  isStatusLineSegmentPinned(id, index)
                     ? 'flex'
                     : 'hidden group-focus-within:flex group-hover:flex'
                 )}
