@@ -431,6 +431,8 @@ interface SessionsState {
   updateQueuedMessage(conversationId: string, messageId: string, text: string): void;
   /** 立即发送队列中某条(running 时 steer 插入,否则直接 prompt) */
   sendQueuedNow(conversationId: string, messageId: string): void;
+  /** 运行中 steer 队首一条排队消息（输入框为空时按发送快捷键触发） */
+  steerQueued(conversationId: string): void;
   /** 打断当前轮并立即发送队列中某条(中断收束后以新一轮 prompt 投递) */
   interruptAndSendQueued(conversationId: string, messageId: string): Promise<void>;
   /** 回退到倒数第 N+1 条 user 消息(0 = 最后一条)。冷会话先 resume 并等到 worker 会话可用（snapshot / ready）。
@@ -3671,6 +3673,13 @@ export const useSessionsStore = create<SessionsState>()(
             deliveryId,
             restore: { kind: 'queue', item },
           });
+        },
+
+        steerQueued(conversationId) {
+          const conversation = get().conversations[conversationId];
+          if (conversation?.status !== 'running') return;
+          const next = conversation.queuedMessages?.[0];
+          if (next) get().sendQueuedNow(conversationId, next.id);
         },
 
         async interruptAndSendQueued(conversationId, messageId) {

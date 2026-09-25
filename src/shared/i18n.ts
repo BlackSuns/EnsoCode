@@ -957,6 +957,8 @@ export const zhTranslations: Record<string, string> = {
   'Waiting for your answer': '等待你回答',
   'Type an answer…': '输入回答…',
   'Message will queue until this round finishes…': '消息将排队,本轮结束后发送…',
+  'Press {{key}} to steer the next queued message into this round…':
+    '按 {{key}} 将下一条排队消息插入本轮…',
   Queued: '排队',
   attachments: '个附件',
   Edit: '编辑',
