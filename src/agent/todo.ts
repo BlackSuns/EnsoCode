@@ -40,6 +40,9 @@ export function createTodoTool(): ToolDefinition {
     description:
       'Update the task list for the current session. Pass the FULL list every time (it replaces the previous one). ' +
       'Use for multi-step tasks: mark the current step in_progress (only one at a time), completed steps completed. ' +
+      'Call it again as soon as each step finishes (mark it completed and the next one in_progress); ' +
+      'never batch several steps into one update or leave the list stale while working. ' +
+      'Revise the list right away when the plan changes. ' +
       'Skip it for trivial single-step requests.',
     parameters: PARAMETERS,
     async execute(_toolCallId, params) {
