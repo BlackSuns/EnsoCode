@@ -2319,6 +2319,45 @@ describe('typed Agent child projection', () => {
     ).toBeUndefined();
   });
 
+  it('压缩结束时已有投递在途（worker 等压完才起轮）：不再泵下一条', async () => {
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: true,
+          status: 'idle' as const,
+          generation: 'pg1',
+          compaction: 'running',
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'text', text: 'in flight' }],
+              timestamp: 1,
+              optimistic: true,
+              deliveryId: 'd1',
+            },
+          ],
+          queuedMessages: [{ id: 'q2', text: 'next' }],
+        },
+      },
+    }));
+    agentPrompt.mockClear();
+
+    onAgentEvent?.({
+      type: 'compaction',
+      identity: { sessionId: 'parent', generation: 'pg1' },
+      seq: 1,
+      state: 'end',
+    });
+    await Promise.resolve();
+
+    expect(agentPrompt).not.toHaveBeenCalled();
+    expect(sessionsModule.useSessionsStore.getState().conversations.parent.queuedMessages).toEqual([
+      { id: 'q2', text: 'next' },
+    ]);
+  });
+
   it('轮次结束时压缩仍在排队则不投递，等压缩结束再发', async () => {
     sessionsModule.useSessionsStore.setState((state) => ({
       conversations: {

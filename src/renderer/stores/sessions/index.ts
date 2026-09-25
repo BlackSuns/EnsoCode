@@ -1357,6 +1357,8 @@ export const useSessionsStore = create<SessionsState>()(
               set((state) => patch(state, id, { abortRequested: false }));
               return;
             }
+            // 已有投递在途（worker 等压完才起轮）：再泵就是并发 prompt，交给那一轮收束时泵
+            if (get().conversations[id]?.messages.some((message) => message.optimistic)) return;
             flushQueue(id);
             continueGoal(id);
           }

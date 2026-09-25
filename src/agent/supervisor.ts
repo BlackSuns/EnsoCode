@@ -1082,13 +1082,10 @@ export class SessionSupervisor {
           await this.steerTracked(managed, command.text, images, command.deliveryId);
           return;
         }
-        // 投影已 idle 但 pi 仍 isStreaming：要么 agent_end 尚未回流，要么是 abort 后工具不响应
-        // 信号的僵尸轮。steer 进僵尸轮永远无人投递（无 loading、无回复、无报错），
-        // 故限时等空闲后走新轮；超时按失败收口，绝不静默。
-        if (
-          managed.session.isStreaming &&
-          !(await waitIdleBounded(managed.session, ZOMBIE_TURN_WAIT_MS))
-        ) {
+        // 投影已 idle 但 pi 仍忙：压缩中（pi 拒收 prompt）不限时等压完；仍 streaming 要么
+        // agent_end 尚未回流，要么是 abort 后工具不响应信号的僵尸轮——steer 进僵尸轮永远
+        // 无人投递，故限时等空闲后走新轮；超时按失败收口，绝不静默。
+        if (!(await waitPromptable(managed.session, ZOMBIE_TURN_WAIT_MS))) {
           this.failTurn(
             managed,
             'The previous turn is still running and could not be interrupted. Please retry, or reopen the conversation to reset the session.',
@@ -3792,6 +3789,31 @@ export function waitIdleBounded(
     };
     session.waitForIdle().then(done, done);
   });
+}
+
+/**
+ * 等 pi 可以起新轮；false = 僵尸轮超时。压缩不计入僵尸时限。记忆扩展在 agent_settled 后
+ * 下一个宏任务才启动压缩，等过之后须让一拍再复查，否则新轮先起、随即被压缩的 abort 打断。
+ */
+export async function waitPromptable(
+  session: Pick<AgentSession, 'waitForIdle' | 'isStreaming' | 'isCompacting'>,
+  zombieMs: number
+): Promise<boolean> {
+  let waited = false;
+  for (;;) {
+    if (session.isCompacting) {
+      await session.waitForIdle();
+    } else if (session.isStreaming) {
+      if (!(await waitIdleBounded(session, zombieMs)) && !session.isCompacting) return false;
+    } else if (waited) {
+      waited = false;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      continue;
+    } else {
+      return true;
+    }
+    waited = true;
+  }
 }
 /** 异步通知里的摘要上限;全文经 coworker report 取 */
 const NOTIFY_SUMMARY_LIMIT = 1500;
