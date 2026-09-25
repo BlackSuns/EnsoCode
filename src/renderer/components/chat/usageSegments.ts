@@ -1,7 +1,7 @@
 import type { ContextUsage } from '@shared/types';
-import type { ContextOccupancy } from '@shared/types/agent';
+import type { ContextOccupancy, SessionUsageTotals } from '@shared/types/agent';
 import type { TFunction } from '@/i18n';
-import { formatDuration, formatTokens, type SessionStats } from '@/stores/sessions/stats';
+import { formatDuration, formatTokens } from '@/stores/sessions/stats';
 import { contextSegmentUsed } from './contextSegment';
 
 /** 段位当前值：`compact` 是状态栏内联展示（紧凑，可为空串走纯 icon），
@@ -20,12 +20,7 @@ export const CRITICAL_PERCENT = 90;
 export type UsageSegmentId = 'tokens' | 'cache' | 'context' | 'speed';
 
 /** 状态栏 token/缓存/速度/上下文四段的数据 */
-export interface SessionUsageStats {
-  inputTokens: number;
-  outputTokens: number;
-  cacheHitPercent?: number;
-  ttftAvgMs?: number;
-  tokensPerSecond?: number;
+export interface SessionUsageStats extends SessionUsageTotals {
   contextUsed?: number;
   contextWindow?: number;
 }
@@ -46,18 +41,16 @@ export function resolveContextUsage(
   return window > 0 ? { used, window } : { used };
 }
 
-/** 桌面与手机状态栏共用的数据口径：消息统计各自按本地已加载消息算，占用来自 session-meta；全空时不产值 */
+/** 桌面与手机状态栏共用的数据口径：用量与占用合成四段数据；全空时不产值 */
 export function toSessionUsageStats(
-  stats: SessionStats,
+  totals: SessionUsageTotals | undefined,
   context?: ContextUsage
 ): SessionUsageStats | undefined {
   const out: SessionUsageStats = {
-    inputTokens: stats.inputTokens,
-    outputTokens: stats.outputTokens,
+    inputTokens: 0,
+    outputTokens: 0,
+    ...totals,
   };
-  if (stats.cacheHitPercent !== null) out.cacheHitPercent = stats.cacheHitPercent;
-  if (stats.ttftAvgMs !== null) out.ttftAvgMs = stats.ttftAvgMs;
-  if (stats.tokensPerSecond !== null) out.tokensPerSecond = stats.tokensPerSecond;
   if (context) {
     out.contextUsed = context.used;
     if (context.window !== undefined) out.contextWindow = context.window;

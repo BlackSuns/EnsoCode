@@ -206,8 +206,16 @@ export interface CatalogEntry {
   };
   /** 斜杠命令（技能名），仅当前订阅会话下发 */
   slashCommands?: { name: string; description: string }[];
-  /** 状态栏上下文占用（桌面 session-meta 投影），仅当前订阅会话下发；token/缓存/速度由手机按本地消息算 */
+  /** 状态栏上下文占用（桌面 session-meta 投影），仅当前订阅会话下发 */
   context?: { used: number; window?: number };
+  /** 状态栏 token/缓存/速度（worker 按完整记录算，手机尾窗算不全），仅当前订阅会话下发 */
+  usageTotals?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheHitPercent?: number;
+    ttftAvgMs?: number;
+    tokensPerSecond?: number;
+  };
 }
 export interface ProjectEntry {
   id: string;

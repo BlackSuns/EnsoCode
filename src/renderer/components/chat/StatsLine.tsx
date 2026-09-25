@@ -1,3 +1,4 @@
+import { toUsageTotals } from '@shared/sessionStats';
 import {
   DEFAULT_STATUS_LINE_SEGMENTS,
   isStatusLineSegmentPinned,
@@ -282,7 +283,7 @@ function buildSegmentValues(
     ...buildUsageSegmentValues(
       t,
       toSessionUsageStats(
-        stats,
+        toUsageTotals(stats),
         resolveContextUsage(conversation.occupancy, conversation.contextWindow)
       )
     ),

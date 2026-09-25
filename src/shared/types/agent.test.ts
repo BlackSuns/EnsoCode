@@ -1356,6 +1356,15 @@ describe('generation lifecycle/events', () => {
     expect(parseAgentWorkerEvent(withoutError)).toBeNull();
   });
 
+  it('session-meta 可带 usageTotals；脏统计只丢统计不丢事件', () => {
+    const usageTotals = { inputTokens: 300, outputTokens: 10, cacheHitPercent: 63 };
+    const withTotals = { type: 'session-meta', identity: parent, seq: 5, usageTotals };
+    expect(parseAgentWorkerEvent(withTotals)).toEqual(withTotals);
+    expect(
+      parseAgentWorkerEvent({ ...withTotals, usageTotals: { inputTokens: -1, outputTokens: 'x' } })
+    ).toEqual({ type: 'session-meta', identity: parent, seq: 5 });
+  });
+
   it('session-meta 可带 occupancy；脏桶拒绝', () => {
     const occupancy = {
       buckets: {

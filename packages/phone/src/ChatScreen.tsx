@@ -58,6 +58,7 @@ interface Props {
   goal?: CatalogEntry['goal'];
   /** 输入框下状态栏的上下文占用（桌面下发） */
   context?: CatalogEntry['context'];
+  usageTotals?: CatalogEntry['usageTotals'];
   slashCommands?: SlashCommand[];
   onSend(text: string, images: AttachedImage[]): void;
   onAbort(): void;
@@ -388,7 +389,7 @@ export function ChatScreen(props: Props) {
                 }}
                 onAbort={props.onAbort}
               />
-              <SessionStatsLine messages={messages} context={props.context} />
+              <SessionStatsLine usageTotals={props.usageTotals} context={props.context} />
             </div>
           </div>
         )}

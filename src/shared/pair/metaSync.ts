@@ -101,6 +101,7 @@ const CATALOG_CHAT_KEYS = [
   'goal',
   'slashCommands',
   'context',
+  'usageTotals',
   'projectName',
   'providerId',
   'modelId',

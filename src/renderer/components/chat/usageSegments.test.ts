@@ -1,22 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { SessionStats } from '@/stores/sessions/stats';
 import { buildUsageSegmentValues, resolveContextUsage, toSessionUsageStats } from './usageSegments';
 
 const t = (key: string, params?: Record<string, string | number>) =>
   key.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(params?.[name] ?? ''));
-
-const stats = (patch: Partial<SessionStats> = {}): SessionStats => ({
-  turns: 1,
-  steps: 2,
-  llmMs: 0,
-  toolMs: 0,
-  inputTokens: 0,
-  outputTokens: 0,
-  cacheHitPercent: null,
-  ttftAvgMs: null,
-  tokensPerSecond: null,
-  ...patch,
-});
 
 describe('resolveContextUsage', () => {
   it('无占用时不产值', () => {
@@ -35,13 +21,14 @@ describe('resolveContextUsage', () => {
 
 describe('toSessionUsageStats', () => {
   it('无用量、无速度、无占用时不产值', () => {
-    expect(toSessionUsageStats(stats())).toBeUndefined();
+    expect(toSessionUsageStats(undefined)).toBeUndefined();
+    expect(toSessionUsageStats({ inputTokens: 0, outputTokens: 0 })).toBeUndefined();
   });
 
-  it('缺省字段不输出，合入上下文占用', () => {
+  it('合入上下文占用', () => {
     expect(
       toSessionUsageStats(
-        stats({ inputTokens: 1200, outputTokens: 30, cacheHitPercent: 80, tokensPerSecond: 42.5 }),
+        { inputTokens: 1200, outputTokens: 30, cacheHitPercent: 80, tokensPerSecond: 42.5 },
         { used: 5000, window: 200_000 }
       )
     ).toEqual({
@@ -54,8 +41,8 @@ describe('toSessionUsageStats', () => {
     });
   });
 
-  it('只有占用时仍产值（冷会话刚打开、消息未到）', () => {
-    expect(toSessionUsageStats(stats(), { used: 0 })).toEqual({
+  it('只有占用时仍产值（worker 尚未产出统计）', () => {
+    expect(toSessionUsageStats(undefined, { used: 0 })).toEqual({
       inputTokens: 0,
       outputTokens: 0,
       contextUsed: 0,

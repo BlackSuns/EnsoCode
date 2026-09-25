@@ -25,6 +25,7 @@ import type {
   ProjectAuthorityProjection,
   ProjectedMessage,
   RendererAgentEvent,
+  SessionUsageTotals,
   ThinkingLevel,
   TitleSummaryInput,
   TurnDigest,
@@ -209,6 +210,8 @@ export interface Conversation extends SessionProjection {
   contextWindow?: number;
   /** Worker 拆账单；未 spawn 时缺省 */
   occupancy?: ContextOccupancy;
+  /** Worker 按完整记录算的用量（session-meta 下发），供手机状态栏 */
+  usageTotals?: SessionUsageTotals;
   /** 上下文压缩进度：排队中（等本轮收束）/ 压缩中；未压缩时缺省 */
   compaction?: 'queued' | 'running';
   /** 最近一次压缩失败的原文（如「Nothing to compact」），UI 弹完 toast 后清除 */
@@ -1452,6 +1455,7 @@ export const useSessionsStore = create<SessionsState>()(
               ...(event.sessionFile ? { sessionFile: event.sessionFile } : {}),
               ...(event.contextWindow !== undefined ? { contextWindow: event.contextWindow } : {}),
               ...(event.occupancy ? { occupancy: event.occupancy } : {}),
+              ...(event.usageTotals ? { usageTotals: event.usageTotals } : {}),
             });
           });
           return;

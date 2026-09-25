@@ -48,7 +48,7 @@ function buildPayload(): PairCatalogPayload {
   const slashCommands = settings.skills
     .filter((skill) => skill.enabled !== false)
     .map((skill) => ({ name: `/skill:${skill.name}`, description: skill.description }));
-  // 冷会话桌面不留消息正文，token/缓存/速度只能由手机按本地消息算；占用走 session-meta，冷会话也有
+  // 冷会话桌面不留消息正文：用量与占用都取 session-meta（worker 按完整记录算），不按 c.messages 算
   const toEntry = (c: Conversation) => {
     const context = resolveContextUsage(c.occupancy, c.contextWindow);
     return {
@@ -96,6 +96,7 @@ function buildPayload(): PairCatalogPayload {
         : {}),
       ...(slashCommands.length ? { slashCommands } : {}),
       ...(context ? { context } : {}),
+      ...(c.usageTotals ? { usageTotals: c.usageTotals } : {}),
     };
   };
 

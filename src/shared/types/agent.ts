@@ -692,6 +692,15 @@ export interface ContextOccupancy {
   compactionEntryId?: string;
 }
 
+/** worker 按完整消息记录算的会话用量（手机只持有尾窗消息，靠它显示全量） */
+export interface SessionUsageTotals {
+  inputTokens: number;
+  outputTokens: number;
+  cacheHitPercent?: number;
+  ttftAvgMs?: number;
+  tokensPerSecond?: number;
+}
+
 export interface ConversationForkOrigin {
   conversationId: string;
   entryId: string;
@@ -1453,6 +1462,7 @@ export type AgentWorkerEvent =
       sessionFile?: string;
       contextWindow?: number;
       occupancy?: ContextOccupancy;
+      usageTotals?: SessionUsageTotals;
     }
   | {
       type: 'approval-request';
@@ -1799,6 +1809,27 @@ export function parseContextOccupancy(value: unknown): ContextOccupancy | null {
     return null;
   }
   return value as unknown as ContextOccupancy;
+}
+
+const isNonNegativeNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0;
+
+/** 统计只是展示用：脏值返回 undefined 由调用方丢弃该字段，不连累所在事件/条目 */
+export function parseSessionUsageTotals(value: unknown): SessionUsageTotals | undefined {
+  if (!isRecord(value) || !isSequence(value.inputTokens) || !isSequence(value.outputTokens)) {
+    return undefined;
+  }
+  const out: SessionUsageTotals = {
+    inputTokens: value.inputTokens,
+    outputTokens: value.outputTokens,
+  };
+  for (const key of ['cacheHitPercent', 'ttftAvgMs', 'tokensPerSecond'] as const) {
+    const field = value[key];
+    if (field === undefined) continue;
+    if (!isNonNegativeNumber(field)) return undefined;
+    out[key] = field;
+  }
+  return out;
 }
 
 const isProductSurfaceId = (value: unknown): value is ProductSurfaceId =>
@@ -3104,10 +3135,16 @@ export function parseAgentWorkerEvent(value: unknown): AgentWorkerEvent | null {
       const occupancy =
         value.occupancy === undefined ? undefined : parseContextOccupancy(value.occupancy);
       if (value.occupancy !== undefined && !occupancy) return null;
+      const { usageTotals: rawTotals, ...rest } = value;
+      const usageTotals = parseSessionUsageTotals(rawTotals);
       return (value.sessionFile === undefined || typeof value.sessionFile === 'string') &&
         (value.contextWindow === undefined ||
           (typeof value.contextWindow === 'number' && value.contextWindow > 0))
-        ? ({ ...value, ...(occupancy ? { occupancy } : {}) } as unknown as AgentWorkerEvent)
+        ? ({
+            ...rest,
+            ...(occupancy ? { occupancy } : {}),
+            ...(usageTotals ? { usageTotals } : {}),
+          } as unknown as AgentWorkerEvent)
         : null;
     }
     case 'approval-request':

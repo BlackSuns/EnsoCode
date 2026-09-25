@@ -6,7 +6,11 @@ import type {
   ProviderEntry,
 } from '@enso/pair';
 import type { GuestSessionView } from '@shared/pair/guestProjection';
-import type { ProjectedMessage, ProjectedPart } from '@shared/types/agent';
+import {
+  type ProjectedMessage,
+  type ProjectedPart,
+  parseSessionUsageTotals,
+} from '@shared/types/agent';
 
 const CACHE_SCHEMA = 1;
 const DB_NAME = 'enso-phone-session-cache';
@@ -256,6 +260,8 @@ function parseCatalogEntry(value: unknown): CatalogEntry | null {
   if (slashCommands) out.slashCommands = slashCommands;
   const context = parseContext(value.context);
   if (context) out.context = context;
+  const usageTotals = parseSessionUsageTotals(value.usageTotals);
+  if (usageTotals) out.usageTotals = usageTotals;
   return out;
 }
 

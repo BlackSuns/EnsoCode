@@ -1,7 +1,5 @@
 import type { CatalogEntry } from '@enso/pair';
-import type { ProjectedMessage } from '@shared/types/agent';
 import { Coins, Database, Gauge, type LucideIcon, Zap } from 'lucide-react';
-import { useMemo } from 'react';
 import { ContextMeter } from '@/components/chat/ContextMeter';
 import {
   buildUsageSegmentValues,
@@ -10,7 +8,6 @@ import {
 } from '@/components/chat/usageSegments';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
-import { computeStats } from '@/stores/sessions/stats';
 
 /** 与桌面默认状态栏同序同图标 */
 const SEGMENTS: [UsageSegmentId, LucideIcon][] = [
@@ -20,18 +17,17 @@ const SEGMENTS: [UsageSegmentId, LucideIcon][] = [
   ['speed', Zap],
 ];
 
-/** 输入框下的会话统计：与桌面同口径（按已加载消息算，占用由桌面下发）；手机无悬停，四段常驻，窄屏折行。
+/** 输入框下的会话统计：用量与占用均由桌面下发（手机尾窗消息算不全）；手机无悬停，四段常驻，窄屏折行。
  *  恒占一行高度，避免首条回复到达时输入框上跳。 */
 export function SessionStatsLine({
-  messages,
+  usageTotals,
   context,
 }: {
-  messages: ProjectedMessage[];
+  usageTotals?: CatalogEntry['usageTotals'];
   context?: CatalogEntry['context'];
 }) {
   const { t } = useI18n();
-  const stats = useMemo(() => computeStats(messages), [messages]);
-  const values = buildUsageSegmentValues(t, toSessionUsageStats(stats, context));
+  const values = buildUsageSegmentValues(t, toSessionUsageStats(usageTotals, context));
   return (
     <div
       data-slot="stats-line"
