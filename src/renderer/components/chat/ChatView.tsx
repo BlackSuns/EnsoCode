@@ -3,14 +3,13 @@ import { conversationDotTone } from '@shared/conversationDotTone';
 import { resolveChatModel, scopedDefaultModels } from '@shared/defaultModel';
 import { planPhase } from '@shared/planMode';
 import type { AgentTypeMentionCandidate } from '@shared/types/mentions';
-import { Folder, GitBranch, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { AgentChildOauthHost } from '@/components/agent/AgentChildOauthHost';
 import { addToast } from '@/components/ui/toast';
 import { toChatMentionCandidates } from '@/hooks/useMentionSearch';
 import { useI18n } from '@/i18n';
-import { cn } from '@/lib/utils';
 import {
   oauthCredentialContext,
   usableProvidersForOauthSnapshot,
@@ -43,6 +42,7 @@ import { StatsLine } from './StatsLine';
 import { dedupeSlashCommands } from './skillCompletion';
 import { TaskBar } from './TaskBar';
 import { TodoBar } from './TodoBar';
+import { WorkspaceBadge } from './WorkspaceBadge';
 import { WorktreeMissingDialog } from './WorktreeMissingDialog';
 import { WorktreePicker } from './WorktreePicker';
 
@@ -279,6 +279,14 @@ export function ChatView() {
     );
   }
 
+  const statusDot = (
+    <StatusDot
+      status={chrome.spawning ? 'running' : chrome.status}
+      pendingAskCount={(chrome.pendingAsks ?? []).length}
+      hasRunningChild={chrome.id === chrome.parentId && chrome.parentHasRunningChild}
+    />
+  );
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
       <WorktreeMissingDialog conversationId={chrome.parentId} />
@@ -286,33 +294,19 @@ export function ChatView() {
         parentId={chrome.parentId}
         displayedId={chrome.id}
         trailing={
-          <div
-            className={cn(
-              'flex min-w-0 shrink-0 items-center gap-1.5',
-              project &&
-                'ml-1.5 h-6 rounded-full border px-2 font-mono text-[11.5px] text-muted-foreground'
-            )}
-            title={project ? (chrome.parentWorktreePath ?? project.path) : undefined}
-          >
-            {project && (
-              <>
-                <Folder className="h-3 w-3 shrink-0" />
-                <span className="max-w-40 truncate">{project.name}</span>
-                {branch && (
-                  <>
-                    <span className="opacity-40">/</span>
-                    <GitBranch className="h-3 w-3 shrink-0" />
-                    <span className="max-w-40 truncate">{branch}</span>
-                  </>
-                )}
-              </>
-            )}
-            <StatusDot
-              status={chrome.spawning ? 'running' : chrome.status}
-              pendingAskCount={(chrome.pendingAsks ?? []).length}
-              hasRunningChild={chrome.id === chrome.parentId && chrome.parentHasRunningChild}
-            />
-          </div>
+          project ? (
+            <WorkspaceBadge
+              project={project}
+              conversationId={chrome.parentId}
+              path={chrome.parentWorktreePath ?? project.path}
+              branch={branch}
+              openDisabled={chrome.parentWorktreeMissing}
+            >
+              {statusDot}
+            </WorkspaceBadge>
+          ) : (
+            <div className="flex min-w-0 shrink-0 items-center">{statusDot}</div>
+          )
         }
       />
       <ChatSessionTimeline

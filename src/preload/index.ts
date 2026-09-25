@@ -74,6 +74,7 @@ import type {
   OauthAccountUsage,
   OauthCodexImportResult,
   OauthProviderInfo,
+  OpenInApp,
   PairCatalogPayload,
   PairCreatedSession,
   PairQueueAction,
@@ -406,12 +407,14 @@ const electronAPI = {
   projects: {
     /** 从本机编辑器 / 编程应用读取最近打开的目录 */
     getRecent: (): Promise<RecentProject[]> => ipcRenderer.invoke(IPC_CHANNELS.PROJECTS_GET_RECENT),
-    /** 在系统文件管理器里打开项目或会话的实际工作目录；ssh 项目返回 unsupported */
+    /** 在系统文件管理器（或 appId 指定的应用）里打开项目或会话的实际工作目录；ssh 项目返回 unsupported */
     reveal: (request: {
       projectId: string;
       conversationId?: string;
+      appId?: string;
     }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROJECTS_REVEAL, request),
+    openInApps: (): Promise<OpenInApp[]> => ipcRenderer.invoke(IPC_CHANNELS.PROJECTS_OPEN_IN_APPS),
   },
 
   git: {

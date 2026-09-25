@@ -473,6 +473,8 @@ export const zhTranslations: Record<string, string> = {
   'Open in Finder': '在访达中打开',
   'Open in File Explorer': '在资源管理器中打开',
   'Open in File Manager': '在文件管理器中打开',
+  Editors: '编辑器',
+  Terminals: '终端',
   'Open Containing Folder': '打开所在文件夹',
   'Reveal in File Explorer': '在资源管理器中显示',
   'A file or folder with that name already exists.': '已存在同名文件或文件夹。',

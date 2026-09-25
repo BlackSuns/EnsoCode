@@ -199,8 +199,10 @@ export const IPC_CHANNELS = {
 
   // Recent projects from local apps
   PROJECTS_GET_RECENT: 'projects:get-recent',
-  /** 在系统文件管理器里打开项目根目录或会话 worktree（仅本地项目） */
+  /** 在系统文件管理器或指定 appId 的应用里打开项目根目录或会话 worktree（仅本地项目） */
   PROJECTS_REVEAL: 'projects:reveal',
+  /** 列出本机已安装、可打开项目目录的编辑器 / 终端 */
+  PROJECTS_OPEN_IN_APPS: 'projects:open-in-apps',
 
   // SSH connection profiles (settings + add-project picker)
   SSH_CONNECTIONS_LIST: 'ssh-connections:list',
