@@ -37,9 +37,8 @@ function setup(state: PlanState, mode: 'supervised' | 'full' = 'full') {
     () => undefined
   );
   const host = { state: () => state, submit: vi.fn<(doc: PlanDoc) => void>() };
-  const deps = { host, gate, readonlyAgentTypes: new Set(['scout']) };
-  const run = (definition: ToolDefinition, params: unknown, category?: 'mcp') =>
-    withPlanGate(definition, { ...deps, ...(category ? { category } : {}) }).execute(
+  const run = (definition: ToolDefinition, params: unknown) =>
+    withPlanGate(definition, { host, readonlyAgentTypes: new Set(['scout']) }).execute(
       'c1',
       params as never,
       undefined,
@@ -69,47 +68,31 @@ describe('withPlanGate', () => {
     }
   );
 
-  it('只读 bash 与读工具免询问放行', async () => {
-    const { run, requests } = setup(planning);
-    const bash = tool('bash');
-    await run(bash, { command: 'rg foo src' });
-    await run(tool('read'), { path: 'a' });
-    expect(bash.execute).toHaveBeenCalled();
+  it('full 档：非只读 bash 与 MCP 直接执行，不额外询问', async () => {
+    const { run, requests, gate } = setup(planning, 'full');
+    const bashExec = vi.fn().mockResolvedValue(ok);
+    const mcpExec = vi.fn().mockResolvedValue(ok);
+    void run(withApproval(gate, 'command', tool('bash', bashExec)), { command: 'npm install' });
+    void run(withApproval(gate, 'mcp', tool('mcp__db__query', mcpExec)), { sql: 'select 1' });
+    await vi.waitFor(() => {
+      expect(bashExec).toHaveBeenCalled();
+      expect(mcpExec).toHaveBeenCalled();
+    });
     expect(requests).toHaveLength(0);
   });
 
-  it('非只读 bash 即使 full 档也强制询问，批准后内层审批不重复', async () => {
+  it('supervised 档：bash 只走常规审批一次，且可本会话允许', async () => {
     const { run, requests, gate } = setup(planning, 'supervised');
     const execute = vi.fn().mockResolvedValue(ok);
     const bash = withApproval(gate, 'command', tool('bash', execute));
-    const pending = run(bash, { command: 'npm install' });
+    const first = run(bash, { command: 'npm install' });
     await vi.waitFor(() => expect(requests).toHaveLength(1));
-    expect(requests[0]).toMatchObject({ planMode: true, kind: 'command', summary: 'npm install' });
-    gate.respond(requests[0].requestId, 'allow');
-    await pending;
+    expect(requests[0]).toMatchObject({ kind: 'command', summary: 'npm install' });
+    gate.respond(requests[0].requestId, 'allowSession');
+    await first;
+    await run(bash, { command: 'rm -rf dist' });
     expect(requests).toHaveLength(1);
-    expect(execute).toHaveBeenCalled();
-  });
-
-  it('非只读 bash 被拒绝时不执行', async () => {
-    const { run, requests, gate } = setup(planning);
-    const bash = tool('bash');
-    const pending = run(bash, { command: 'rm -rf dist' });
-    await vi.waitFor(() => expect(requests).toHaveLength(1));
-    gate.respond(requests[0].requestId, 'deny');
-    await expect(pending).rejects.toThrow(/denied/);
-    expect(bash.execute).not.toHaveBeenCalled();
-  });
-
-  it('MCP 工具强制询问', async () => {
-    const { run, requests, gate } = setup(planning);
-    const mcp = tool('mcp__db__query');
-    const pending = run(mcp, { sql: 'select 1' }, 'mcp');
-    await vi.waitFor(() => expect(requests).toHaveLength(1));
-    expect(requests[0]).toMatchObject({ planMode: true, kind: 'mcp' });
-    gate.respond(requests[0].requestId, 'allow');
-    await pending;
-    expect(mcp.execute).toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 
   it('subagent 只允许派生只读类型，禁止向已有代理发消息', async () => {

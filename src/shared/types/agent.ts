@@ -151,8 +151,6 @@ export interface ApprovalRequestInfo {
   toolCallId?: string;
   /** reviewing = 代审模型评审中（不弹真人按钮）；缺省 = 等人决策 */
   phase?: 'reviewing';
-  /** Plan 模式强制询问：不走代审，不提供「本会话允许」 */
-  planMode?: true;
 }
 
 /** agent 向用户的提问（ask_user 工具,阻塞等答复） */

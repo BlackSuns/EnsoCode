@@ -2016,19 +2016,11 @@ export class SessionSupervisor {
       state: () => planRef.current?.state() ?? EMPTY_PLAN_STATE,
       submit: (doc: Parameters<PlanController['submit']>[0]) => planRef.current?.submit(doc),
     };
-    const mcpToolNames = new Set(mcpTools.map((tool) => tool.name));
     const readonlyAgentTypes = new Set(
       agentTypes.filter((type) => type.tools === 'readonly').map((type) => type.name)
     );
     const catalogTools = toolEnabled('plan')
-      ? sessionTools.map((tool) =>
-          withPlanGate(tool, {
-            host: planHost,
-            gate,
-            readonlyAgentTypes,
-            ...(mcpToolNames.has(tool.name) ? { category: 'mcp' as const } : {}),
-          })
-        )
+      ? sessionTools.map((tool) => withPlanGate(tool, { host: planHost, readonlyAgentTypes }))
       : sessionTools;
     catalogRef.current = catalogTools;
     const customTools = decorateSessionTools(

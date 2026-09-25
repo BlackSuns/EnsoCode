@@ -12,7 +12,7 @@
 
 ## 行为差距与所属层
 
-审批档位只管单次工具调用，todo 只记进度，`/goal` 只管自动续跑；缺“只读调研 → 冻结计划 → 用户审批 → 执行”。Plan 是 Composer 的开关（不替换 `/goal`），worker 强制只读，模型用 `submit_plan` 提交后本轮结束，用户在审批条批准 / 提修改意见 / 放弃。
+审批档位只管单次工具调用，todo 只记进度，`/goal` 只管自动续跑；缺“只读调研 → 冻结计划 → 用户审批 → 执行”。Plan 是 Composer 的开关（不替换 `/goal`），worker 硬拒写工具，模型用 `submit_plan` 提交后本轮结束，用户在审批条批准 / 提修改意见 / 放弃。
 
 | 层 | 文件 | 职责 |
 | --- | --- | --- |
@@ -54,11 +54,10 @@ phase = pending ? awaiting_review : active ? planning : executing ? executing : 
 | --- | --- |
 | read / grep / find / ls、browser、memory、ask_user、explore_*、goal_* | 放行 |
 | edit / write / apply_patch、todo、workflow | 硬拒，错误文本提示继续只读调研并 `submit_plan` |
-| bash | `isReadOnlyCommand` 为真放行；否则不论审批档强制问人，不走代审、不提供「本会话允许」 |
-| MCP | 强制问人 |
+| bash / MCP | 按当前审批档走常规审批（完全放行即直接执行）；不改文件只靠 `<plan-mode>` 提示约束 |
 | subagent | spawn 只允许 `tools:'readonly'` 类型；wait / report / list / stop / dismiss 放行；send / message 拒绝 |
 
-强制询问后 `ApprovalGate.grant(toolCallId)`，内层 `withApproval` 消费一次免审，避免同一调用问两遍。只读判定保守：未知程序、非语言类环境前缀、`git -c`、`git branch <name>`、`sed` 非纯打印脚本、`rg --pre`、`fd -x`、`sort --compress-program`、解释器除 `--version/-v` 外一律判写（判写只是多问一次）。
+最初对非只读 bash 与 MCP 不论审批档强制问人；但规划期常需跑测试、类型检查，完全放行档下反复询问等于推翻用户的档位选择，已改为尊重审批档，代价是模型理论上可经 bash 改文件。
 
 已在运行的可写子代理不受父会话 Plan 约束（P1 不处理）。
 
@@ -72,7 +71,7 @@ phase = pending ? awaiting_review : active ? planning : executing ? executing : 
 ## 验证记录
 
 - 单测：`shared/planMode.test.ts`、`shared/readOnlyCommand.test.ts`、`agent/planMode.test.ts`、`approval.test.ts`、reducer / timeline / store 用例。
-- 真机（CDP，隔离 userData）：claude-sonnet-5 与 deepseek-v4-pro 各走通「进入 → 调研 → submit_plan」；Claude 走通修改意见 → 修订 → 批准（完全放行档）→ 执行改文件并跑测试；DeepSeek 验证完全放行档下非只读 bash 仍强制询问、Plan 中 apply_patch 被拒、待审发消息取代计划、重启冷恢复后重申规则并重新提交、放弃后 OFF 提示与正常改文件；冷会话点执行条结束会先恢复再下发。
+- 真机（CDP，隔离 userData）：claude-sonnet-5 与 deepseek-v4-pro 各走通「进入 → 调研 → submit_plan」；Claude 走通修改意见 → 修订 → 批准（完全放行档）→ 执行改文件并跑测试；DeepSeek 验证 Plan 中 apply_patch 被拒、待审发消息取代计划、重启冷恢复后重申规则并重新提交、放弃后 OFF 提示与正常改文件；冷会话点执行条结束会先恢复再下发。
 
 ## 后续（未做）
 

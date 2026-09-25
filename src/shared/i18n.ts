@@ -1354,8 +1354,6 @@ export const zhTranslations: Record<string, string> = {
   'Plan mode: research read-only, then approve a plan (/plan [task] · off)':
     'Plan 模式：只读调研后审批计划（/plan [任务] · off）',
   'Describe the task — a plan comes first': '描述任务，先产出计划',
-  'Plan mode: this may change files or external state. Allow only if it is needed for research.':
-    'Plan 模式：该操作可能修改文件或外部状态，仅在调研确需时允许。',
   'Plan mode on: read-only research, then a plan for your approval':
     '已进入 Plan 模式：只读调研，产出计划交你审批',
   'Plan mode off': '已退出 Plan 模式',

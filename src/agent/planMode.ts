@@ -14,8 +14,6 @@ import {
   planKickoffText,
   planPhase,
 } from '@shared/planMode';
-import { isReadOnlyCommand } from '@shared/readOnlyCommand';
-import { type ApprovalGate, summarizeApproval } from './approval';
 
 export interface PlanHost {
   state(): PlanState;
@@ -153,18 +151,13 @@ const restricting = (state: PlanState) => {
 
 /**
  * Plan 工具门：包在父会话工具定义最外层（exec 沙盒内层调用同样经过），工具目录保持不变。
- * 写工具硬拒；非只读 bash 与 MCP 不论审批档都强制问人；subagent 只能派生只读类型。
+ * 写工具硬拒；subagent 只能派生只读类型；bash / MCP 仍按当前审批档走内层 withApproval。
  */
 export function withPlanGate(
   definition: ToolDefinition,
-  deps: {
-    host: PlanHost;
-    gate: ApprovalGate;
-    readonlyAgentTypes: ReadonlySet<string>;
-    category?: 'mcp';
-  }
+  deps: { host: PlanHost; readonlyAgentTypes: ReadonlySet<string> }
 ): ToolDefinition {
-  const { host, gate, readonlyAgentTypes, category } = deps;
+  const { host, readonlyAgentTypes } = deps;
   return {
     ...definition,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -184,26 +177,6 @@ export function withPlanGate(
         } else if (!SUBAGENT_PASSIVE_OPS.has(String(operation))) {
           throw denied(`subagent ${String(operation)} is disabled while planning`);
         }
-      }
-      const kind =
-        category === 'mcp'
-          ? 'mcp'
-          : name === 'bash' && !isReadOnlyCommand(String(record.command ?? ''))
-            ? 'command'
-            : undefined;
-      if (kind) {
-        const result = await gate.ask(
-          name,
-          kind,
-          summarizeApproval(kind, params, name),
-          signal,
-          toolCallId,
-          undefined,
-          { planMode: true }
-        );
-        if (result === 'deny' || result === 'block') throw new Error('User denied this operation');
-        if (result === 'cancel') throw new Error('Approval cancelled');
-        gate.grant(toolCallId);
       }
       return definition.execute(toolCallId, params, signal, onUpdate, ctx);
     },
