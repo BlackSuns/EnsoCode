@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionStats } from '@/stores/sessions/stats';
-import { buildUsageSegmentValues, toSessionUsageStats } from './usageSegments';
+import { buildUsageSegmentValues, resolveContextUsage, toSessionUsageStats } from './usageSegments';
 
 const t = (key: string, params?: Record<string, string | number>) =>
   key.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(params?.[name] ?? ''));
@@ -18,17 +18,31 @@ const stats = (patch: Partial<SessionStats> = {}): SessionStats => ({
   ...patch,
 });
 
+describe('resolveContextUsage', () => {
+  it('无占用时不产值', () => {
+    expect(resolveContextUsage(undefined, 128_000)).toBeUndefined();
+  });
+
+  it('占用窗口优先；占用无窗口时回落会话窗口；两者都未知时只给已用量', () => {
+    expect(resolveContextUsage({ used: 5000, contextWindow: 200_000 }, 128_000)).toEqual({
+      used: 5000,
+      window: 200_000,
+    });
+    expect(resolveContextUsage({ used: 10 }, 128_000)).toEqual({ used: 10, window: 128_000 });
+    expect(resolveContextUsage({ used: 0, contextWindow: 0 }, 0)).toEqual({ used: 0 });
+  });
+});
+
 describe('toSessionUsageStats', () => {
   it('无用量、无速度、无占用时不产值', () => {
     expect(toSessionUsageStats(stats())).toBeUndefined();
   });
 
-  it('缺省字段不下发，占用窗口优先于会话窗口', () => {
+  it('缺省字段不输出，合入上下文占用', () => {
     expect(
       toSessionUsageStats(
         stats({ inputTokens: 1200, outputTokens: 30, cacheHitPercent: 80, tokensPerSecond: 42.5 }),
-        { used: 5000, contextWindow: 200_000 },
-        128_000
+        { used: 5000, window: 200_000 }
       )
     ).toEqual({
       inputTokens: 1200,
@@ -40,14 +54,8 @@ describe('toSessionUsageStats', () => {
     });
   });
 
-  it('占用无窗口时回落会话窗口；两者都未知时只给已用量', () => {
-    expect(toSessionUsageStats(stats(), { used: 10 }, 128_000)).toEqual({
-      inputTokens: 0,
-      outputTokens: 0,
-      contextUsed: 10,
-      contextWindow: 128_000,
-    });
-    expect(toSessionUsageStats(stats(), { used: 0, contextWindow: 0 }, 0)).toEqual({
+  it('只有占用时仍产值（冷会话刚打开、消息未到）', () => {
+    expect(toSessionUsageStats(stats(), { used: 0 })).toEqual({
       inputTokens: 0,
       outputTokens: 0,
       contextUsed: 0,

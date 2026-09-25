@@ -2,13 +2,11 @@ import { toPairProjectEntry } from '@enso/pair';
 import { catalogSyncFingerprint, pairJsonFingerprint } from '@shared/pair/metaSync';
 import { projectDisplayName } from '@shared/projectName';
 import type { PairCatalogPayload } from '@shared/types';
-import type { ProjectedMessage } from '@shared/types/agent';
-import { toSessionUsageStats } from '@/components/chat/usageSegments';
+import { resolveContextUsage } from '@/components/chat/usageSegments';
 import { getXtermTheme } from '@/lib/ghosttyTheme';
 import { useOauthCredentialStore } from '@/stores/oauthCredentials';
 import { pairProviderSyncPlan } from '@/stores/pairCatalogProviders';
 import { useSessionsStore } from '@/stores/sessions';
-import { computeStats, type SessionStats } from '@/stores/sessions/stats';
 import { setPairViewedSession } from '@/stores/sessions/unread';
 import { useSettingsStore } from '@/stores/settings';
 import { applyProjectOrder } from '@/stores/settings/projectOrder';
@@ -30,17 +28,6 @@ const DEBOUNCE_MS = 300;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let bound = false;
 let lastPushFingerprint: string | null = null;
-// 流式期间每 300ms 重建目录：只有消息数组换了引用的会话才重算统计
-const statsCache = new WeakMap<ProjectedMessage[], SessionStats>();
-
-function cachedStats(messages: ProjectedMessage[]): SessionStats {
-  let stats = statsCache.get(messages);
-  if (!stats) {
-    stats = computeStats(messages);
-    statsCache.set(messages, stats);
-  }
-  return stats;
-}
 
 function buildPayload(): PairCatalogPayload {
   const settings = useSettingsStore.getState();
@@ -61,8 +48,9 @@ function buildPayload(): PairCatalogPayload {
   const slashCommands = settings.skills
     .filter((skill) => skill.enabled !== false)
     .map((skill) => ({ name: `/skill:${skill.name}`, description: skill.description }));
+  // 冷会话桌面不留消息正文，token/缓存/速度只能由手机按本地消息算；占用走 session-meta，冷会话也有
   const toEntry = (c: Conversation) => {
-    const stats = toSessionUsageStats(cachedStats(c.messages), c.occupancy, c.contextWindow);
+    const context = resolveContextUsage(c.occupancy, c.contextWindow);
     return {
       id: c.id,
       title: c.parentId ? c.coworkerName || c.title : c.title,
@@ -107,7 +95,7 @@ function buildPayload(): PairCatalogPayload {
           }
         : {}),
       ...(slashCommands.length ? { slashCommands } : {}),
-      ...(stats ? { stats } : {}),
+      ...(context ? { context } : {}),
     };
   };
 

@@ -42,6 +42,7 @@ import { StatusLineSettings } from './StatusLineSettings';
 import {
   buildUsageSegmentValues,
   CRITICAL_PERCENT,
+  resolveContextUsage,
   type SegmentValue,
   toSessionUsageStats,
 } from './usageSegments';
@@ -280,7 +281,10 @@ function buildSegmentValues(
     usage: undefined,
     ...buildUsageSegmentValues(
       t,
-      toSessionUsageStats(stats, conversation.occupancy, conversation.contextWindow)
+      toSessionUsageStats(
+        stats,
+        resolveContextUsage(conversation.occupancy, conversation.contextWindow)
+      )
     ),
   };
 

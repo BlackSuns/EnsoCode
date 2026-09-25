@@ -183,10 +183,10 @@ describe('slimCatalogForPhone', () => {
     thinkingLevel: 'high' as const,
     goal: { text: 'ship checkout', status: 'active' as const, autoTurns: 2 },
     slashCommands: [{ name: '/skill:foo', description: 'do foo' }],
-    stats: { inputTokens: 100, outputTokens: 20, contextUsed: 50 },
+    context: { used: 50, window: 200 },
   };
 
-  it('未订阅时剥掉 cwd/排队/模型/目标/统计，只留抽屉字段', () => {
+  it('未订阅时剥掉 cwd/排队/模型/目标/上下文占用，只留抽屉字段', () => {
     expect(slimCatalogForPhone([fat], null)).toEqual([
       { id: 's1', title: 't', projectId: 'p', status: 'idle' },
     ]);

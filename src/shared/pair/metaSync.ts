@@ -100,7 +100,7 @@ const CATALOG_CHAT_KEYS = [
   'queued',
   'goal',
   'slashCommands',
-  'stats',
+  'context',
   'projectName',
   'providerId',
   'modelId',

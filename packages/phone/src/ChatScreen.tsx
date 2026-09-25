@@ -56,8 +56,8 @@ interface Props {
   echoes?: QueueSendEcho[];
   /** 会话目标（桌面下发）：GoalBar 展示与暂停/继续/清除 */
   goal?: CatalogEntry['goal'];
-  /** 输入框下状态栏的用量统计（桌面下发） */
-  stats?: CatalogEntry['stats'];
+  /** 输入框下状态栏的上下文占用（桌面下发） */
+  context?: CatalogEntry['context'];
   slashCommands?: SlashCommand[];
   onSend(text: string, images: AttachedImage[]): void;
   onAbort(): void;
@@ -388,7 +388,7 @@ export function ChatScreen(props: Props) {
                 }}
                 onAbort={props.onAbort}
               />
-              <SessionStatsLine stats={props.stats} />
+              <SessionStatsLine messages={messages} context={props.context} />
             </div>
           </div>
         )}

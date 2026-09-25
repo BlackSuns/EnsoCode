@@ -1,4 +1,4 @@
-import type { SessionUsageStats } from '@shared/types';
+import type { ContextUsage } from '@shared/types';
 import type { ContextOccupancy } from '@shared/types/agent';
 import type { TFunction } from '@/i18n';
 import { formatDuration, formatTokens, type SessionStats } from '@/stores/sessions/stats';
@@ -19,11 +19,37 @@ export const CRITICAL_PERCENT = 90;
 
 export type UsageSegmentId = 'tokens' | 'cache' | 'context' | 'speed';
 
-/** 桌面状态栏与手机目录下发共用的数据口径；全空时不产值 */
-export function toSessionUsageStats(
-  stats: SessionStats,
+/** 状态栏 token/缓存/速度/上下文四段的数据 */
+export interface SessionUsageStats {
+  inputTokens: number;
+  outputTokens: number;
+  cacheHitPercent?: number;
+  ttftAvgMs?: number;
+  tokensPerSecond?: number;
+  contextUsed?: number;
+  contextWindow?: number;
+}
+
+/** 占用窗口优先、会话窗口其次；都未知时只给已用量，不编造窗口 */
+export function resolveContextUsage(
   occupancy?: Pick<ContextOccupancy, 'used' | 'contextWindow'> | null,
   contextWindow?: number
+): ContextUsage | undefined {
+  const used = contextSegmentUsed(occupancy);
+  if (used === null) return undefined;
+  const window =
+    occupancy?.contextWindow && occupancy.contextWindow > 0
+      ? occupancy.contextWindow
+      : contextWindow && contextWindow > 0
+        ? contextWindow
+        : 0;
+  return window > 0 ? { used, window } : { used };
+}
+
+/** 桌面与手机状态栏共用的数据口径：消息统计各自按本地已加载消息算，占用来自 session-meta；全空时不产值 */
+export function toSessionUsageStats(
+  stats: SessionStats,
+  context?: ContextUsage
 ): SessionUsageStats | undefined {
   const out: SessionUsageStats = {
     inputTokens: stats.inputTokens,
@@ -32,16 +58,9 @@ export function toSessionUsageStats(
   if (stats.cacheHitPercent !== null) out.cacheHitPercent = stats.cacheHitPercent;
   if (stats.ttftAvgMs !== null) out.ttftAvgMs = stats.ttftAvgMs;
   if (stats.tokensPerSecond !== null) out.tokensPerSecond = stats.tokensPerSecond;
-  const used = contextSegmentUsed(occupancy);
-  if (used !== null) {
-    out.contextUsed = used;
-    const window =
-      occupancy?.contextWindow && occupancy.contextWindow > 0
-        ? occupancy.contextWindow
-        : contextWindow && contextWindow > 0
-          ? contextWindow
-          : 0;
-    if (window > 0) out.contextWindow = window;
+  if (context) {
+    out.contextUsed = context.used;
+    if (context.window !== undefined) out.contextWindow = context.window;
   }
   const empty =
     out.inputTokens === 0 &&
