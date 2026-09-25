@@ -161,7 +161,9 @@ function itemEqual(prev: TimelineRowProps, next: TimelineRowProps): boolean {
         a.stats.reads === b.stats.reads &&
         a.stats.searches === b.stats.searches &&
         a.stats.others === b.stats.others &&
-        a.exploring === b.exploring
+        a.exploring === b.exploring &&
+        a.activity?.thinking === b.activity?.thinking &&
+        a.activity?.workedMs === b.activity?.workedMs
       );
     case 'error':
       return b.kind === 'error' && a.text === b.text;
@@ -1282,11 +1284,22 @@ function ToolGroupRow({
     if (item.stats.searches > 0)
       explored.push(t('{{count}} searches', { count: item.stats.searches }));
   }
-  const label = compact
-    ? item.exploring
-      ? t('Exploring')
-      : t('Explored')
-    : t('{{count}} tool calls', { count: item.count });
+  const activity = item.activity;
+  const activityParts: string[] = [];
+  if (activity) {
+    if (activity.thinking > 0)
+      activityParts.push(t('{{count}} thinking steps', { count: activity.thinking }));
+    if (item.count > 0) activityParts.push(t('{{count}} tool calls', { count: item.count }));
+  }
+  const label = activity
+    ? activity.workedMs > 0
+      ? t('Worked for {{duration}}', { duration: formatDuration(activity.workedMs) })
+      : t('Activity')
+    : compact
+      ? item.exploring
+        ? t('Exploring')
+        : t('Explored')
+      : t('{{count}} tool calls', { count: item.count });
   return (
     <button
       type="button"
@@ -1302,7 +1315,7 @@ function ToolGroupRow({
         <span className="shrink-0 font-medium text-foreground/90">{label}</span>
       )}
       <span className="min-w-0 flex-1 truncate">
-        {compact ? explored.join(' · ') : parts.join(' · ')}
+        {(activity ? activityParts : compact ? explored : parts).join(' · ')}
       </span>
       <ChevronRight
         className={cn('h-3 w-3 shrink-0 transition-transform', item.expanded && 'rotate-90')}

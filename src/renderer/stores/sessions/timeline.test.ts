@@ -2477,3 +2477,93 @@ describe('thinkingRowExpanded', () => {
     expect(thinkingRowExpanded(true, false, true)).toBe(true);
   });
 });
+
+describe('foldTimeline 回答完成后折叠过程（collapseCompletedActivity）', () => {
+  type Group = Extract<TimelineItem, { kind: 'tool-group' }>;
+  const on = { collapseCompletedActivity: true };
+  const kinds = (items: TimelineItem[]) =>
+    items.map((item) => (item.kind === 'tool' ? item.name : item.kind));
+  const timed = (item: TimelineItem, durationMs: number): TimelineItem =>
+    ({ ...item, durationMs }) as TimelineItem;
+  const failed = (key: string): TimelineItem =>
+    ({ ...toolItem(key, 'bash'), state: 'error' }) as TimelineItem;
+
+  it('已完成轮次：思考与任意工具（含 edit/write/todo）连续段折成一行，正文留在组外', () => {
+    const items = [
+      userItem('u'),
+      timed(thinkingItem('t1'), 2000),
+      timed(toolItem('a', 'bash'), 1000),
+      toolItem('b', 'edit', [textItem('x')]),
+      { ...toolItem('c', 'write'), writeContent: 'hi' } as TimelineItem,
+      { ...toolItem('d', 'todo'), todos: [] } as TimelineItem,
+      textItem('answer'),
+    ];
+    const folded = foldTimeline(items, false, new Set(), on);
+    expect(kinds(folded)).toEqual(['user', 'tool-group', 'text']);
+    const group = folded[1] as Group;
+    expect(group.activity).toEqual({ thinking: 1, workedMs: 3000 });
+    expect(group.count).toBe(4);
+    expect(kinds(group.children)).toEqual(['thinking', 'bash', 'edit', 'write', 'todo']);
+  });
+
+  it('展开后按原顺序平铺全部行', () => {
+    const items = [userItem('u'), toolItem('a', 'edit', [textItem('x')]), toolItem('b', 'read')];
+    const collapsed = foldTimeline(items, false, new Set(), on);
+    const key = collapsed[1].key;
+    const expanded = foldTimeline(items, false, new Set([key]), on);
+    expect(kinds(expanded)).toEqual(['user', 'tool-group', 'edit', 'read']);
+  });
+
+  it('中间正文断开分组；只有 1 条的段不折', () => {
+    const items = [
+      userItem('u'),
+      toolItem('a', 'read'),
+      toolItem('b', 'bash'),
+      textItem('mid'),
+      toolItem('c', 'bash'),
+      textItem('answer'),
+    ];
+    expect(kinds(foldTimeline(items, false, new Set(), on))).toEqual([
+      'user',
+      'tool-group',
+      'text',
+      'bash',
+      'text',
+    ]);
+  });
+
+  it('失败的工具、目标信号留在组外并断开分组', () => {
+    const items = [
+      userItem('u'),
+      toolItem('a', 'read'),
+      toolItem('b', 'read'),
+      failed('bad'),
+      toolItem('goal', 'goal_complete'),
+      toolItem('c', 'read'),
+      toolItem('d', 'read'),
+    ];
+    const folded = foldTimeline(items, false, new Set(), on);
+    expect(kinds(folded)).toEqual(['user', 'tool-group', 'bash', 'goal_complete', 'tool-group']);
+  });
+
+  it('正在生成的最新一轮保持原有行为，历史轮次照常折叠', () => {
+    const items = [
+      userItem('u1'),
+      toolItem('a', 'edit', [textItem('x')]),
+      toolItem('b', 'bash'),
+      textItem('answer'),
+      userItem('u2'),
+      toolItem('c', 'edit', [textItem('x')]),
+      toolItem('d', 'bash'),
+    ];
+    const folded = foldTimeline(items, true, new Set(), on);
+    expect(kinds(folded)).toEqual(['user', 'tool-group', 'text', 'user', 'edit', 'bash']);
+  });
+
+  it('没有耗时打点时 workedMs 为 0；开关关闭时行为不变', () => {
+    const items = [userItem('u'), toolItem('a', 'edit', [textItem('x')]), toolItem('b', 'bash')];
+    const group = foldTimeline(items, false, new Set(), on)[1] as Group;
+    expect(group.activity).toEqual({ thinking: 0, workedMs: 0 });
+    expect(kinds(foldTimeline(items, false, new Set()))).toEqual(['user', 'edit', 'bash']);
+  });
+});

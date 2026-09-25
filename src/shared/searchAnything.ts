@@ -163,6 +163,11 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
     title: 'Auto-collapse previous turns',
   },
   {
+    id: 'general.collapseCompletedActivity',
+    category: 'general',
+    title: 'Collapse activity after reply',
+  },
+  {
     id: 'general.notifyMainAgentOnly',
     category: 'general',
     title: 'Notify only for the main agent',

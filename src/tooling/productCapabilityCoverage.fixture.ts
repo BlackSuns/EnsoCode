@@ -71,6 +71,9 @@ export const SETTINGS_DATA_COVERAGE = {
     'Renderer timeline reasoning expansion preference; not an Enso capability.'
   ),
   autoCollapseTurns: excluded('Renderer timeline collapse preference; not an Enso capability.'),
+  collapseCompletedActivity: excluded(
+    'Renderer timeline collapse preference; not an Enso capability.'
+  ),
   chatWide: excluded('Renderer chat column width preference; not an Enso capability.'),
   notifyMainAgentOnly: excluded(
     'Desktop/phone completion notification preference; not an Enso capability.'
@@ -185,6 +188,9 @@ export const SETTINGS_ACTION_COVERAGE = {
     'Renderer timeline reasoning expansion preference; not an Enso capability.'
   ),
   setAutoCollapseTurns: excluded('Renderer timeline collapse preference; not an Enso capability.'),
+  setCollapseCompletedActivity: excluded(
+    'Renderer timeline collapse preference; not an Enso capability.'
+  ),
   setChatWide: excluded('Renderer chat column width preference; not an Enso capability.'),
   setNotifyMainAgentOnly: excluded(
     'Desktop/phone completion notification preference; not an Enso capability.'

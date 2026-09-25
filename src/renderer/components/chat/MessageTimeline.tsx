@@ -197,15 +197,25 @@ export function MessageTimeline({
   // 轮次折叠态：用户显式展开/收起过的轮次（会话内记忆），未记录的轮次按 autoCollapseTurns 默认值
   const [turnOverrides, setTurnOverrides] = useState<ReadonlyMap<string, boolean>>(new Map());
   const autoCollapseTurns = useSettingsStore((s) => s.autoCollapseTurns);
+  const collapseCompletedActivity = useSettingsStore((s) => s.collapseCompletedActivity);
   const compact = useSettingsStore((s) => s.compactReadOnlyTools);
   const folded = useMemo(
     () =>
       foldTimeline(items, running, expandedGroups, {
         compact,
         autoCollapseCompletedTurns: autoCollapseTurns,
+        collapseCompletedActivity,
         turnOverrides,
       }),
-    [items, running, expandedGroups, compact, autoCollapseTurns, turnOverrides]
+    [
+      items,
+      running,
+      expandedGroups,
+      compact,
+      autoCollapseTurns,
+      collapseCompletedActivity,
+      turnOverrides,
+    ]
   );
   // 原点必须用折叠后的行。未折叠的 key 还在，但 Virtuoso 的 data 已经把它们收进组里。
   const rowAnchor = useRef<TimelineRowAnchor | null>(null);

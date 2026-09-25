@@ -162,6 +162,8 @@ export interface SettingsState {
   expandLiveReasoning: boolean;
   /** 发送新消息后自动折叠历史轮次，只留最后一轮展开；缺省 false */
   autoCollapseTurns: boolean;
+  /** 回答完成后把连续的思考与工具调用折成一行过程摘要 */
+  collapseCompletedActivity: boolean;
   /** 聊天列铺满：去掉两侧阶梯 max-w；缺省 false（居中阅读宽度） */
   chatWide: boolean;
   /** 仅主 agent 发送完成/失败通知；coworker 提问/审批仍提醒；缺省 true */
@@ -309,6 +311,7 @@ export interface SettingsState {
   setExpandLiveEdits: (value: boolean) => void;
   setExpandLiveReasoning: (value: boolean) => void;
   setAutoCollapseTurns: (value: boolean) => void;
+  setCollapseCompletedActivity: (value: boolean) => void;
   setChatWide: (value: boolean) => void;
   setNotifyMainAgentOnly: (value: boolean) => void;
   setMaxActiveCoworkers: (value: number) => void;

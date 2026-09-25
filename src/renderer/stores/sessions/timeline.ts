@@ -87,6 +87,8 @@ export type TimelineItem =
       stats: ToolGroupStats;
       /** compact 模式下组外仍有 running 的只读行：组头显示 Exploring */
       exploring: boolean;
+      /** 回答完成后的过程折叠组（任意成功工具 + 思考）；普通工具组缺省 */
+      activity?: { thinking: number; workedMs: number };
       /** 组内原始行（tool + 夹在其间的 thinking），展开时平铺为顶层行 */
       children: TimelineItem[];
     }
@@ -1253,6 +1255,34 @@ function mergeAdjacentThinking(items: TimelineItem[]): TimelineItem[] {
   return result;
 }
 
+function activitySegment(
+  segment: TimelineItem[],
+  expandedKeys: ReadonlySet<string>
+): TimelineItem[] {
+  if (segment.length < 2) return segment;
+  const stats: ToolGroupStats = { commands: 0, reads: 0, searches: 0, others: 0 };
+  let thinking = 0;
+  let workedMs = 0;
+  for (const row of segment) {
+    if (row.kind === 'thinking') thinking += 1;
+    else if (row.kind === 'tool') classifyTool(row.name, row.summary, stats, false);
+    if (row.kind === 'thinking' || row.kind === 'tool') workedMs += row.durationMs ?? 0;
+  }
+  const key = `group-${segment[0].key}`;
+  const expanded = expandedKeys.has(key);
+  const group: TimelineItem = {
+    kind: 'tool-group',
+    key,
+    expanded,
+    count: segment.length - thinking,
+    stats,
+    exploring: false,
+    activity: { thinking, workedMs },
+    children: segment,
+  };
+  return expanded ? [group, ...segment] : [group];
+}
+
 /**
  * 工具行分组折叠（折中方案）：
  * - 段 = 连续的 tool/thinking 行（text/user/error 打断）；thinking 收进段内，门槛只数 tool。
@@ -1260,6 +1290,8 @@ function mergeAdjacentThinking(items: TimelineItem[]): TimelineItem[] {
  * - 默认：running 时最后一个 user 之后的段不折（进行中的轮实时展示）。
  * - compact（对齐 Cursor 的 Explored）：段只收只读工具（read/grep/find/ls/glob），
  *   bash 等其它工具打断段并平铺；live 也折，running 只读行进组，组头标 exploring。
+ * - collapseCompletedActivity（对齐 deepchat）：已完成轮次里连续的思考 + 成功工具（不分类型，
+ *   含 edit/write/todo）≥2 条折成一个过程组；失败/未完成工具与目标信号打断段。进行中的轮不受影响。
  * - expandedKeys 含组 key 时组头后平铺 children（参与虚拟化）。
  * 纯函数。
  */
@@ -1272,6 +1304,7 @@ export function foldTimeline(
     /** 用户显式操作过的轮次：key → 是否折叠；优先于自动折叠默认值 */
     turnOverrides?: ReadonlyMap<string, boolean>;
     autoCollapseCompletedTurns?: boolean;
+    collapseCompletedActivity?: boolean;
   } = {}
 ): TimelineItem[] {
   const compact = options.compact === true;
@@ -1310,21 +1343,32 @@ export function foldTimeline(
     sourceItems = nextItems;
   }
   const lastUserIndex = sourceItems.findLastIndex((item) => item.kind === 'user');
-  const inSegment = (s: TimelineItem): boolean =>
-    s.kind === 'thinking' || (s.kind === 'tool' && (!compact || isReadOnlyTool(s)));
+  const activityAt = (index: number): boolean =>
+    options.collapseCompletedActivity === true && !(running && index > lastUserIndex);
+  const inSegment = (s: TimelineItem, index: number): boolean =>
+    s.kind === 'thinking' ||
+    (s.kind === 'tool' &&
+      (activityAt(index)
+        ? s.state === 'ok' && !s.name.startsWith('goal_')
+        : !compact || isReadOnlyTool(s)));
   const result: TimelineItem[] = [];
   let i = 0;
   while (i < sourceItems.length) {
     const item = sourceItems[i];
-    if (!inSegment(item)) {
+    if (!inSegment(item, i)) {
       result.push(item);
       i += 1;
       continue;
     }
     // 收集连续段
     let end = i;
-    while (end < sourceItems.length && inSegment(sourceItems[end])) end += 1;
+    while (end < sourceItems.length && inSegment(sourceItems[end], end)) end += 1;
     const segment = mergeAdjacentThinking(sourceItems.slice(i, end));
+    if (activityAt(i)) {
+      result.push(...activitySegment(segment, expandedKeys));
+      i = end;
+      continue;
+    }
     const liveSegment = !compact && running && lastUserIndex >= 0 && i > lastUserIndex;
     // 钉住的行不进组：edit 的 diff、write 的内容、todo 清单是核心产物。
     // compact 下 running 只读行进组（避免完成后从平铺跳进组头抽动）；

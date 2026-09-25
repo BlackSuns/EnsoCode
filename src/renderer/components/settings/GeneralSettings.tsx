@@ -105,6 +105,8 @@ function SidePanelSection() {
   const setExpandLiveReasoning = useSettingsStore((s) => s.setExpandLiveReasoning);
   const autoCollapseTurns = useSettingsStore((s) => s.autoCollapseTurns);
   const setAutoCollapseTurns = useSettingsStore((s) => s.setAutoCollapseTurns);
+  const collapseCompletedActivity = useSettingsStore((s) => s.collapseCompletedActivity);
+  const setCollapseCompletedActivity = useSettingsStore((s) => s.setCollapseCompletedActivity);
   const generationStallTimeoutMin = useSettingsStore((s) => s.generationStallTimeoutMin);
   const setGenerationStallTimeoutMin = useSettingsStore((s) => s.setGenerationStallTimeoutMin);
   return (
@@ -153,6 +155,15 @@ function SidePanelSection() {
         )}
         checked={autoCollapseTurns}
         onChange={setAutoCollapseTurns}
+      />
+      <SwitchRow
+        rowId="general.collapseCompletedActivity"
+        title={t('Collapse activity after reply')}
+        description={t(
+          'When a reply finishes, fold consecutive thinking and tool calls (including edits and commands) into one summary row; failed calls stay visible'
+        )}
+        checked={collapseCompletedActivity}
+        onChange={setCollapseCompletedActivity}
       />
       <div
         className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5"

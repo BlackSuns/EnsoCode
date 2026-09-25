@@ -201,6 +201,7 @@ describe('buildSettingsCatalog', () => {
     'general.expandLiveEdits',
     'general.expandLiveReasoning',
     'general.autoCollapseTurns',
+    'general.collapseCompletedActivity',
     'general.notifyMainAgentOnly',
     'general.smartCompactEnabled',
     'general.generationStallTimeout',

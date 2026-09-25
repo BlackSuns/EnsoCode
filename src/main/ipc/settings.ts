@@ -68,6 +68,7 @@ export const SETTINGS_STATE_FIELDS = [
   'expandLiveEdits',
   'expandLiveReasoning',
   'autoCollapseTurns',
+  'collapseCompletedActivity',
   'chatWide',
   'notifyMainAgentOnly',
   'maxActiveCoworkers',
