@@ -12,6 +12,7 @@ import {
   type HostAppearance,
   type HostPairSession,
   type HostToPhone,
+  isConnectStuck,
   openFrame,
   type PairedDevice,
   type PairSyncCursor,
@@ -19,6 +20,7 @@ import {
   type ProjectGroupEntry,
   type ProviderEntry,
   pollHostPairing,
+  RELAY_CONNECT_TIMEOUT_MS,
   revokePairing,
   sealFrame,
   shouldReplaceOnNudge,
@@ -122,6 +124,8 @@ interface Connection {
   contentKey: Uint8Array;
   ws: WebSocket | null;
   heartbeat: Heartbeat | null;
+  /** 立即拆掉当前中继链并走重连，不等 close 事件（半开链的 close 可能永不到达） */
+  dropRelay: (() => void) | null;
   /** WebRTC 直连：业务帧优先出口；信令与在线态仍走中继 */
   direct: DirectLink;
   /** 手机当前订阅的会话（null = 列表页，不收正文） */
@@ -336,13 +340,8 @@ function reviveAll(reason: 'resume' | 'network-change'): void {
     if (shouldReplaceOnNudge(reason, conn.ws !== null, conn.ws?.readyState ?? null)) {
       if (conn.timer) clearTimeout(conn.timer);
       conn.attempt = 0;
-      if (conn.ws) {
-        try {
-          conn.ws.close();
-        } catch {}
-      } else {
-        connect(conn);
-      }
+      if (conn.dropRelay) conn.dropRelay();
+      else connect(conn);
       continue;
     }
     conn.heartbeat?.probe();
@@ -523,6 +522,7 @@ function openConnection(device: PairedDevice): void {
     contentKey: fromBase64Url(device.contentKey),
     ws: null,
     heartbeat: null,
+    dropRelay: null,
     direct: null as unknown as DirectLink,
     subscribedId: null,
     metaDirty: false,
@@ -604,13 +604,16 @@ function attachHostSocket(conn: Connection, ws: WebSocket, generation: number): 
 
   // 半开死链的 close 事件可能永不到达：心跳判死后直接走关闭路径，幂等防双跑
   let settled = false;
+  let connectTimer: ReturnType<typeof setTimeout> | null = null;
   const closed = (code: number | null): void => {
     if (settled) return;
     settled = true;
+    if (connectTimer) clearTimeout(connectTimer);
     if (conn.closed || conn.generation !== generation || conn.ws !== ws) return;
     conn.heartbeat?.stop();
     conn.heartbeat = null;
     conn.ws = null;
+    conn.dropRelay = null;
     // 直连还活着就不算手机离线：业务帧继续走 DataChannel（直连再掉时由 onTransportChange 补置离线）
     if (conn.direct.transport() !== 'direct') {
       conn.phoneOnline = false;
@@ -625,23 +628,26 @@ function attachHostSocket(conn: Connection, ws: WebSocket, generation: number): 
     notifyStatus();
     scheduleReconnect(conn);
   };
-  conn.heartbeat = attachHeartbeat(
-    ws,
-    () => {
-      try {
-        ws.close();
-      } catch {}
-      closed(null);
-    },
-    (ms) => {
-      if (conn.direct.transport() === 'relay') {
-        conn.rttMs = ms;
-        notifyStatus();
-      }
+  const drop = (): void => {
+    try {
+      ws.close();
+    } catch {}
+    closed(null);
+  };
+  conn.dropRelay = drop;
+  conn.heartbeat = attachHeartbeat(ws, drop, (ms) => {
+    if (conn.direct.transport() === 'relay') {
+      conn.rttMs = ms;
+      notifyStatus();
     }
-  );
+  });
+  // 心跳只管 OPEN：握手卡住（固定 IP 链路 headersTimeout 为 0）时靠这里拆链重连
+  connectTimer = setTimeout(() => {
+    if (isConnectStuck(ws.readyState, RELAY_CONNECT_TIMEOUT_MS)) drop();
+  }, RELAY_CONNECT_TIMEOUT_MS);
 
   ws.onopen = () => {
+    if (connectTimer) clearTimeout(connectTimer);
     conn.attempt = 0;
     notifyStatus();
   };
