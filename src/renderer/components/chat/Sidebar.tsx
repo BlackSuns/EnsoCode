@@ -41,6 +41,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Plus,
   RefreshCw,
   Search,
   Settings,
@@ -67,8 +68,8 @@ import {
   routeDrop,
   UNGROUPED_GROUP_DROP_ID,
 } from '@/components/chat/dragDrop';
+import { GroupChips, POPOVER_ROW_CLASS } from '@/components/chat/GroupChips';
 import { GroupEditorDialog } from '@/components/chat/GroupEditorDialog';
-import { GroupSelector } from '@/components/chat/GroupSelector';
 import { ImportSessionDialog } from '@/components/chat/ImportSessionDialog';
 import { openDirectoryFromMenu, openDirectoryLabel } from '@/components/chat/openDirectoryAction';
 import { ProjectSettingsDialog } from '@/components/chat/ProjectSettingsDialog';
@@ -84,7 +85,6 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { Input } from '@/components/ui/input';
 import {
   Menu,
   MenuItem,
@@ -95,6 +95,7 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from '@/components/ui/menu';
+import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover';
 import { addToast } from '@/components/ui/toast';
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n';
@@ -376,6 +377,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
   >(null);
   const [projectSettingsId, setProjectSettingsId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [pendingProject, setPendingProject] = useState<{
     name: string;
     path: string;
@@ -752,67 +754,78 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
             >
               <Search className="h-4 w-4" />
             </button>
-            <button
-              type="button"
-              onClick={() => setAddOpen(true)}
-              className={ICON_BUTTON_CLASS}
-              title={t('Add project')}
-            >
-              <FolderPlus className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setGroupEditor({ mode: 'create' })}
-              className={ICON_BUTTON_CLASS}
-              title={t('New group')}
-            >
-              <Layers className="h-4 w-4" />
-            </button>
+            <Popover open={addMenuOpen} onOpenChange={setAddMenuOpen}>
+              <PopoverTrigger
+                className={cn(
+                  ICON_BUTTON_CLASS,
+                  'data-popup-open:bg-muted data-popup-open:text-foreground'
+                )}
+                title={t('Add project or group')}
+                aria-label={t('Add project or group')}
+              >
+                <Plus className="h-4 w-4" />
+              </PopoverTrigger>
+              <PopoverPopup
+                side="bottom"
+                align="end"
+                className="w-44 [&_[data-slot=popover-viewport]]:p-1"
+              >
+                {[
+                  { icon: FolderPlus, label: t('Add project'), run: () => setAddOpen(true) },
+                  {
+                    icon: Layers,
+                    label: t('New group'),
+                    run: () => setGroupEditor({ mode: 'create' }),
+                  },
+                ].map(({ icon: Icon, label, run }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => {
+                      setAddMenuOpen(false);
+                      run();
+                    }}
+                    className={cn(
+                      POPOVER_ROW_CLASS,
+                      'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    )}
+                  >
+                    <Icon className="size-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">{label}</span>
+                  </button>
+                ))}
+              </PopoverPopup>
+            </Popover>
           </div>
         </div>
-        {projectGroups.length > 0 && (
-          <GroupSelector
-            groups={projectGroups}
-            selectedId={resolvedGroupId}
-            counts={Object.fromEntries(
-              projectGroups.map((group) => [
-                group.id,
-                filterProjectsByGroup(orderedProjects, projectGroups, archivedProjectIds, group.id)
-                  .length,
-              ])
-            )}
-            totalCount={
-              filterProjectsByGroup(
-                orderedProjects,
-                projectGroups,
-                archivedProjectIds,
-                ALL_GROUP_ID
-              ).length
-            }
-            ungroupedCount={
-              filterProjectsByGroup(
-                orderedProjects,
-                projectGroups,
-                archivedProjectIds,
-                UNGROUPED_GROUP_ID
-              ).length
-            }
-            onSelect={selectGroup}
-            onAddGroup={() => setGroupEditor({ mode: 'create' })}
-            onEditGroup={(id) => setGroupEditor({ mode: 'edit', id })}
-          />
-        )}
-        <div className="shrink-0 border-b px-2 py-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={listQuery}
-              onChange={(e) => setListQuery(e.target.value)}
-              placeholder={t('Search conversations...')}
-              className="h-8 border-transparent bg-muted/60 text-xs shadow-none ring-brand/15 before:hidden has-focus-visible:border-brand/45 [&_input]:pl-8"
-            />
-          </div>
-        </div>
+        <GroupChips
+          groups={projectGroups}
+          selectedId={resolvedGroupId}
+          counts={Object.fromEntries(
+            projectGroups.map((group) => [
+              group.id,
+              filterProjectsByGroup(orderedProjects, projectGroups, archivedProjectIds, group.id)
+                .length,
+            ])
+          )}
+          totalCount={
+            filterProjectsByGroup(orderedProjects, projectGroups, archivedProjectIds, ALL_GROUP_ID)
+              .length
+          }
+          ungroupedCount={
+            filterProjectsByGroup(
+              orderedProjects,
+              projectGroups,
+              archivedProjectIds,
+              UNGROUPED_GROUP_ID
+            ).length
+          }
+          query={listQuery}
+          onQueryChange={setListQuery}
+          onSelect={selectGroup}
+          onAddGroup={() => setGroupEditor({ mode: 'create' })}
+          onEditGroup={(id) => setGroupEditor({ mode: 'edit', id })}
+        />
 
         <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
           {projects.length === 0 && (

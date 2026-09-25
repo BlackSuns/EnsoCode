@@ -205,6 +205,22 @@ describe('routeDrop: 项目分组拖拽', () => {
     expect(routeDrop(groupDrag('work'), UNGROUPED_GROUP_DROP_ID, undefined)).toBeNull();
   });
 
+  it('分组标签拖到另一标签 → reorder-groups（与组头同一份顺序）', () => {
+    expect(routeDrop(groupDrag('work'), selectorGroupDropId('play'), undefined)).toEqual({
+      kind: 'reorder-groups',
+      activeId: 'work',
+      overId: 'play',
+    });
+  });
+
+  it('分组标签拖到「全部」「未分组」或自身 → 不动', () => {
+    expect(routeDrop(groupDrag('work'), selectorGroupDropId('__all__'), undefined)).toBeNull();
+    expect(
+      routeDrop(groupDrag('work'), selectorGroupDropId('__ungrouped__'), undefined)
+    ).toBeNull();
+    expect(routeDrop(groupDrag('work'), selectorGroupDropId('work'), undefined)).toBeNull();
+  });
+
   it('会话拖到组头 → 不动', () => {
     expect(routeDrop(chat, projectGroupDragId('work'), undefined)).toBeNull();
   });

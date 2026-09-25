@@ -86,10 +86,8 @@ export function routeDrop(
   if (!overId) return null;
 
   if (active.type === 'project-group') {
-    if (!overId.startsWith(PROJECT_GROUP_PREFIX) || overId === UNGROUPED_GROUP_DROP_ID) {
-      return null;
-    }
-    const targetId = overId.slice(PROJECT_GROUP_PREFIX.length);
+    // 组头与分组标签共用同一份分组顺序；「全部」「未分组」不参与排序
+    const targetId = parseGroupDrop(overId);
     if (!targetId || targetId === active.groupId) return null;
     return { kind: 'reorder-groups', activeId: active.groupId, overId: targetId };
   }
