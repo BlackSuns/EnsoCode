@@ -16,6 +16,7 @@ import {
   FilePlus,
   FileText,
   FolderOpen,
+  FoldVertical,
   GitBranch,
   GitCompare,
   Globe,
@@ -50,7 +51,7 @@ import { diffCacheKey } from '@/lib/diffCacheKey';
 import { parseMcpToolName } from '@/lib/mcpToolName';
 import { addSidePanelChanges } from '@/lib/sidePanelDock';
 import { stripAnsi } from '@/lib/terminalText';
-import { TOOL_LABEL_KEYS } from '@/lib/toolLabels';
+import { TOOL_LABEL_KEYS, toolLabel } from '@/lib/toolLabels';
 import { cn } from '@/lib/utils';
 import { useSessionsStore } from '@/stores/sessions';
 import {
@@ -171,7 +172,8 @@ function itemEqual(prev: TimelineRowProps, next: TimelineRowProps): boolean {
         a.stats.others === b.stats.others &&
         a.exploring === b.exploring &&
         a.activity?.thinking === b.activity?.thinking &&
-        a.activity?.workedMs === b.activity?.workedMs
+        a.activity?.workedMs === b.activity?.workedMs &&
+        a.explore?.goal === b.explore?.goal
       );
     case 'error':
       return b.kind === 'error' && a.text === b.text;
@@ -1316,22 +1318,34 @@ function ToolGroupRow({
       activityParts.push(t('{{count}} thinking steps', { count: activity.thinking }));
     if (item.count > 0) activityParts.push(t('{{count}} tool calls', { count: item.count }));
   }
-  const label = activity
-    ? activity.workedMs > 0
-      ? t('Worked for {{duration}}', { duration: formatDuration(activity.workedMs) })
-      : t('Activity')
-    : compact
-      ? item.exploring
-        ? t('Exploring')
-        : t('Explored')
-      : t('{{count}} tool calls', { count: item.count });
+  const explore = item.explore;
+  const label = explore
+    ? toolLabel('explore_fold', t)
+    : activity
+      ? activity.workedMs > 0
+        ? t('Worked for {{duration}}', { duration: formatDuration(activity.workedMs) })
+        : t('Activity')
+      : compact
+        ? item.exploring
+          ? t('Exploring')
+          : t('Explored')
+        : t('{{count}} tool calls', { count: item.count });
+  const detail = explore
+    ? [explore.goal, t('{{count}} tool calls', { count: item.count })].filter(Boolean)
+    : activity
+      ? activityParts
+      : compact
+        ? explored
+        : parts;
   return (
     <button
       type="button"
       onClick={() => onToggle?.(item.key)}
+      title={explore?.goal}
+      data-explore-head={explore ? '' : undefined}
       className="group/step flex min-h-[30px] w-full items-center gap-2 rounded-lg pr-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
     >
-      <StepNode icon={Layers} state={item.exploring ? 'running' : 'ok'} />
+      <StepNode icon={explore ? FoldVertical : Layers} state={item.exploring ? 'running' : 'ok'} />
       {item.exploring ? (
         <span className="t-shimmer shrink-0 font-medium" data-text={label}>
           {label}
@@ -1339,9 +1353,7 @@ function ToolGroupRow({
       ) : (
         <span className="shrink-0 font-medium text-foreground/90">{label}</span>
       )}
-      <span className="min-w-0 flex-1 truncate">
-        {(activity ? activityParts : compact ? explored : parts).join(' · ')}
-      </span>
+      <span className="min-w-0 flex-1 truncate">{detail.join(' · ')}</span>
       <ChevronRight
         className={cn('h-3 w-3 shrink-0 transition-transform', item.expanded && 'rotate-90')}
       />

@@ -1879,6 +1879,10 @@ describe('工具路径摘要相对化', () => {
     expect(tool({ file_path: `${cwd}/a.ts` }, cwd)).toMatchObject({ summary: 'a.ts' });
   });
 
+  it('explore_mark 的 goal 作摘要', () => {
+    expect(tool({ goal: 'find auth' })).toMatchObject({ summary: 'find auth' });
+  });
+
   it('项目外路径保持绝对', () => {
     expect(tool({ path: '/tmp/foo.ts' }, cwd)).toMatchObject({ summary: '/tmp/foo.ts' });
   });
@@ -2529,6 +2533,93 @@ describe('foldTimeline 回答完成后折叠过程（collapseCompletedActivity�
     const group = foldTimeline(items, false, new Set(), on)[1] as Group;
     expect(group.activity).toEqual({ thinking: 0, workedMs: 0 });
     expect(kinds(foldTimeline(items, false, new Set()))).toEqual(['user', 'edit', 'bash']);
+  });
+});
+
+describe('foldTimeline 探索配对折叠（explore_mark → explore_fold）', () => {
+  type Group = Extract<TimelineItem, { kind: 'tool-group' }>;
+  const keys = (items: TimelineItem[]) => items.map((item) => item.key);
+  const mark = (key: string): TimelineItem =>
+    ({ ...toolItem(key, 'explore_mark'), summary: 'find auth' }) as TimelineItem;
+  const fold = (key: string, state = 'ok'): TimelineItem =>
+    ({ ...toolItem(key, 'explore_fold'), state }) as TimelineItem;
+
+  it('成对后 mark 到 fold（含中间正文、思考）收成一个探索组，展开平铺原始行', () => {
+    const items = [
+      userItem('u'),
+      mark('m'),
+      toolItem('r', 'read'),
+      textItem('mid'),
+      thinkingItem('th'),
+      toolItem('b', 'bash'),
+      fold('f'),
+      textItem('answer'),
+    ];
+    const folded = foldTimeline(items, true, new Set());
+    expect(folded.map((item) => item.kind)).toEqual(['user', 'tool-group', 'text']);
+    const group = folded[1] as Group;
+    expect(group.explore).toEqual({ goal: 'find auth' });
+    expect(group.count).toBe(2);
+    expect(keys(group.children)).toEqual(['m', 'r', 'mid', 'th', 'b', 'f']);
+    expect(keys(foldTimeline(items, true, new Set([group.key])))).toEqual([
+      'u',
+      group.key,
+      'm',
+      'r',
+      'mid',
+      'th',
+      'b',
+      'f',
+      'answer',
+    ]);
+  });
+
+  it('fold 未完成、失败或被用户消息隔开时不配对；失败后重试成功仍配对', () => {
+    const live = [userItem('u'), mark('m'), toolItem('r', 'read'), fold('f', 'running')];
+    expect(keys(foldTimeline(live, true, new Set()))).toEqual(['u', 'm', 'r', 'f']);
+    const failed = [mark('m'), fold('bad', 'error'), textItem('x')];
+    expect(keys(foldTimeline(failed, false, new Set()))).toEqual(['m', 'bad', 'x']);
+    const split = [mark('m'), userItem('u'), fold('f')];
+    expect(keys(foldTimeline(split, false, new Set()))).toEqual(['m', 'u', 'f']);
+    const retried = foldTimeline([mark('m'), fold('bad', 'error'), fold('f')], false, new Set());
+    expect(retried).toHaveLength(1);
+    expect((retried[0] as Group).explore).toBeDefined();
+    expect(keys((retried[0] as Group).children)).toEqual(['m', 'bad', 'f']);
+  });
+
+  it('回答完成后探索组并入过程组，逐层展开', () => {
+    const on = { collapseCompletedActivity: true };
+    const items = [
+      userItem('u'),
+      toolItem('a', 'bash'),
+      mark('m'),
+      toolItem('r', 'read'),
+      fold('f'),
+      textItem('answer'),
+    ];
+    const folded = foldTimeline(items, false, new Set(), on);
+    expect(folded.map((item) => item.kind)).toEqual(['user', 'tool-group', 'text']);
+    const activity = folded[1] as Group;
+    expect(activity.activity).toBeDefined();
+    expect(activity.count).toBe(4);
+    const exploreKey = activity.children[1].key;
+    expect(keys(foldTimeline(items, false, new Set([activity.key]), on))).toEqual([
+      'u',
+      activity.key,
+      'a',
+      exploreKey,
+      'answer',
+    ]);
+    expect(keys(foldTimeline(items, false, new Set([activity.key, exploreKey]), on))).toEqual([
+      'u',
+      activity.key,
+      'a',
+      exploreKey,
+      'm',
+      'r',
+      'f',
+      'answer',
+    ]);
   });
 });
 

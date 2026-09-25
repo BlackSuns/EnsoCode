@@ -92,6 +92,8 @@ export type TimelineItem =
       exploring: boolean;
       /** 回答完成后的过程折叠组（任意成功工具 + 思考）；普通工具组缺省 */
       activity?: { thinking: number; workedMs: number };
+      /** 成对的 explore_mark → explore_fold 探索组；其它组缺省 */
+      explore?: { goal: string };
       /** 组内原始行（tool + 夹在其间的 thinking），展开时平铺为顶层行 */
       children: TimelineItem[];
     }
@@ -185,6 +187,7 @@ const SUMMARY_KEYS = [
   'description',
   'summary',
   'reason',
+  'goal',
 ];
 
 const PATH_SUMMARY_KEYS = new Set(['path', 'file_path']);
@@ -1121,17 +1124,70 @@ function mergeAdjacentThinking(items: TimelineItem[]): TimelineItem[] {
   return result;
 }
 
+const EXPLORE_TOOLS = new Set(['explore_mark', 'explore_fold']);
+
+/** 成功的 explore_mark 到 explore_fold（含两端与其间正文/思考）收成探索组；其它行断开配对 */
+function pairExploreFolds(
+  items: TimelineItem[],
+  expandedKeys: ReadonlySet<string>,
+  compact: boolean
+): TimelineItem[] {
+  const result: TimelineItem[] = [];
+  let start = -1;
+  for (const item of items) {
+    if (item.kind !== 'tool' && item.kind !== 'thinking' && item.kind !== 'text') start = -1;
+    else if (item.kind === 'tool' && item.state === 'ok') {
+      if (item.name === 'explore_fold' && start >= 0) {
+        const children = [...result.splice(start), item];
+        const mark = children[0] as Extract<TimelineItem, { kind: 'tool' }>;
+        const stats: ToolGroupStats = { commands: 0, reads: 0, searches: 0, others: 0 };
+        let count = 0;
+        for (const row of children) {
+          if (row.kind !== 'tool' || EXPLORE_TOOLS.has(row.name)) continue;
+          classifyTool(row.name, row.summary, stats, compact);
+          count += 1;
+        }
+        const key = `explore-${mark.key}`;
+        result.push({
+          kind: 'tool-group',
+          key,
+          expanded: expandedKeys.has(key),
+          count,
+          stats,
+          exploring: false,
+          explore: { goal: mark.summary },
+          children,
+        });
+        start = -1;
+        continue;
+      }
+      if (item.name === 'explore_mark' && start < 0) start = result.length;
+    }
+    result.push(item);
+  }
+  return result;
+}
+
+/** 探索组展开时其原始行紧随组头 */
+function withExploreChildren(item: TimelineItem): TimelineItem[] {
+  return item.kind === 'tool-group' && item.expanded ? [item, ...item.children] : [item];
+}
+
 function activitySegment(
   segment: TimelineItem[],
   expandedKeys: ReadonlySet<string>
 ): TimelineItem[] {
-  if (segment.length < 2) return segment;
+  if (segment.length < 2) return segment.flatMap(withExploreChildren);
   const stats: ToolGroupStats = { commands: 0, reads: 0, searches: 0, others: 0 };
   let thinking = 0;
   let workedMs = 0;
-  for (const row of segment) {
+  let count = 0;
+  for (const row of segment.flatMap((s) => (s.kind === 'tool-group' ? s.children : [s]))) {
     if (row.kind === 'thinking') thinking += 1;
-    else if (row.kind === 'tool') classifyTool(row.name, row.summary, stats, false);
+    else if (row.kind === 'tool') {
+      classifyTool(row.name, row.summary, stats, false);
+      count += 1;
+    }
     if (row.kind === 'thinking' || row.kind === 'tool') workedMs += row.durationMs ?? 0;
   }
   const key = `group-${segment[0].key}`;
@@ -1140,13 +1196,13 @@ function activitySegment(
     kind: 'tool-group',
     key,
     expanded,
-    count: segment.length - thinking,
+    count,
     stats,
     exploring: false,
     activity: { thinking, workedMs },
     children: segment,
   };
-  return expanded ? [group, ...segment] : [group];
+  return expanded ? [group, ...segment.flatMap(withExploreChildren)] : [group];
 }
 
 /**
@@ -1158,6 +1214,7 @@ function activitySegment(
  *   bash 等其它工具打断段并平铺；live 也折，running 只读行进组，组头标 exploring。
  * - collapseCompletedActivity（对齐 deepchat）：已完成轮次里连续的思考 + 成功工具（不分类型，
  *   含 edit/write/todo）≥2 条折成一个过程组；失败/未完成工具与目标信号打断段。进行中的轮不受影响。
+ * - 成功配对的 explore_mark → explore_fold 先收成探索组：平时独立成行，完成后并入过程组。
  * - expandedKeys 含组 key 时组头后平铺 children（参与虚拟化）。
  * 纯函数。
  */
@@ -1208,6 +1265,7 @@ export function foldTimeline(
     }
     sourceItems = nextItems;
   }
+  sourceItems = pairExploreFolds(sourceItems, expandedKeys, compact);
   const lastUserIndex = sourceItems.findLastIndex((item) => item.kind === 'user');
   // 生成中只有最后一段正文之后的尾段仍在进行；被正文隔开的前段已完成，可立即折叠
   const liveFrom = Math.max(
@@ -1218,6 +1276,7 @@ export function foldTimeline(
     options.collapseCompletedActivity === true && !(running && index > liveFrom);
   const inSegment = (s: TimelineItem, index: number): boolean =>
     s.kind === 'thinking' ||
+    (s.kind === 'tool-group' && activityAt(index)) ||
     (s.kind === 'tool' &&
       (activityAt(index)
         ? s.state === 'ok' && !s.name.startsWith('goal_') && s.name !== 'submit_plan'
@@ -1227,7 +1286,7 @@ export function foldTimeline(
   while (i < sourceItems.length) {
     const item = sourceItems[i];
     if (!inSegment(item, i)) {
-      result.push(item);
+      result.push(...withExploreChildren(item));
       i += 1;
       continue;
     }
