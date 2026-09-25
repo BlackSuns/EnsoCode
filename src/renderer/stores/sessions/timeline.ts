@@ -1340,11 +1340,13 @@ export function foldTimeline(
         expanded,
         count: toolCount,
         stats,
+        // 运行中的尾段在两次调用之间也算探索中，避免组头在「探索了 / 探索中」间来回跳
         exploring:
           compact &&
-          groupRows.some(
-            (s) => s.kind === 'tool' && (s.state === 'running' || s.state === 'reviewing')
-          ),
+          ((running && end === sourceItems.length) ||
+            groupRows.some(
+              (s) => s.kind === 'tool' && (s.state === 'running' || s.state === 'reviewing')
+            )),
         children: groupRows,
       });
       // 展开：原始顺序全量平铺；收拢：仅 edit 行（diff）跟在组头后

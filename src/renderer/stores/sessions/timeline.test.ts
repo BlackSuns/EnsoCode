@@ -1821,6 +1821,25 @@ describe('foldTimeline', () => {
     expect((folded[0] as Extract<TimelineItem, { kind: 'tool-group' }>).exploring).toBe(true);
   });
 
+  it('compact：运行中的尾段在两次调用之间仍标 exploring，被后续内容隔开或结束后才落定', () => {
+    const items = [
+      userItem('u0'),
+      toolItem('a1', 'read'),
+      toolItem('a2', 'grep'),
+      toolItem('a3', 'ls'),
+    ];
+    const exploring = (list: TimelineItem[], running: boolean) =>
+      (
+        foldTimeline(list, running, new Set(), { compact: true }).find(
+          (i) => i.kind === 'tool-group'
+        ) as Extract<TimelineItem, { kind: 'tool-group' }>
+      ).exploring;
+    expect(exploring(items, true)).toBe(true);
+    expect(exploring([...items, thinkingItem('th')], true)).toBe(true);
+    expect(exploring([...items, toolItem('b', 'bash')], true)).toBe(false);
+    expect(exploring(items, false)).toBe(false);
+  });
+
   it('todo 行不进组，平铺在组头之后', () => {
     const items = [toolItem('t1'), toolItem('td', 'todo'), toolItem('t2'), toolItem('t3')];
     const folded = foldTimeline(items, false, new Set());
