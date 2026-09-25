@@ -105,9 +105,10 @@ import {
   type OccupancySkill,
 } from './contextOccupancy';
 import {
-  type AnchorMessage,
+  contextBreakdownMessages,
   type ContextUsageTracker,
   ContextUsageTracker as UsageTracker,
+  toAnchorMessage,
 } from './contextUsage';
 import {
   cancelContinuousMemory,
@@ -3341,56 +3342,29 @@ export class SessionSupervisor {
     return { current: category + buckets.compaction, category, compactionIndex };
   }
 
-  private toAnchorMessages(
-    messages: readonly unknown[],
-    tracker?: ContextUsageTracker
-  ): AnchorMessage[] {
-    return messages.map((raw) => {
-      const record = (raw ?? {}) as Record<string, unknown>;
-      const usageRaw = record.usage;
-      const usage =
-        usageRaw && typeof usageRaw === 'object'
-          ? {
-              input: Number((usageRaw as { input?: number }).input ?? 0),
-              output: Number((usageRaw as { output?: number }).output ?? 0),
-              cacheRead: Number((usageRaw as { cacheRead?: number }).cacheRead ?? 0),
-              cacheWrite: Number((usageRaw as { cacheWrite?: number }).cacheWrite ?? 0),
-              ...((usageRaw as { contextTokens?: number }).contextTokens !== undefined
-                ? { contextTokens: Number((usageRaw as { contextTokens?: number }).contextTokens) }
-                : {}),
-              ...((usageRaw as { totalTokens?: number }).totalTokens !== undefined
-                ? { totalTokens: Number((usageRaw as { totalTokens?: number }).totalTokens) }
-                : {}),
-            }
-          : undefined;
-      const timestamp = typeof record.timestamp === 'number' ? record.timestamp : undefined;
-      const message: AnchorMessage = {
-        role: typeof record.role === 'string' ? record.role : '',
-        ...(typeof record.stopReason === 'string' ? { stopReason: record.stopReason } : {}),
-        ...(usage ? { usage } : {}),
-        ...(timestamp !== undefined ? { timestamp } : {}),
-      };
-      const snapshot = tracker?.snapshotFor(message);
-      if (snapshot) message.contextSnapshot = snapshot;
-      return message;
-    });
+  private breakdownMessages(managed: ManagedSession) {
+    const inputs = this.occupancyInputs(managed);
+    return contextBreakdownMessages(
+      inputs.contextMessages,
+      inputs.branch,
+      (message) => this.estimateSessionMessage(message),
+      managed.contextUsage
+    );
   }
 
   private armPendingContextUsage(managed: ManagedSession): void {
     const nonMessage = this.currentNonMessageTokens(managed);
-    const contextMessages = this.occupancyInputs(managed).contextMessages;
-    const estimate = (message: unknown) => this.estimateSessionMessage(message);
+    const messages = this.breakdownMessages(managed);
     const breakdown = managed.contextUsage.getBreakdown({
-      activeMessages: this.toAnchorMessages(contextMessages, managed.contextUsage),
+      ...messages,
       compactionIndex: nonMessage.compactionIndex,
       currentNonMessageTokens: nonMessage.current,
       categoryNonMessageTokens: nonMessage.category,
-      estimateMessageTokens: estimate,
     });
     managed.contextUsage.setPendingSnapshot({
       promptTokens: breakdown.usedTokens,
       nonMessageTokens: nonMessage.current,
-      cutoffCount: contextMessages.length,
+      cutoffCount: messages.activeMessages.length,
     });
   }
 
@@ -3409,10 +3383,8 @@ export class SessionSupervisor {
   }
 
   private stampContextSnapshot(managed: ManagedSession, raw: unknown): void {
-    const [anchor] = this.toAnchorMessages([raw]);
-    if (!anchor) return;
     const nonMessage = this.currentNonMessageTokens(managed);
-    managed.contextUsage.stampSettledAnchor(anchor, nonMessage.current);
+    managed.contextUsage.stampSettledAnchor(toAnchorMessage(raw), nonMessage.current);
   }
 
   private emitPlanState(managed: ManagedSession): void {
@@ -3434,14 +3406,12 @@ export class SessionSupervisor {
       );
       occupancy = baseline;
       const nonMessage = this.currentNonMessageTokens(managed);
-      const inputs = this.occupancyInputs(managed);
       const breakdown = managed.contextUsage.getBreakdown({
         contextWindow,
-        activeMessages: this.toAnchorMessages(inputs.contextMessages, managed.contextUsage),
+        ...this.breakdownMessages(managed),
         compactionIndex: nonMessage.compactionIndex,
         currentNonMessageTokens: nonMessage.current,
         categoryNonMessageTokens: nonMessage.category,
-        estimateMessageTokens: (message) => this.estimateSessionMessage(message),
       });
       occupancy = {
         ...baseline,
