@@ -815,6 +815,26 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
     await vi.waitFor(() => expect(piSession.prompt).toHaveBeenCalledWith('after abort', undefined));
   });
 
+  it('重试倒计时中 abort：pi 不再发 agent_end，按失败收口并放弃排队压缩', async () => {
+    const { events, supervisor, piSession } = await spawnParent();
+    piSession.emit({ type: 'agent_start' });
+    supervisor.handleCommand({ type: 'compact', identity: parent });
+    await settle();
+    piSession.isRetrying = true;
+    events.length = 0;
+
+    supervisor.handleCommand({ type: 'abort', identity: parent });
+    await settle();
+
+    expect(piSession.abort).toHaveBeenCalled();
+    expect(events.some((event) => event.type === 'turn-failed')).toBe(true);
+    expect(
+      events.some(
+        (event) => event.type === 'compaction' && event.state === 'end' && event.abandoned
+      )
+    ).toBe(true);
+  });
+
   describe('乐观回显投递回执 delivery-settled', () => {
     async function spawned() {
       const events: AgentWorkerEvent[] = [];

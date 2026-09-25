@@ -1378,6 +1378,9 @@ export class SessionSupervisor {
       }
       case 'abort': {
         const managed = this.must(command.identity);
+        // 重试倒计时中 pi 只发 auto_retry_end、不再有 agent_end：须按取消重试同口径收口，
+        // 否则 renderer 的中断标记吞掉下一轮收束（队列不再泵），排队压缩永远停在 queued
+        const retrying = managed.session.isRetrying;
         managed.gate.cancelAll();
         managed.asks.cancelAll();
         cancelContinuousMemory(managed.session.sessionManager);
@@ -1388,8 +1391,12 @@ export class SessionSupervisor {
         // 立即收口投影：不 await session.abort()（内部 waitForIdle 会一直等到工具/流
         // 真正结束，工具不响应 signal 时永远等不到，UI 就卡在 running 上）。
         // 中断信号发出即视为本轮终止，后续 agent_end 回流由 status 守卫幂等吸收。
-        managed.status = 'idle';
-        this.emitStatus(managed);
+        if (retrying) {
+          this.failTurn(managed, managed.lastRetryError ?? 'Auto-retry cancelled.');
+        } else {
+          managed.status = 'idle';
+          this.emitStatus(managed);
+        }
         void managed.session.abort().catch(() => {});
         return;
       }
