@@ -45,6 +45,16 @@ const writeDismissed = (sessionId: string, next: Set<string>): Set<string> => {
   return next;
 };
 
+/** 本次运行中见过 running 的条目。首次出现即终态（重启后由快照/缓存恢复的历史）不再闪现。 */
+const seenRunningBySession = new Map<string, Set<string>>();
+
+const trackRunning = (sessionId: string, ids: string[]): ReadonlySet<string> => {
+  const seen = seenRunningBySession.get(sessionId) ?? new Set<string>();
+  seenRunningBySession.set(sessionId, seen);
+  for (const id of ids) seen.add(id);
+  return seen;
+};
+
 /**
  * 后台任务状态行（grok-build 风）：输入框上方每任务一行；
  * 点「查看」在行下内嵌展开输出;done 5s 自动移除,failed 手动关闭。
@@ -53,13 +63,22 @@ export function TaskBar({ sessionId, tasks, subagents }: TaskBarProps) {
   const { t } = useI18n();
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => readDismissed(sessionId));
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const seenRunning = trackRunning(sessionId, [
+    ...tasks.filter((task) => task.status === 'running').map((task) => task.taskId),
+    ...subagents.filter((agent) => agent.status === 'running').map((agent) => agent.id),
+  ]);
+  const shown = (id: string, status: string) =>
+    !dismissed.has(id) && (status === 'running' || seenRunning.has(id));
+  const visible = tasks.filter((task) => shown(task.taskId, task.status));
+  const visibleAgents = subagents.filter((agent) => shown(agent.id, agent.status));
 
   // 结束的条目(done/failed)5s 后自动收起（展开中的不收）
   useEffect(() => {
+    const seen = seenRunningBySession.get(sessionId);
     const finished = [
       ...tasks.filter((task) => task.status !== 'running').map((task) => task.taskId),
       ...subagents.filter((agent) => agent.status !== 'running').map((agent) => agent.id),
-    ].filter((id) => !dismissed.has(id) && id !== openTaskId);
+    ].filter((id) => seen?.has(id) && !dismissed.has(id) && id !== openTaskId);
     if (finished.length === 0) return;
     const timer = setTimeout(() => {
       setDismissed((prev) => {
@@ -71,8 +90,6 @@ export function TaskBar({ sessionId, tasks, subagents }: TaskBarProps) {
     return () => clearTimeout(timer);
   }, [sessionId, tasks, subagents, dismissed, openTaskId]);
 
-  const visible = tasks.filter((task) => !dismissed.has(task.taskId));
-  const visibleAgents = subagents.filter((agent) => !dismissed.has(agent.id));
   if (visible.length === 0 && visibleAgents.length === 0) return null;
 
   const dismiss = (taskId: string) => {

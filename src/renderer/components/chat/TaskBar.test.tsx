@@ -1,8 +1,8 @@
-import type { SubagentActivity } from '@shared/types/agent';
+import type { BackgroundTaskInfo, SubagentActivity, SubagentInfo } from '@shared/types/agent';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { AgentActivityView } from './TaskBar';
+import { AgentActivityView, TaskBar } from './TaskBar';
 
 vi.mock('@/i18n', () => ({
   useI18n: () => ({ t: (key: string) => key }),
@@ -11,6 +11,39 @@ vi.mock('./Markdown', () => ({ Markdown: ({ text }: { text: string }) => text })
 
 const renderActivity = (activity: SubagentActivity): string =>
   renderToStaticMarkup(createElement(AgentActivityView, { activity }));
+
+const task = (status: BackgroundTaskInfo['status']): BackgroundTaskInfo => ({
+  taskId: 'task-1',
+  command: 'pnpm dev',
+  status,
+  tail: '',
+  startedAt: 0,
+});
+
+const agent = (status: SubagentInfo['status']): SubagentInfo => ({
+  id: 'agent-1',
+  description: 'scan repo',
+  status,
+  steps: 0,
+  currentActivity: '',
+  startedAt: 0,
+});
+
+const renderBar = (sessionId: string, tasks: BackgroundTaskInfo[], subagents: SubagentInfo[]) =>
+  renderToStaticMarkup(createElement(TaskBar, { sessionId, tasks, subagents }));
+
+describe('TaskBar', () => {
+  it('首次出现即为终态的条目（重启后从快照/缓存恢复）不显示', () => {
+    expect(renderBar('restored', [task('done')], [agent('failed')])).toBe('');
+  });
+
+  it('本次运行中见过 running 的条目结束后仍显示', () => {
+    renderBar('live', [task('running')], [agent('running')]);
+    const html = renderBar('live', [task('done')], [agent('done')]);
+    expect(html).toContain('pnpm dev');
+    expect(html).toContain('scan repo');
+  });
+});
 
 describe('AgentActivityView', () => {
   it('工具默认折叠，只在紧凑行显示名称、路径摘要和可访问状态', () => {
