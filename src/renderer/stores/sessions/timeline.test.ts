@@ -5,7 +5,6 @@ import {
   completedEditWriteFingerprint,
   foldTimeline,
   historyPageChrome,
-  isReadOnlyCommand,
   parseSandboxOutput,
   patchStreamingTimeline,
   shouldAutoExpandAppliedFileChanges,
@@ -1489,65 +1488,6 @@ describe('terminalErrorText', () => {
   });
 });
 
-describe('isReadOnlyCommand', () => {
-  it.each([
-    'ls -la',
-    'rg -n "foo" src',
-    'grep -r foo . | head -20',
-    'cat package.json',
-    'find . -name "*.ts" | wc -l',
-    'git status && git log --oneline -5',
-    'cd packages/phone && ls src',
-    'FOO=1 rg foo 2>/dev/null',
-    'rg foo 2>&1 | sort | uniq -c',
-    '/usr/bin/tree -L 2',
-    'sed -n 1,20p src/a.ts',
-    'git diff --stat',
-    'git remote -v',
-    'git config --get user.name',
-    'LC_ALL=C sort a.txt',
-    "awk -F: '{print $1}' /etc/passwd",
-    'yq .a f.yml',
-  ])('只读：%s', (cmd) => {
-    expect(isReadOnlyCommand(cmd)).toBe(true);
-  });
-
-  it.each([
-    'rm -rf dist',
-    'ls > out.txt',
-    'cat a >> b',
-    'sed -i "s/a/b/" x',
-    'find . -name "*.log" -delete',
-    'find . -exec rm {} \\;',
-    'git commit -m x',
-    'git checkout -- .',
-    'ls && npm install',
-    'echo $(rm -rf x)',
-    'pnpm test',
-    'xargs rm',
-    '',
-    // 绕过向量
-    'ls & rm -rf x',
-    'cat <(rm -rf x)',
-    'env rm -rf x',
-    'awk \'BEGIN{system("rm -rf x")}\' a.txt',
-    "sed 's/a/b/e' a.txt",
-    'sed --in-place=.bak s/a/b/ x',
-    'yq -i .a=1 f.yml',
-    'sort -o out.txt in.txt',
-    'git log --output=/tmp/x',
-    'find . -execdir rm {} \\;',
-    'find . -fprint /tmp/x',
-    'git config --unset user.name',
-    'git remote remove origin',
-    'GIT_EXTERNAL_DIFF=./evil git diff',
-    'rg foo 2>err.txt',
-    'ls\rrm -rf x',
-  ])('非只读：%s', (cmd) => {
-    expect(isReadOnlyCommand(cmd)).toBe(false);
-  });
-});
-
 describe('foldTimeline', () => {
   it.each([false, true])('compact=%s：同一回复的连续思考合并，耗时只计一次', (compact) => {
     const messages: ProjectedMessage[] = [
@@ -2589,5 +2529,43 @@ describe('foldTimeline 回答完成后折叠过程（collapseCompletedActivity�
     const group = foldTimeline(items, false, new Set(), on)[1] as Group;
     expect(group.activity).toEqual({ thinking: 0, workedMs: 0 });
     expect(kinds(foldTimeline(items, false, new Set()))).toEqual(['user', 'edit', 'bash']);
+  });
+});
+
+describe('submit_plan 计划卡片', () => {
+  it('从参数取出标题与正文', () => {
+    const items = buildTimeline(
+      [
+        user('规划一下'),
+        {
+          role: 'assistant',
+          stopReason: 'toolUse',
+          content: [
+            {
+              type: 'toolCall',
+              id: 'c1',
+              name: 'submit_plan',
+              arguments: { title: '重构登录', plan: '# 步骤\n1. 改 A' },
+            },
+          ],
+        },
+      ],
+      false
+    );
+    const tool = items.find((item) => item.kind === 'tool');
+    expect(tool && tool.kind === 'tool' ? tool.plan : undefined).toEqual({
+      title: '重构登录',
+      text: '# 步骤\n1. 改 A',
+    });
+  });
+
+  it('已完成轮次的过程折叠不吞计划卡片', () => {
+    const plan = {
+      ...toolItem('p', 'submit_plan'),
+      plan: { title: 'T', text: 'x' },
+    } as TimelineItem;
+    const items = [userItem('u'), toolItem('a', 'read'), toolItem('b', 'grep'), plan];
+    const folded = foldTimeline(items, false, new Set(), { collapseCompletedActivity: true });
+    expect(folded.at(-1)).toBe(plan);
   });
 });

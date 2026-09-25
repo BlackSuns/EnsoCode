@@ -30,6 +30,13 @@ import {
 } from '@shared/modelCatalog';
 import { resolveOauthCatalogModel } from '@shared/oauthCatalog';
 import { ensureAccountProvider } from '@shared/piAccounts';
+import {
+  EMPTY_PLAN_STATE,
+  PLAN_ENTRY_TYPE,
+  parsePlanMessage,
+  splitPlanPrefix,
+  withPlanNote,
+} from '@shared/planMode';
 import { resolvePiProviderBaseUrl } from '@shared/providerCatalog';
 import { ANTIGRAVITY_PROVIDER_ID, antigravityProviderConfig } from '@shared/providers/antigravity';
 import { installCodexLinkedRefresh } from '@shared/providers/codexAuth';
@@ -121,6 +128,7 @@ import { createMessageCoworkerTool } from './messageCoworker';
 import { createMessageMainTool } from './messageMain';
 import { ParentNotifier } from './notify';
 import { withOpenAIResponsesRouting } from './openaiResponsesRouting';
+import { createSubmitPlanTool, PlanController, withPlanGate } from './planMode';
 import { projectMessage } from './projection';
 import { applyWorkerProxyEnv } from './proxyEnv';
 import { withReadTruncationMeta } from './readTruncation';
@@ -269,6 +277,8 @@ interface ManagedSession {
   parentId?: string;
   coworkerName?: string;
   pendingRole?: string;
+  /** 仅父会话：Plan 模式状态机（设置里关闭时缺省） */
+  plan?: PlanController;
   /** 下一条 prompt 产生的 user 消息的投递回执；id 为 null 表示该投递无乐观回显 */
   promptDelivery?: { id: string | null };
   /** 已入 pi steer 队列、尚未上屏的投递回执，与 pi 队列同序 */
@@ -978,7 +988,8 @@ export class SessionSupervisor {
           command.editMode,
           command.rolePrompt,
           command.systemPrompt,
-          command.rtkEnabled
+          command.rtkEnabled,
+          command.planMode
         );
         return;
       case 'spawn-child':
@@ -1061,6 +1072,7 @@ export class SessionSupervisor {
       }
       case 'prompt': {
         const managed = this.must(command.identity);
+        managed.plan?.supersede();
         const images = command.images?.map((image) => ({ type: 'image' as const, ...image }));
         if (await this.interruptRetryIfAny(managed)) {
           this.promptFresh(managed, command.text, images, command.deliveryId);
@@ -1089,6 +1101,7 @@ export class SessionSupervisor {
       }
       case 'steer': {
         const managed = this.must(command.identity);
+        managed.plan?.supersede();
         const images = command.images?.map((image) => ({ type: 'image' as const, ...image }));
         // 重试倒计时期间 renderer 看到的仍是 running 会发 steer：此时没有活轮可插，
         // 语义是用户接管——打断重试，改为新轮 prompt
@@ -1163,6 +1176,19 @@ export class SessionSupervisor {
       case 'set-approval-mode':
         this.must(command.identity).gate.mode = command.mode;
         return;
+      case 'set-plan-mode':
+        this.must(command.identity).plan?.setActive(command.active);
+        return;
+      case 'plan-respond': {
+        const managed = this.must(command.identity);
+        const plan = managed.plan;
+        if (!plan) return;
+        const result = plan.respond(command.planId, command.action, command.feedback);
+        // 过期决策：重发当前状态让渲染层对齐
+        if (!result) this.emitPlanState(managed);
+        else if (result.prompt) this.promptFresh(managed, result.prompt);
+        return;
+      }
       case 'set-approval-reviewer':
         this.approvalReviewer = command.model;
         return;
@@ -1332,13 +1358,13 @@ export class SessionSupervisor {
             )
           : [];
         this.replaceMessagesAfterRewind(managed);
+        managed.plan?.refresh();
+        const editorText = planFreeEditorText(result.editorText || fallbackEditorText);
         this.options.emit({
           type: 'rewind-done',
           identity: managed.identity,
           seq: ++managed.seq,
-          ...(!result.cancelled && (result.editorText || fallbackEditorText)
-            ? { editorText: result.editorText || fallbackEditorText }
-            : {}),
+          ...(!result.cancelled && editorText ? { editorText } : {}),
           ...(!result.cancelled && editorImages.length > 0 ? { editorImages } : {}),
         });
         if (command.restoreFiles) {
@@ -1404,7 +1430,8 @@ export class SessionSupervisor {
     requestedEditMode?: EditMode,
     rolePrompt?: string,
     systemPrompt?: string,
-    rtkEnabled = true
+    rtkEnabled = true,
+    planMode?: boolean
   ): Promise<void> {
     const sessionId = identity.sessionId;
     const sessionEditMode = resolveEditMode(requestedEditMode, hashlineEditEnabled);
@@ -1983,10 +2010,23 @@ export class SessionSupervisor {
           })
         : []),
     ];
-    catalogRef.current = sessionTools;
+    // Plan 工具门包在父会话工具最外层（exec 沙盒经 catalog 调用同样受限）；目录跨模式不变
+    const planRef: { current?: PlanController } = {};
+    const planHost = {
+      state: () => planRef.current?.state() ?? EMPTY_PLAN_STATE,
+      submit: (doc: Parameters<PlanController['submit']>[0]) => planRef.current?.submit(doc),
+    };
+    const readonlyAgentTypes = new Set(
+      agentTypes.filter((type) => type.tools === 'readonly').map((type) => type.name)
+    );
+    const catalogTools = toolEnabled('plan')
+      ? sessionTools.map((tool) => withPlanGate(tool, { host: planHost, readonlyAgentTypes }))
+      : sessionTools;
+    catalogRef.current = catalogTools;
     const customTools = decorateSessionTools(
       [
-        ...sessionTools,
+        ...catalogTools,
+        ...(toolEnabled('plan') ? [createSubmitPlanTool(planHost, randomUUID)] : []),
         ...(toolEnabled('isolated_sandbox')
           ? [
               createIsolatedSandboxTool({
@@ -2032,6 +2072,20 @@ export class SessionSupervisor {
     if (rolePrompt && !resumeFile) managedRef.pendingRole = rolePrompt;
     managedRef.browser = browser;
     managedRef.memory = memory;
+    if (toolEnabled('plan')) {
+      const managed = managedRef;
+      const plan = new PlanController(
+        {
+          branch: () => session.sessionManager.getBranch(),
+          append: (entry) => session.sessionManager.appendCustomEntry(PLAN_ENTRY_TYPE, entry),
+        },
+        () => this.emitPlanState(managed)
+      );
+      planRef.current = plan;
+      managed.plan = plan;
+      if (planMode !== undefined) plan.setActive(planMode);
+      else this.emitPlanState(managed);
+    }
     this.options.emit({
       type: 'parent-ready',
       identity,
@@ -2812,7 +2866,10 @@ export class SessionSupervisor {
         this.rebaseContextUsage(managed);
         managed.compaction = undefined;
         // 锚点必须在对齐之后取：否则摘要消息未入列，与 guest 事件口径 maxIndex+1 差 1
-        if (!event.errorMessage) managed.compactionNoticeAt = managed.messages.length;
+        if (!event.errorMessage) {
+          managed.compactionNoticeAt = managed.messages.length;
+          managed.plan?.compacted();
+        }
         this.emitSessionMeta(managed);
         this.options.emit({
           type: 'compaction',
@@ -2856,6 +2913,7 @@ export class SessionSupervisor {
         managed.currentTurnId = undefined;
         managed.status = 'idle';
         this.emitStatus(managed);
+        managed.plan?.turnSettled();
         managed.contextUsage.setPendingSnapshot(undefined);
         this.emitSessionMeta(managed);
         // 本轮摘要随 turn-completed 下发：renderer 冷会话没有正文，只能由 worker 切
@@ -3078,7 +3136,7 @@ export class SessionSupervisor {
   ): Promise<void> {
     const slot = { id: deliveryId ?? null };
     managed.promptDelivery = slot;
-    return managed.session.prompt(text, options).finally(() => {
+    return managed.session.prompt(withPendingPlanNote(managed, text), options).finally(() => {
       if (managed.promptDelivery === slot) managed.promptDelivery = undefined;
     });
   }
@@ -3092,10 +3150,12 @@ export class SessionSupervisor {
     const slot = { id: deliveryId ?? null };
     managed.steerDeliveries ??= [];
     managed.steerDeliveries.push(slot);
-    return managed.session.steer(text, images).catch((error: unknown) => {
-      managed.steerDeliveries = managed.steerDeliveries?.filter((item) => item !== slot);
-      throw error;
-    });
+    return managed.session
+      .steer(withPendingPlanNote(managed, text), images)
+      .catch((error: unknown) => {
+        managed.steerDeliveries = managed.steerDeliveries?.filter((item) => item !== slot);
+        throw error;
+      });
   }
 
   private takeDelivery(managed: ManagedSession): string | null {
@@ -3330,6 +3390,16 @@ export class SessionSupervisor {
     managed.contextUsage.stampSettledAnchor(anchor, nonMessage.current);
   }
 
+  private emitPlanState(managed: ManagedSession): void {
+    if (!managed.plan) return;
+    this.options.emit({
+      type: 'plan-state',
+      identity: managed.identity,
+      seq: ++managed.seq,
+      state: managed.plan.state(),
+    });
+  }
+
   private emitSessionMeta(managed: ManagedSession): void {
     const contextWindow = positiveContextWindow(managed.session.model);
     let occupancy: ReturnType<typeof collectContextOccupancy> | undefined;
@@ -3396,6 +3466,7 @@ export class SessionSupervisor {
         ...(managed.compactionNoticeAt !== undefined
           ? { compactionNoticeAt: managed.compactionNoticeAt }
           : {}),
+        ...(managed.plan ? { planState: managed.plan.state() } : {}),
       };
     });
   }
@@ -3753,6 +3824,19 @@ export function runGateCommand(cwd: string, gate: string, executor?: SshExecutor
       }
     );
   });
+}
+
+/** 回退回填输入框：去掉 Plan 提示前缀；批准消息不回填，修改意见只回填意见原文 */
+function planFreeEditorText(text: string): string {
+  const rest = splitPlanPrefix(text).rest;
+  const message = parsePlanMessage(rest);
+  return message ? (message.kind === 'feedback' ? message.feedback : '') : rest;
+}
+
+/** Plan 状态变化后的一次性提示，随下一条进入模型的用户消息前置 */
+function withPendingPlanNote(managed: { plan?: PlanController }, text: string): string {
+  const note = managed.plan?.takeNote();
+  return note ? withPlanNote(note, text) : text;
 }
 
 /** coworker 首条消息前缀注入角色提示,消费一次 */

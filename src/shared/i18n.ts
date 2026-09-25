@@ -204,6 +204,10 @@ export const zhTranslations: Record<string, string> = {
     'read/grep/find/ls 显示为单行，agent 运行中也折叠连续的工具调用',
   'Auto-collapse previous turns': '自动折叠历史轮次',
   'Collapse activity after reply': '回答完成后折叠过程',
+  'Pin unfinished todos': '固定显示未完成待办',
+  'Keep the latest todo list above the input while it has unfinished items, so it does not scroll away with the timeline':
+    '最新任务清单还有未完成项时，固定显示在输入框上方，不随时间线滚走',
+  'Hide until the todo list updates': '隐藏，清单更新后再显示',
   'When a reply finishes, fold consecutive thinking and tool calls (including edits and commands) into one summary row; failed calls stay visible':
     '回答结束后，把连续的思考和工具调用（包括编辑、命令）折成一行摘要；失败的调用仍单独显示',
   'Worked for {{duration}}': '已工作 {{duration}}',
@@ -1331,6 +1335,31 @@ export const zhTranslations: Record<string, string> = {
   'Pause goal': '暂停目标',
   'Resume goal': '继续目标',
   'Clear goal': '清除目标',
+  Plan: '计划',
+  'Plan mode is on: read-only research, then a plan for your approval':
+    'Plan 模式已开启：只读调研，产出计划交你审批',
+  'Plan first: research read-only and submit a plan for approval':
+    '先出计划：只读调研，提交计划审批后再执行',
+  'Plan response failed': '计划审批未送达',
+  'Plan awaiting approval': '计划待审批',
+  'What should change in this plan?': '这份计划需要怎么改？',
+  'Discard and exit plan mode': '放弃并退出 Plan',
+  'Send feedback': '发送修改意见',
+  'Request changes': '修改意见',
+  'Approve and execute': '批准并执行',
+  'Choose the approval mode for execution': '选择执行时的审批档位',
+  'Approve and execute with': '批准后按以下审批档位执行',
+  'Executing plan': '执行计划',
+  'Finish plan': '结束计划',
+  'Plan mode: research read-only, then approve a plan (/plan [task] · off)':
+    'Plan 模式：只读调研后审批计划（/plan [任务] · off）',
+  'Describe the task — a plan comes first': '描述任务，先产出计划',
+  'Plan mode on: read-only research, then a plan for your approval':
+    '已进入 Plan 模式：只读调研，产出计划交你审批',
+  'Plan mode off': '已退出 Plan 模式',
+  'Context compacted: the approved plan was attached again': '上下文已压缩，已重新附上执行中的计划',
+  'Plan approved, executing': '已批准计划，开始执行',
+  'Plan feedback': '计划修改意见',
   'From main agent': '来自主 agent',
   Role: '角色',
   'Agent type': '类型',
