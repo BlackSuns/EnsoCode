@@ -83,6 +83,13 @@ export function ApprovalBar({ approvals, onRespond, allowSession = true }: Appro
           </span>
         )}
       </div>
+      {active.planMode && (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {t(
+            'Plan mode: this may change files or external state. Allow only if it is needed for research.'
+          )}
+        </p>
+      )}
       {active.summary && <SummaryView kind={active.kind} summary={active.summary} />}
       {!reviewing && (
         <div className="mt-2 flex items-center justify-end gap-1.5">
@@ -94,7 +101,7 @@ export function ApprovalBar({ approvals, onRespond, allowSession = true }: Appro
           >
             {t('Deny')}
           </button>
-          {allowSession && (
+          {allowSession && !active.planMode && (
             <button
               type="button"
               disabled={disabled}

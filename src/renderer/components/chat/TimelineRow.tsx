@@ -1,4 +1,5 @@
 import { isBtwIsolationPrompt } from '@shared/btw';
+import { type PlanNoteKind, parsePlanMessage, splitPlanPrefix } from '@shared/planMode';
 import type { AgentSessionCustomEntry, TodoItem, TurnPerf } from '@shared/types/agent';
 import { parseWorkflowPresetMessage } from '@shared/workflowPresetMessage';
 import {
@@ -9,6 +10,8 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  ClipboardCheck,
+  ClipboardList,
   Copy,
   FilePlus,
   FileText,
@@ -149,7 +152,9 @@ function itemEqual(prev: TimelineRowProps, next: TimelineRowProps): boolean {
         a.agentMeta === b.agentMeta &&
         a.source === b.source &&
         a.nestedPending === b.nestedPending &&
-        a.rtk === b.rtk
+        a.rtk === b.rtk &&
+        a.plan?.title === b.plan?.title &&
+        a.plan?.text === b.plan?.text
       );
     case 'tool-group':
       return (
@@ -212,6 +217,23 @@ function WorkspaceMigratedBanner({ note }: { note: string }) {
     </div>
   );
 }
+/** Plan 状态提示：worker 前置在用户消息之前，渲染成系统事件行 */
+function PlanNoteBanner({ note }: { note: PlanNoteKind }) {
+  const { t } = useI18n();
+  return (
+    <div className="flex w-full items-start gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground">
+      <ClipboardList className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0">
+        {note === 'on'
+          ? t('Plan mode on: read-only research, then a plan for your approval')
+          : note === 'off'
+            ? t('Plan mode off')
+            : t('Context compacted: the approved plan was attached again')}
+      </span>
+    </div>
+  );
+}
+
 /** 主 agent 发给 coworker 的消息包裹 */
 const MAIN_AGENT_BLOCK =
   /^<message-from-main-agent>\n?([\s\S]*?)\n?<\/message-from-main-agent>\s*$/;
@@ -429,6 +451,43 @@ function UserText({
   activeNth?: number;
 }) {
   const { t } = useI18n();
+  const planPrefix = splitPlanPrefix(text);
+  if (planPrefix.note) {
+    const remainder = planPrefix.rest.trim();
+    return (
+      <div className="flex w-full flex-col items-end gap-1.5">
+        <PlanNoteBanner note={planPrefix.note} />
+        {remainder && <UserText text={remainder} searchQuery={searchQuery} activeNth={activeNth} />}
+      </div>
+    );
+  }
+  const planMessage = parsePlanMessage(text);
+  if (planMessage?.kind === 'approved') {
+    return (
+      <div className="flex w-full items-start gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground">
+        <ClipboardCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0">
+          {t('Plan approved, executing')}
+          <span className="ml-1.5 text-foreground">{planMessage.title}</span>
+        </span>
+      </div>
+    );
+  }
+  if (planMessage?.kind === 'feedback') {
+    return (
+      <div className={cn(USER_BUBBLE, 'whitespace-pre-wrap')}>
+        <p className="mb-1 flex items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+          <ClipboardList className="h-3 w-3" />
+          {t('Plan feedback')}
+        </p>
+        <InlineMentionText
+          text={planMessage.feedback}
+          searchQuery={searchQuery}
+          activeNth={activeNth}
+        />
+      </div>
+    );
+  }
   const workflowPreset = parseWorkflowPresetMessage(text);
   if (workflowPreset) return <WorkflowPresetInvocation preset={workflowPreset} />;
   const refs = splitMentionRefs(text);
@@ -1521,6 +1580,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
 
   if (item.todos) return <TodoRow todos={item.todos} />;
   if (item.name.startsWith('goal_')) return <GoalSignalRow item={item} />;
+  if (item.plan && item.state !== 'error') return <PlanRow plan={item.plan} />;
 
   return (
     <div data-tool-style={compact ? 'compact' : 'full'}>
@@ -1705,6 +1765,35 @@ function GoalSignalRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }>
 }
 
 /** todo 清单行：进度摘要 + ✓/●/○ 列表；清单即产物，恒展开 */
+function PlanRow({ plan }: { plan: { title: string; text: string } }) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full min-w-0 items-center gap-2 text-left text-xs"
+      >
+        <ClipboardList className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="shrink-0 font-medium text-muted-foreground">{t('Plan')}</span>
+        <span className="min-w-0 flex-1 truncate">{plan.title}</span>
+        <ChevronRight
+          className={cn(
+            'h-3 w-3 shrink-0 text-muted-foreground transition-transform',
+            expanded && 'rotate-90'
+          )}
+        />
+      </button>
+      {expanded && (
+        <div className="mt-2 border-border/60 border-t pt-2 text-sm">
+          <Markdown text={plan.text} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TodoRow({ todos }: { todos: TodoItem[] }) {
   const { t } = useI18n();
   const done = todos.filter((todo) => todo.status === 'completed').length;

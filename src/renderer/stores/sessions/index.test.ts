@@ -125,6 +125,13 @@ const btwSpawn = vi.fn(async () => ({ ok: true }));
 const btwDispose = vi.fn(async () => ({ ok: true }));
 const agentRewind = vi.fn(async () => ({ ok: true }));
 const requestSnapshot = vi.fn(async () => ({ ok: true }));
+const agentSetPlanMode = vi.fn(
+  async (_id: string, _active: boolean) =>
+    ({ ok: true }) as {
+      ok: boolean;
+      error?: string;
+    }
+);
 
 vi.stubGlobal('navigator', { language: 'en-US' });
 vi.stubGlobal('document', {
@@ -170,6 +177,7 @@ vi.stubGlobal('window', {
       release: agentRelease,
       rewind: agentRewind,
       steer: vi.fn(async () => ({ ok: true })),
+      setPlanMode: agentSetPlanMode,
     },
     btw: {
       spawn: btwSpawn,
@@ -4239,5 +4247,72 @@ describe('btw session send', () => {
     expect(messages?.some((message) => message.optimistic)).toBe(false);
     expect(messages?.some((message) => message.role === 'assistant')).toBe(true);
     expect(JSON.stringify(messages)).toContain('用的是 bash');
+  });
+});
+
+describe('Plan 模式', () => {
+  beforeAll(async () => {
+    settingsModule ??= await import('../settings');
+    sessionsModule ??= await import('./index');
+  });
+
+  beforeEach(async () => {
+    nextConversationId = 'plan-parent';
+    sourceProjection = {
+      projects: [
+        { projectId: 'project', canonicalPath: '/workspace', state: 'active', version: 1 },
+      ],
+      conversations: [],
+    };
+    sessionsModule.useSessionsStore.setState({
+      conversations: {},
+      order: [],
+      activeId: null,
+      pendingAgentPrefill: undefined,
+    });
+    settingsModule.useSettingsStore.setState({
+      projects: [{ id: 'project', name: 'Project', path: '/workspace' }],
+    });
+    await seedParent();
+    agentSpawn.mockClear();
+    agentPrompt.mockClear();
+    agentSetPlanMode.mockClear();
+  });
+
+  const conv = () => sessionsModule.useSessionsStore.getState().conversations['plan-parent'];
+  const target = { providerId: 'provider-1', modelId: 'model-1', cwd: '/workspace' };
+
+  it('未启动时 /plan 正文：开启 Plan 随 spawn 下发，正文照常发送', async () => {
+    await sessionsModule.useSessionsStore.getState().send('/plan 帮我重构登录', target);
+    expect(conv()?.planState?.active).toBe(true);
+    expect(agentSetPlanMode).not.toHaveBeenCalled();
+    expect(agentSpawn).toHaveBeenCalledWith(expect.objectContaining({ planMode: true }));
+    expect(agentPrompt).toHaveBeenCalledWith(
+      'plan-parent',
+      '帮我重构登录',
+      undefined,
+      expect.anything()
+    );
+  });
+
+  it('已启动时 /plan off 即时下发且不发消息；下发失败回滚', async () => {
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        'plan-parent': {
+          ...state.conversations['plan-parent'],
+          started: true,
+          planState: { active: true, resolutions: {} },
+        },
+      },
+    }));
+    await sessionsModule.useSessionsStore.getState().send('/plan off', target);
+    expect(agentSetPlanMode).toHaveBeenCalledWith('plan-parent', false);
+    expect(agentPrompt).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(conv()?.planState?.active).toBe(false));
+
+    agentSetPlanMode.mockResolvedValueOnce({ ok: false, error: 'stale' });
+    sessionsModule.useSessionsStore.getState().setPlanMode('plan-parent', true);
+    await vi.waitFor(() => expect(conv()?.planState?.active).toBe(false));
   });
 });

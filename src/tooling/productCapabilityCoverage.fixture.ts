@@ -419,6 +419,12 @@ export const IPC_PRODUCT_COVERAGE = {
   AGENT_SET_REASONING: surfaces('conversations.set-reasoning'),
   AGENT_APPROVAL_RESPOND: surfaces('conversations.approval.respond'),
   AGENT_SET_APPROVAL_MODE: surfaces('conversations.set-approval-mode'),
+  AGENT_SET_PLAN_MODE: excluded(
+    'Desktop composer Plan toggle; only restricts tools further, never grants execution rights.'
+  ),
+  AGENT_PLAN_RESPOND: excluded(
+    'Desktop plan review bar decision (approve/revise/discard/finish) for the pending plan of this conversation.'
+  ),
   NOTIFICATION_FOCUS_SESSION: surfaces('window.focus-conversation-notification'),
   NOTIFICATION_ACTIVE_SESSION: excluded(
     'Renderer reports the currently viewed conversation id so Main can suppress redundant system notifications; no execution rights.'

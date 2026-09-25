@@ -246,3 +246,47 @@ describe('ApprovalGate assistant 档代审 (options.review)', () => {
     rejectReview(new Error('late'));
   });
 });
+
+describe('ApprovalGate Plan 模式强制询问', () => {
+  it('planMode 请求跳过代审直接问人，且「本会话允许」不写入白名单', async () => {
+    const review = vi.fn();
+    const infos: ApprovalRequestInfo[] = [];
+    const gate = new ApprovalGate(
+      'assistant',
+      (info) => infos.push(info),
+      () => undefined,
+      { review }
+    );
+    const p = gate.ask('bash', 'command', 'npm i', undefined, 'c1', undefined, { planMode: true });
+    expect(review).not.toHaveBeenCalled();
+    expect(infos[0]).toMatchObject({ planMode: true, toolCallId: 'c1' });
+    gate.respond(infos[0].requestId, 'allowSession');
+    await expect(p).resolves.toBe('allow');
+    expect(gate.needsApproval('command', 'bash')).toBe(true);
+  });
+
+  it('grant 让内层 withApproval 对同一调用免审一次', async () => {
+    const { gate, requests } = makeGate('supervised');
+    const execute = vi.fn().mockResolvedValue({ content: [], details: undefined });
+    const tool = withApproval(gate, 'command', {
+      name: 'bash',
+      label: 'bash',
+      description: '',
+      parameters: {} as never,
+      execute,
+    });
+    gate.grant('c1');
+    await tool.execute('c1', { command: 'npm i' }, undefined, undefined, undefined as never);
+    expect(requests).toHaveLength(0);
+    const second = tool.execute(
+      'c1',
+      { command: 'npm i' },
+      undefined,
+      undefined,
+      undefined as never
+    );
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    gate.respond(requests[0], 'deny');
+    await expect(second).rejects.toThrow('User denied');
+  });
+});

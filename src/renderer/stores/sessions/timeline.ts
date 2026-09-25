@@ -1,3 +1,4 @@
+import { firstProgram, isReadOnlyCommand } from '@shared/readOnlyCommand';
 import type { RtkToolStats } from '@shared/rtk';
 import type {
   AgentSessionCustomEntry,
@@ -77,6 +78,8 @@ export type TimelineItem =
       nestedPending?: number;
       /** RTK 对本次工具调用的真实处理结果；无元数据时缺省 */
       rtk?: RtkToolStats;
+      /** submit_plan 提交的计划；其它工具缺省 */
+      plan?: { title: string; text: string } | null;
     }
   | {
       kind: 'tool-group';
@@ -332,6 +335,17 @@ export function parseSandboxOutput(output: string | null): SandboxView | null {
 }
 
 /** write 工具参数里取出写入内容 */
+export function extractSubmittedPlan(
+  name: string,
+  args: unknown
+): { title: string; text: string } | null {
+  if (name !== 'submit_plan' || !args || typeof args !== 'object') return null;
+  const { title, plan } = args as Record<string, unknown>;
+  return typeof title === 'string' && typeof plan === 'string' && plan.trim()
+    ? { title: title.trim(), text: plan.trim() }
+    : null;
+}
+
 export function extractWriteContent(name: string, args: unknown): string | null {
   if (name !== 'write' || !args || typeof args !== 'object') return null;
   const content = (args as Record<string, unknown>).content;
@@ -790,6 +804,9 @@ function buildMessageTimeline(
             durationMs: result?.durationMs ?? null,
             agentMeta: result?.agentMeta ?? null,
             ...(result?.rtk ? { rtk: result.rtk } : {}),
+            ...(part.name === 'submit_plan'
+              ? { plan: extractSubmittedPlan(part.name, part.arguments) }
+              : {}),
             ...(result || !toolStartedAt ? {} : { startedAt: toolStartedAt[part.id] ?? null }),
           });
           return;
@@ -1069,158 +1086,7 @@ function classifyTool(
 
 const READ_ONLY_TOOLS = new Set(['read', ...SEARCH_TOOLS]);
 
-/** 只读 bash 白名单：段首程序在这里且无写副作用标志才算探索（env/xargs/tee 等能转执行或写文件的不收） */
-const READ_ONLY_PROGRAMS = new Set([
-  'ls',
-  'tree',
-  'pwd',
-  'cd',
-  'cat',
-  'bat',
-  'head',
-  'tail',
-  'wc',
-  'nl',
-  'tac',
-  'less',
-  'more',
-  'rg',
-  'grep',
-  'egrep',
-  'fgrep',
-  'ag',
-  'find',
-  'fd',
-  'fdfind',
-  'which',
-  'type',
-  'file',
-  'stat',
-  'du',
-  'df',
-  'sort',
-  'uniq',
-  'cut',
-  'tr',
-  'awk',
-  'sed',
-  'diff',
-  'jq',
-  'yq',
-  'echo',
-  'printf',
-  'basename',
-  'dirname',
-  'realpath',
-  'readlink',
-  'printenv',
-  'date',
-  'whoami',
-  'uname',
-  'column',
-  'true',
-  'test',
-  '[',
-  'git',
-]);
 const READ_FILE_PROGRAMS = new Set(['cat', 'bat', 'head', 'tail', 'less', 'more', 'nl', 'tac']);
-const GIT_READ_SUBCOMMANDS = new Set([
-  'status',
-  'log',
-  'diff',
-  'show',
-  'blame',
-  'grep',
-  'ls-files',
-  'ls-tree',
-  'rev-parse',
-  'describe',
-  'shortlog',
-  'reflog',
-  'cat-file',
-  'name-rev',
-  'remote',
-  'config',
-  'branch',
-  'tag',
-]);
-/** 各程序里会写文件 / 转执行的参数，命中即非只读 */
-const WRITE_FLAGS: Record<string, RegExp> = {
-  sed: /^(-[a-zA-Z]*i|--in-place)|\/[a-zA-Z]*e[a-zA-Z]*['"]?$|^['"]?e\b/,
-  awk: /system\s*\(/,
-  yq: /^(-i|--inplace)$/,
-  sort: /^(-o|--output)/,
-  find: /^-(exec|execdir|ok|okdir|delete|fprint|fprintf|fprint0|fls)$/,
-  git: /^--output/,
-};
-/** git 只读子命令里带这些参数就是写：branch -d / tag -a / config --unset / remote add … */
-const GIT_WRITE_ARGS: Record<string, RegExp> = {
-  branch: /^-(d|D|m|M|c|C|u|f|-delete|-move|-copy|-set-upstream-to|-unset-upstream|-force)/,
-  tag: /^-(a|s|d|f|m|F|-annotate|-sign|-delete|-force|-message)/,
-  config: /^(-e|--edit|--unset|--unset-all|--add|--replace-all|--rename-section|--remove-section)$/,
-  remote: /^(add|remove|rm|rename|set-url|set-head|set-branches|prune|update)$/,
-};
-
-function splitEnvPrefix(segment: string): { env: string[]; tokens: string[] } {
-  const tokens = segment.trim().split(/\s+/);
-  let i = 0;
-  while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) i += 1;
-  return { env: tokens.slice(0, i), tokens: tokens.slice(i) };
-}
-
-function firstProgram(segment: string): string {
-  const head = splitEnvPrefix(segment).tokens[0] ?? '';
-  return head.slice(head.lastIndexOf('/') + 1);
-}
-
-/**
- * 判定一条 bash 命令是否纯只读（ls/rg/cat/git status …），用于精简模式把它当探索折进组。
- * 只影响展示密度，不参与审批；策略保守：重定向、命令/进程替换、后台 &、写参数、
- * 未知程序、GIT_* 环境前缀（GIT_EXTERNAL_DIFF 等会转执行）一律判非只读。
- */
-function hasC0Control(text: string): boolean {
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    if (code <= 0x1f && code !== 0x0a) return true;
-  }
-  return false;
-}
-
-export function isReadOnlyCommand(command: string): boolean {
-  const trimmed = command.trim();
-  if (!trimmed) return false;
-  // 命令替换 / 进程替换 / 反引号可藏任意命令；控制字符（\r 等）可拼接隐藏命令
-  if (/\$\(|<\(|`/.test(trimmed) || hasC0Control(trimmed)) return false;
-  // 去掉无害的 stderr 重定向后，剩余任何 > 都视为写文件
-  const withoutStderr = trimmed.replace(/2>&1|[12]?>\s*\/dev\/null/g, '');
-  if (withoutStderr.includes('>')) return false;
-  // 段分隔：| || && ; & 换行（单个 & 是后台执行，同样开新命令）
-  const segments = withoutStderr.split(/\|\|?|&&?|;|\n/);
-  for (const raw of segments) {
-    const segment = raw.trim();
-    if (!segment) continue;
-    const { env, tokens } = splitEnvPrefix(segment);
-    if (env.some((e) => e.startsWith('GIT_'))) return false;
-    const program = firstProgram(segment);
-    if (!READ_ONLY_PROGRAMS.has(program)) return false;
-    const writeFlag = WRITE_FLAGS[program];
-    if (writeFlag && tokens.slice(1).some((t) => writeFlag.test(t))) return false;
-    if (program === 'git') {
-      const sub = tokens.find((t, i) => i > 0 && !t.startsWith('-'));
-      if (!sub || !GIT_READ_SUBCOMMANDS.has(sub)) return false;
-      const args = tokens.slice(tokens.indexOf(sub) + 1);
-      const writeArg = GIT_WRITE_ARGS[sub];
-      if (writeArg && args.some((t) => writeArg.test(t))) return false;
-      // git config 只读形态：--get/--list/-l；裸 `git config a b` 是写
-      if (
-        sub === 'config' &&
-        !args.some((t) => /^(--get|--get-all|--list|-l|--get-regexp)$/.test(t))
-      )
-        return false;
-    }
-  }
-  return true;
-}
 
 /** 精简模式下按「探索」处理的工具行：只读工具，或只读的 bash 命令 */
 export function isReadOnlyTool(item: { name: string; summary: string }): boolean {
@@ -1354,7 +1220,7 @@ export function foldTimeline(
     s.kind === 'thinking' ||
     (s.kind === 'tool' &&
       (activityAt(index)
-        ? s.state === 'ok' && !s.name.startsWith('goal_')
+        ? s.state === 'ok' && !s.name.startsWith('goal_') && s.name !== 'submit_plan'
         : !compact || isReadOnlyTool(s)));
   const result: TimelineItem[] = [];
   let i = 0;
@@ -1380,7 +1246,13 @@ export function foldTimeline(
     // 非 compact 仍把 running 钉在组外，方便看此刻在跑什么。
     const pinned = (s: TimelineItem): boolean => {
       if (s.kind !== 'tool') return false;
-      if (s.edits !== null || s.writeContent || s.fileChanges?.length || s.name === 'todo')
+      if (
+        s.edits !== null ||
+        s.writeContent ||
+        s.fileChanges?.length ||
+        s.name === 'todo' ||
+        s.name === 'submit_plan'
+      )
         return true;
       if (s.state !== 'running' && s.state !== 'reviewing') return false;
       return !(compact && isReadOnlyTool(s));

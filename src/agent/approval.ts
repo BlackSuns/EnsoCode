@@ -28,6 +28,8 @@ export interface ApprovalGateOptions {
 export class ApprovalGate {
   private sessionAllowed = new Set<string>();
   private pending = new Map<string, PendingApproval>();
+  /** 外层已批准的单次调用（Plan 模式强制询问后），内层 withApproval 消费一次免审 */
+  private granted = new Set<string>();
   private counter = 0;
 
   constructor(
@@ -43,14 +45,23 @@ export class ApprovalGate {
     return !this.sessionAllowed.has(tool);
   }
 
-  /** 挂起等待用户决策；signal abort → cancel */
+  grant(toolCallId: string): void {
+    this.granted.add(toolCallId);
+  }
+
+  takeGrant(toolCallId: string | undefined): boolean {
+    return toolCallId !== undefined && this.granted.delete(toolCallId);
+  }
+
+  /** 挂起等待用户决策；signal abort → cancel。planMode：跳过代审直接问人，且不记本会话允许 */
   ask(
     tool: string,
     kind: ApprovalKind,
     summary: string,
     signal: AbortSignal | undefined,
     toolCallId?: string,
-    filePaths?: string[]
+    filePaths?: string[],
+    options?: { planMode?: boolean }
   ): Promise<'allow' | 'deny' | 'block' | 'cancel'> {
     const requestId = `apr-${++this.counter}-${Date.now()}`;
     const info: ApprovalRequestInfo = {
@@ -60,6 +71,7 @@ export class ApprovalGate {
       summary,
       ...(filePaths?.length ? { filePaths: [...filePaths] } : {}),
       ...(toolCallId ? { toolCallId } : {}),
+      ...(options?.planMode ? { planMode: true } : {}),
     };
     return new Promise((resolve) => {
       let settled = false;
@@ -78,7 +90,8 @@ export class ApprovalGate {
         settle('cancel');
         return;
       }
-      const review = this.mode === 'assistant' ? this.options?.review : undefined;
+      const review =
+        this.mode === 'assistant' && !options?.planMode ? this.options?.review : undefined;
       if (!review) {
         this.onRequest(info);
         return;
@@ -109,7 +122,8 @@ export class ApprovalGate {
   respond(requestId: string, decision: ApprovalDecision): void {
     const entry = this.pending.get(requestId);
     if (!entry) return;
-    if (decision === 'allowSession') this.sessionAllowed.add(entry.info.tool);
+    if (decision === 'allowSession' && !entry.info.planMode)
+      this.sessionAllowed.add(entry.info.tool);
     entry.settle(decision === 'deny' ? 'deny' : 'allow');
   }
 
@@ -147,7 +161,7 @@ export function withApproval(
   return {
     ...definition,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      if (gate.needsApproval(kind, definition.name)) {
+      if (!gate.takeGrant(toolCallId) && gate.needsApproval(kind, definition.name)) {
         const filePaths =
           kind === 'file-edit' || kind === 'file-write'
             ? extractWriteTargetPaths(definition.name, params)

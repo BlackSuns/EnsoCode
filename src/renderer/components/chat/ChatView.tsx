@@ -1,6 +1,7 @@
 import { ENSO_AGENT_TYPE_KEY } from '@shared/builtinAgents';
 import { conversationDotTone } from '@shared/conversationDotTone';
 import { resolveChatModel, scopedDefaultModels } from '@shared/defaultModel';
+import { planPhase } from '@shared/planMode';
 import type { AgentTypeMentionCandidate } from '@shared/types/mentions';
 import { Folder, GitBranch, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -34,6 +35,8 @@ import { MarkdownLinkContext } from './Markdown';
 import { MessageQueue } from './MessageQueue';
 import { CHAT_COL, type MessageTimelineHandle } from './MessageTimeline';
 import { ModelPicker } from './ModelPicker';
+import { PlanBar } from './PlanBar';
+import { PlanModeToggle } from './PlanModeToggle';
 import { PresetPicker } from './PresetPicker';
 import { RetryBar } from './RetryBar';
 import { StatsLine } from './StatsLine';
@@ -202,6 +205,10 @@ export function ChatView() {
       name: '/compact',
       description: t('Compact the context now (/compact [summary focus])'),
     };
+    const plan = {
+      name: '/plan',
+      description: t('Plan mode: research read-only, then approve a plan (/plan [task] · off)'),
+    };
     const fromSettings = skills
       .filter((skill) => skill.enabled !== false)
       .map((skill) => ({
@@ -213,10 +220,20 @@ export function ChatView() {
       description: skill.description,
     }));
     // 设置里登记的同名技能优先；项目扫描和会话命令里的副本不再各占一行
-    return dedupeSlashCommands([goal, compact, ...fromSettings, ...fromProject, ...chromeCommands]);
+    return dedupeSlashCommands([
+      goal,
+      compact,
+      plan,
+      ...fromSettings,
+      ...fromProject,
+      ...chromeCommands,
+    ]);
   }, [t, skills, projectSkills, chromeCommands]);
 
   const timelineRef = useRef<MessageTimelineHandle>(null);
+  const planning =
+    !chrome?.displayedParentId &&
+    ['planning', 'awaiting_review'].includes(planPhase(chrome?.planState));
   const running = chrome?.status === 'running';
   const busy = chrome?.busy === true;
   const toolCwd = chrome?.parentWorktreePath ?? project?.path;
@@ -371,6 +388,13 @@ export function ChatView() {
               conversationId={chrome.id}
             />
           )}
+          {!chrome.displayedParentId && (
+            <PlanBar
+              conversationId={chrome.id}
+              planState={chrome.planState}
+              approvalMode={chrome.approvalMode ?? 'full'}
+            />
+          )}
           <MessageQueue conversationId={chrome.id} queued={chrome.queuedMessages ?? []} />
           {chrome.goal && <GoalBar conversationId={chrome.id} goal={chrome.goal} />}
           <TodoBar key={chrome.id} conversationId={chrome.id} />
@@ -394,6 +418,8 @@ export function ChatView() {
               Boolean(chrome.rewinding || chrome.restoringFiles)
             }
             focusKey={chrome.id}
+            planMode={planning}
+            placeholder={planning ? t('Describe the task — a plan comes first') : undefined}
             injectedDraft={chrome.draftText}
             injectedImages={chrome.draftImages}
             onDraftConsumed={() => useSessionsStore.getState().clearDraft(chrome.id)}
@@ -419,6 +445,12 @@ export function ChatView() {
                     <WorktreePicker
                       conversationId={chrome.id}
                       onBranchChange={handleBranchChange}
+                    />
+                    <PlanModeToggle
+                      active={chrome.planState?.active ?? false}
+                      onToggle={(active) =>
+                        useSessionsStore.getState().setPlanMode(chrome.id, active)
+                      }
                     />
                     <ApprovalModePicker
                       mode={chrome.approvalMode ?? 'full'}
