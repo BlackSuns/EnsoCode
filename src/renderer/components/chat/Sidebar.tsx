@@ -564,6 +564,10 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
   const archivedCount = archivedGroups
     .filter(archivedInSlice)
     .reduce((count, group) => count + group.ids.length, 0);
+  const openArchive = () => {
+    setArchiveQuery('');
+    setArchiveOpen(true);
+  };
 
   // 相对时间每分钟自刷（“3 分钟前”不随时间僵住）
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -728,14 +732,16 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
             <FolderPlus className="h-4 w-4" />
           </button>
           <div className="flex-1" />
-          <button
-            type="button"
-            onClick={onToggleCollapse}
-            className={ICON_BUTTON_CLASS}
-            title={t('Expand sidebar')}
-          >
-            <PanelLeft className="h-4 w-4" />
-          </button>
+          {archivedCount > 0 && (
+            <button
+              type="button"
+              onClick={openArchive}
+              className={ICON_BUTTON_CLASS}
+              title={`${t('Archived')} (${archivedCount})`}
+            >
+              <Archive className="h-4 w-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -753,6 +759,14 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
             title={t('Settings')}
           >
             <Settings className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className={ICON_BUTTON_CLASS}
+            title={t('Expand sidebar')}
+          >
+            <PanelLeft className="h-4 w-4" />
           </button>
         </div>
       )}
@@ -1369,10 +1383,7 @@ export function Sidebar({ width, collapsed, onToggleCollapse, onOpenSearch }: Si
               <button
                 type="button"
                 data-slot="archived-button"
-                onClick={() => {
-                  setArchiveQuery('');
-                  setArchiveOpen(true);
-                }}
+                onClick={openArchive}
                 className={ICON_BUTTON_CLASS}
                 title={`${t('Archived')} (${archivedCount})`}
               >
