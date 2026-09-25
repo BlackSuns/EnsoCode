@@ -2,6 +2,21 @@
 
 export type WorkspaceSearchScope = 'project' | 'all' | 'all-including-archived';
 
+export const WORKSPACE_SEARCH_SCOPES: readonly WorkspaceSearchScope[] = [
+  'project',
+  'all',
+  'all-including-archived',
+];
+
+export function cycleWorkspaceSearchScope(
+  scope: WorkspaceSearchScope,
+  backwards = false
+): WorkspaceSearchScope {
+  const count = WORKSPACE_SEARCH_SCOPES.length;
+  const index = WORKSPACE_SEARCH_SCOPES.indexOf(scope);
+  return WORKSPACE_SEARCH_SCOPES[(index + (backwards ? count - 1 : 1)) % count] ?? 'all';
+}
+
 export type WorkspaceSearchFieldKind = 'title' | 'project' | 'id' | 'body' | 'tool';
 
 export interface WorkspaceSearchField {

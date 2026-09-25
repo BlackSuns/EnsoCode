@@ -6,7 +6,11 @@ import {
   searchSettingsEntries,
 } from '@shared/searchAnything';
 import type { WorkspaceSearchHit, WorkspaceSearchScope } from '@shared/workspaceSearch';
-import { mergeWorkspaceHits, searchWorkspace } from '@shared/workspaceSearch';
+import {
+  cycleWorkspaceSearchScope,
+  mergeWorkspaceHits,
+  searchWorkspace,
+} from '@shared/workspaceSearch';
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { requestOpenChatFind } from '@/components/chat/ChatFindBar';
 import {
@@ -42,7 +46,7 @@ export function WorkspaceSearchDialog({
 }) {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
-  const [scope, setScope] = useState<WorkspaceSearchScope>('project');
+  const [scope, setScope] = useState<WorkspaceSearchScope>('all');
   // 冷结果带上发起时的查询键，查询变化后旧结果立即失效，不混进新查询
   const [cold, setCold] = useState<{ key: string; hits: WorkspaceSearchHit[] }>();
   const [browserTabs, setBrowserTabs] = useState<BrowserSearchTab[]>([]);
@@ -136,6 +140,7 @@ export function WorkspaceSearchDialog({
   useEffect(() => {
     if (!open) {
       setQuery('');
+      setScope('all');
       setCold(undefined);
       return;
     }
@@ -240,6 +245,16 @@ export function WorkspaceSearchDialog({
     onOpenChange(false);
   };
 
+  const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Tab' || event.nativeEvent.isComposing) {
+      closeOnEscape(event);
+      return;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    event.preventDefault();
+    setScope((current) => cycleWorkspaceSearchScope(current, event.shiftKey));
+  };
+
   const conversationScope = (
     <div
       className="ml-auto flex gap-0.5"
@@ -280,7 +295,7 @@ export function WorkspaceSearchDialog({
             placeholder={t('Search anything...')}
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
-            onKeyDown={closeOnEscape}
+            onKeyDown={onInputKeyDown}
           />
           <CommandList>
             {empty && <CommandEmpty>{t('No matching results')}</CommandEmpty>}

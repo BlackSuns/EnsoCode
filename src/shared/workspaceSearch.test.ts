@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cycleWorkspaceSearchScope,
   mergeWorkspaceHits,
   searchWorkspace,
   WORKSPACE_SEARCH_RESULT_LIMIT,
@@ -307,5 +308,18 @@ describe('mergeWorkspaceHits（热命中 + Main 冷命中）', () => {
     const hot = searchWorkspace(docs, 'term', options);
     const merged = mergeWorkspaceHits(docs, hot, [coldHit('current-cold')], 'term', options);
     expect(merged.map((hit) => hit.conversationId)).toEqual(['current-cold', 'other-hot']);
+  });
+});
+
+describe('cycleWorkspaceSearchScope', () => {
+  it('Tab 依次 当前项目 → 全部项目 → 含归档 → 当前项目', () => {
+    expect(cycleWorkspaceSearchScope('project')).toBe('all');
+    expect(cycleWorkspaceSearchScope('all')).toBe('all-including-archived');
+    expect(cycleWorkspaceSearchScope('all-including-archived')).toBe('project');
+  });
+
+  it('Shift+Tab 反向', () => {
+    expect(cycleWorkspaceSearchScope('project', true)).toBe('all-including-archived');
+    expect(cycleWorkspaceSearchScope('all', true)).toBe('project');
   });
 });
