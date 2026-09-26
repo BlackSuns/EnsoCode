@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDownsampler, ensureMicPermission, levelFromSamples } from './voiceCapture';
+import {
+  createDownsampler,
+  ensureMicPermission,
+  LIVE_TIMEOUT_MS,
+  levelFromSamples,
+  startVoiceRecording,
+} from './voiceCapture';
 
 function feed(input: Float32Array, rate: number, sizes: number[]): number[] {
   const downsample = createDownsampler(rate);
@@ -96,5 +102,79 @@ describe('ensureMicPermission', () => {
   it('passes a refusal through', async () => {
     stubMic('prompt', 'deny');
     await expect(ensureMicPermission()).rejects.toMatchObject({ name: 'NotAllowedError' });
+  });
+});
+
+describe('startVoiceRecording live', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function fakeCapture() {
+    let process: ((event: { inputBuffer: { getChannelData: () => Float32Array } }) => void) | null =
+      null;
+    const processor = {
+      set onaudioprocess(fn: typeof process) {
+        process = fn;
+      },
+      get onaudioprocess() {
+        return process;
+      },
+      connect: () => {},
+      disconnect: () => {},
+    };
+    const context = {
+      sampleRate: 16_000,
+      destination: {},
+      resume: async () => {},
+      createMediaStreamSource: () => ({ connect: () => {}, disconnect: () => {} }),
+      createScriptProcessor: () => processor,
+    } as unknown as AudioContext;
+    vi.stubGlobal('navigator', {
+      mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) },
+    });
+    const emit = (value: number) =>
+      process?.({ inputBuffer: { getChannelData: () => new Float32Array(256).fill(value) } });
+    return { context, emit };
+  }
+
+  async function settled(promise: Promise<void>): Promise<boolean> {
+    let done = false;
+    void promise.then(() => {
+      done = true;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    return done;
+  }
+
+  it('waits for the first non-silent audio, not for getUserMedia', async () => {
+    const { context, emit } = fakeCapture();
+    const recording = await startVoiceRecording(() => {}, { context });
+    emit(0);
+    expect(await settled(recording.live)).toBe(false);
+    emit(0.01);
+    expect(await settled(recording.live)).toBe(true);
+    recording.cancel();
+  });
+
+  it('settles when cancelled before the microphone comes alive', async () => {
+    const { context } = fakeCapture();
+    const recording = await startVoiceRecording(() => {}, { context });
+    recording.cancel();
+    expect(await settled(recording.live)).toBe(true);
+  });
+
+  it('gives up waiting after a while so the UI never sticks', async () => {
+    vi.useFakeTimers();
+    const { context, emit } = fakeCapture();
+    const recording = await startVoiceRecording(() => {}, { context });
+    emit(0);
+    await vi.advanceTimersByTimeAsync(LIVE_TIMEOUT_MS - 1);
+    expect(await settled(recording.live)).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await settled(recording.live)).toBe(true);
+    recording.cancel();
   });
 });

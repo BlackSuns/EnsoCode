@@ -1032,6 +1032,8 @@ export const zhTranslations: Record<string, string> = {
   'Slide up to cancel': '上滑 取消',
   'Release to cancel': '松开 取消',
   'Speech was too short.': '说话时间太短',
+  'Getting the microphone ready…': '麦克风准备中…',
+  'Speak now': '请说话',
   'Voice input (hold to talk)': '语音输入（按住说话）',
   'Hold to record, release to put the text in the chat input': '按住录音，松开后识别并填入输入框',
   'Hold {{key}} to talk': '按住 {{key}} 说话',

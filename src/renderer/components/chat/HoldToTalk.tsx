@@ -249,11 +249,19 @@ function HoldOverlay({
             <p data-testid="voice-partial" className="text-[15px] leading-relaxed">
               {preview}
             </p>
+          ) : phase === 'recording' ? (
+            <p className="text-sm">{t('Speak now')}</p>
           ) : null}
-          {busy ? (
+          {busy || phase === 'starting' ? (
             <span className="flex items-center gap-1.5 text-xs opacity-85">
               <Spinner aria-hidden className="size-3.5" />
-              {t(correcting ? 'Correcting…' : 'Transcribing…')}
+              {t(
+                phase === 'starting'
+                  ? 'Getting the microphone ready…'
+                  : correcting
+                    ? 'Correcting…'
+                    : 'Transcribing…'
+              )}
             </span>
           ) : (
             <span aria-hidden className="flex h-8 items-center gap-[3px]">

@@ -141,6 +141,9 @@ export function useVoiceInput({
         return;
       }
       recordingRef.current = recording;
+      // 麦克风真出声才算开录：此前界面停在「准备中」，免得开口太早丢字
+      await recording.live;
+      if (attempt !== attemptRef.current) return;
       setPhase('recording');
     } catch (cause) {
       if (attempt !== attemptRef.current) return;

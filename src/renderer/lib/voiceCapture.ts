@@ -84,7 +84,15 @@ export interface VoiceCaptureOptions {
   onLevel?: (level: number) => void;
 }
 
+/** 迟迟等不到真信号就不等了，交给录完时的静音检测兜底 */
+export const LIVE_TIMEOUT_MS = 5000;
+
 export interface VoiceRecording {
+  /**
+   * 第一块非静音音频到达时落定：iOS 的 getUserMedia 返回后麦克风还要一两秒才真正出声，
+   * 此前说的话收不到。超时或停止也会落定。
+   */
+  live: Promise<void>;
   /** 停止采集；全程无信号（常见于系统拒绝授权）抛 SilentRecordingError */
   stop(): Promise<void>;
   cancel(): void;
@@ -127,9 +135,19 @@ export async function startVoiceRecording(
   const processor = context.createScriptProcessor(4096, 1, 1);
   const downsample = createDownsampler(context.sampleRate);
   let peak = 0;
+  let resolveLive = () => {};
+  const live = new Promise<void>((resolve) => {
+    resolveLive = resolve;
+  });
+  const liveTimer = setTimeout(resolveLive, LIVE_TIMEOUT_MS);
+  const markLive = () => {
+    clearTimeout(liveTimer);
+    resolveLive();
+  };
   processor.onaudioprocess = (event) => {
     const data = event.inputBuffer.getChannelData(0);
     for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));
+    if (peak > 0) markLive();
     options.onLevel?.(levelFromSamples(data));
     const samples = downsample(new Float32Array(data));
     if (samples.length > 0) onChunk(samples);
@@ -140,6 +158,7 @@ export async function startVoiceRecording(
   const release = () => {
     if (released) return;
     released = true;
+    markLive();
     processor.onaudioprocess = null;
     processor.disconnect();
     source.disconnect();
@@ -147,6 +166,7 @@ export async function startVoiceRecording(
     if (owned) void context.close();
   };
   return {
+    live,
     cancel: release,
     stop: async () => {
       release();
