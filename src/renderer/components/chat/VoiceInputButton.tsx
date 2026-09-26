@@ -4,7 +4,9 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { Spinner } from '@/components/ui/spinner';
 import { useI18n } from '@/i18n';
+import { eventToBinding, formatBinding, isHoldReleased } from '@/lib/keybindings';
 import { Z_INDEX } from '@/lib/z-index';
+import { releaseAction } from './holdGesture';
 import { useVoiceInput } from './useVoiceInput';
 import { voiceNotePlacement } from './voiceNotePlacement';
 
@@ -67,20 +69,63 @@ export function VoiceInputButton({
   startSession,
   requestMicAccess,
   disabled,
+  holdBinding,
   onText,
 }: {
   startSession: StartVoiceSession;
   requestMicAccess?: () => Promise<boolean>;
   disabled?: boolean;
+  /** 按住录音、松开识别的快捷键（窗口内任意位置生效） */
+  holdBinding?: string;
   onText: (text: string) => void;
 }) {
   const { t } = useI18n();
-  const { phase, elapsed, error, partial, correcting, start, finish, cancel } = useVoiceInput({
-    startSession,
-    requestMicAccess,
-    onText,
-  });
+  const { phase, elapsed, error, setError, partial, correcting, start, finish, cancel } =
+    useVoiceInput({ startSession, requestMicAccess, onText });
   const anchorRef = useRef<HTMLDivElement>(null);
+  const latest = useRef({ phase, start, finish, cancel });
+  latest.current = { phase, start, finish, cancel };
+
+  useEffect(() => {
+    if (!holdBinding || disabled) return;
+    let heldSince: number | null = null;
+    const release = () => {
+      if (heldSince === null) return;
+      const voice = latest.current;
+      const action = releaseAction({
+        phase: voice.phase,
+        heldMs: performance.now() - heldSince,
+        cancelZone: false,
+      });
+      heldSince = null;
+      if (action === 'finish') void voice.finish();
+      else if (action !== 'none') voice.cancel();
+      if (action === 'too-short') setError(t('Speech was too short.'));
+    };
+    const onDown = (event: KeyboardEvent) => {
+      if (event.isComposing || eventToBinding(event) !== holdBinding) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat || heldSince !== null || latest.current.phase !== 'idle') return;
+      heldSince = performance.now();
+      void latest.current.start();
+    };
+    const onUp = (event: KeyboardEvent) => {
+      if (heldSince === null || !isHoldReleased(holdBinding, event)) return;
+      event.preventDefault();
+      release();
+    };
+    // 按住时切走窗口收不到 keyup，按松手处理
+    window.addEventListener('keydown', onDown, true);
+    window.addEventListener('keyup', onUp, true);
+    window.addEventListener('blur', release);
+    return () => {
+      window.removeEventListener('keydown', onDown, true);
+      window.removeEventListener('keyup', onUp, true);
+      window.removeEventListener('blur', release);
+      if (heldSince !== null) latest.current.cancel();
+    };
+  }, [disabled, holdBinding, setError, t]);
 
   useEffect(() => {
     if (phase !== 'recording') return;
@@ -134,7 +179,12 @@ export function VoiceInputButton({
           disabled={disabled || phase !== 'idle'}
           onClick={() => void start()}
           aria-label={busyLabel ?? t('Voice input')}
-          title={busyLabel ?? t('Voice input')}
+          title={
+            busyLabel ??
+            (holdBinding
+              ? `${t('Voice input')} · ${t('Hold {{key}} to talk', { key: formatBinding(holdBinding) })}`
+              : t('Voice input'))
+          }
           className={ICON_BUTTON}
         >
           {phase === 'idle' ? <Mic className="h-3.5 w-3.5" /> : <Spinner className="h-3.5 w-3.5" />}

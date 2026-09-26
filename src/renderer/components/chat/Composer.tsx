@@ -135,6 +135,7 @@ export function Composer({
   }, [holdVoice]);
   const keybindings = useSettingsStore((s) => s.keybindings);
   const sendBinding = effectiveKeybindings(keybindings)['send-message'];
+  const voiceHoldBinding = effectiveKeybindings(keybindings)['voice-hold'];
   const mentionPickerId = useId();
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [slash, setSlash] = useState<string | null>(null);
@@ -786,6 +787,7 @@ export function Composer({
                 startSession={voice}
                 requestMicAccess={requestMicAccess}
                 disabled={locked}
+                holdBinding={voiceHoldBinding || undefined}
                 onText={(text) => {
                   editorRef.current?.insertText(text);
                   editorRef.current?.focus();
