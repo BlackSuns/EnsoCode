@@ -32,6 +32,7 @@ import {
   registerComposerInsertUiElement,
 } from './composerMentionBridge';
 import { COMPOSER_DROP_ID } from './dragDrop';
+import { HoldToTalk, HoldToTalkToggle } from './HoldToTalk';
 import { MentionChip } from './MentionChip';
 import { MentionEditor, type MentionEditorHandle, type MentionEditorState } from './MentionEditor';
 import { MentionPicker } from './MentionPicker';
@@ -85,6 +86,8 @@ interface ComposerProps {
   voice?: StartVoiceSession;
   /** 录音前向系统申请麦克风（macOS 需主进程发起） */
   requestMicAccess?: () => Promise<boolean>;
+  /** hold = 手机微信式：麦克风切出输入框下方的「按住 说话」 */
+  voiceMode?: 'click' | 'hold';
 }
 
 interface ComposerDraft {
@@ -122,8 +125,14 @@ export function Composer({
   planMode = false,
   voice,
   requestMicAccess,
+  voiceMode = 'click',
 }: ComposerProps) {
   const { t } = useI18n();
+  const [holdToTalk, setHoldToTalk] = useState(false);
+  const holdVoice = voiceMode === 'hold' ? voice : undefined;
+  useEffect(() => {
+    if (!holdVoice) setHoldToTalk(false);
+  }, [holdVoice]);
   const keybindings = useSettingsStore((s) => s.keybindings);
   const sendBinding = effectiveKeybindings(keybindings)['send-message'];
   const mentionPickerId = useId();
@@ -761,7 +770,18 @@ export function Composer({
             >
               <ImagePlus className="h-3.5 w-3.5" />
             </button>
-            {voice ? (
+            {holdVoice ? (
+              <HoldToTalkToggle
+                active={holdToTalk}
+                disabled={locked}
+                onChange={(active) => {
+                  setHoldToTalk(active);
+                  // 按住说话时收起软键盘；切回键盘直接聚焦
+                  if (active) (document.activeElement as HTMLElement | null)?.blur();
+                  else editorRef.current?.focus();
+                }}
+              />
+            ) : voice ? (
               <VoiceInputButton
                 startSession={voice}
                 requestMicAccess={requestMicAccess}
@@ -807,6 +827,17 @@ export function Composer({
           )}
         </div>
       </div>
+      {holdVoice && holdToTalk ? (
+        <HoldToTalk
+          startSession={holdVoice}
+          disabled={locked}
+          onText={(text) => {
+            editorRef.current?.insertText(text);
+            // 插入会聚焦编辑器，按住说话模式下不弹键盘
+            (document.activeElement as HTMLElement | null)?.blur();
+          }}
+        />
+      ) : null}
       <Dialog open={preview !== null} onOpenChange={(open) => !open && setPreview(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>

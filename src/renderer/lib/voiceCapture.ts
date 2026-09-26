@@ -33,7 +33,41 @@ export function createDownsampler(inputRate: number): (chunk: Float32Array) => F
   };
 }
 
+/** 一块音频的响度映射到 0–1，按 dB 线性：-55dB 以下算静音，-10dB 顶满 */
+export function levelFromSamples(data: Float32Array): number {
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+  const rms = Math.sqrt(sum / Math.max(1, data.length));
+  if (rms === 0) return 0;
+  return Math.min(1, Math.max(0, (20 * Math.log10(rms) + 55) / 45));
+}
+
 export class SilentRecordingError extends Error {}
+
+let primed: AudioContext | null = null;
+
+/**
+ * 在点击手势里调用：建好并启动共享 AudioContext。
+ * 按住说话从触摸按下开始录，而触摸按下不算用户激活，iOS 不许那时启动音频，只能提前备好。
+ */
+export function primeVoiceAudio(): AudioContext {
+  if (!primed || primed.state === 'closed') primed = new AudioContext();
+  if (primed.state !== 'running') void primed.resume().catch(() => {});
+  return primed;
+}
+
+export function releaseVoiceAudio(): void {
+  const context = primed;
+  primed = null;
+  void context?.close().catch(() => {});
+}
+
+export interface VoiceCaptureOptions {
+  /** 已启动的 AudioContext（见 primeVoiceAudio），录完不关闭 */
+  context?: AudioContext;
+  /** 每块原始音频的响度 0–1，画波形用 */
+  onLevel?: (level: number) => void;
+}
 
 export interface VoiceRecording {
   /** 停止采集；全程无信号（常见于系统拒绝授权）抛 SilentRecordingError */
@@ -41,12 +75,14 @@ export interface VoiceRecording {
   cancel(): void;
 }
 
-/** 须在用户手势内调用：iOS 只允许手势里启动 AudioContext。onChunk 收 16kHz 单声道 PCM */
+/** 不传 context 时须在用户手势内调用：iOS 只允许手势里启动 AudioContext。onChunk 收 16kHz 单声道 PCM */
 export async function startVoiceRecording(
-  onChunk: (samples: Float32Array) => void
+  onChunk: (samples: Float32Array) => void,
+  options: VoiceCaptureOptions = {}
 ): Promise<VoiceRecording> {
+  const owned = !options.context;
   // 先同步建并 resume：等完 getUserMedia 再建，iOS 会判定手势已过期而一直 suspended
-  const context = new AudioContext();
+  const context = options.context ?? new AudioContext();
   const resumed = context.resume();
   let stream: MediaStream | undefined;
   try {
@@ -67,7 +103,7 @@ export async function startVoiceRecording(
     ]);
   } catch (error) {
     for (const track of stream?.getTracks() ?? []) track.stop();
-    void context.close();
+    if (owned) void context.close();
     throw error;
   }
   const tracks = stream.getTracks();
@@ -79,6 +115,7 @@ export async function startVoiceRecording(
   processor.onaudioprocess = (event) => {
     const data = event.inputBuffer.getChannelData(0);
     for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));
+    options.onLevel?.(levelFromSamples(data));
     const samples = downsample(new Float32Array(data));
     if (samples.length > 0) onChunk(samples);
   };
@@ -92,7 +129,7 @@ export async function startVoiceRecording(
     processor.disconnect();
     source.disconnect();
     for (const track of tracks) track.stop();
-    void context.close();
+    if (owned) void context.close();
   };
   return {
     cancel: release,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createDownsampler } from './voiceCapture';
+import { createDownsampler, levelFromSamples } from './voiceCapture';
 
 function feed(input: Float32Array, rate: number, sizes: number[]): number[] {
   const downsample = createDownsampler(rate);
@@ -37,5 +37,27 @@ describe('createDownsampler', () => {
     const out = feed(new Float32Array(44_100).fill(0.5), 44_100, [4096]);
     expect(out.length).toBe(16_000);
     expect(out.every((sample) => Math.abs(sample - 0.5) < 1e-6)).toBe(true);
+  });
+});
+
+describe('levelFromSamples', () => {
+  it('is 0 for silence and 1 for a full-scale signal', () => {
+    expect(levelFromSamples(new Float32Array(1024))).toBe(0);
+    expect(levelFromSamples(new Float32Array(0))).toBe(0);
+    expect(levelFromSamples(new Float32Array(1024).fill(1))).toBe(1);
+  });
+
+  it('keeps background noise low and normal speech clearly visible', () => {
+    const noise = levelFromSamples(new Float32Array(1024).fill(0.002));
+    const speech = levelFromSamples(new Float32Array(1024).fill(0.08));
+    expect(noise).toBeLessThan(0.1);
+    expect(speech).toBeGreaterThan(0.6);
+    expect(speech).toBeLessThan(1);
+  });
+
+  it('grows with loudness', () => {
+    const levels = [0.005, 0.02, 0.1].map((v) => levelFromSamples(new Float32Array(512).fill(v)));
+    expect(levels).toEqual([...levels].sort((a, b) => a - b));
+    expect(new Set(levels).size).toBe(3);
   });
 });

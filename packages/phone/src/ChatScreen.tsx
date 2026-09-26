@@ -394,6 +394,7 @@ export function ChatScreen(props: Props) {
                 }}
                 onAbort={props.onAbort}
                 voice={props.voice}
+                voiceMode="hold"
               />
               <SessionStatsLine usageTotals={props.usageTotals} context={props.context} />
             </div>
