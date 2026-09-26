@@ -348,6 +348,7 @@ export const IPC_PRODUCT_COVERAGE = {
     'Main-to-renderer persist flush before destroying the window.'
   ),
   APP_FLUSH_PERSIST_RESPONSE: excluded('Renderer-to-main persist flush ack.'),
+  APP_SET_BADGE_COUNT: excluded('Renderer-to-main Dock badge count for waiting conversations.'),
   PROVIDERS_SCAN_LOCAL: surfaces('providers.import-local'),
   PROVIDERS_COLLECT_IMPORT: excluded('Second phase of the reviewed provider import flow.'),
   PROVIDERS_LIST_MODELS: surfaces('providers.fetch-models'),

@@ -30,6 +30,7 @@ export const IPC_CHANNELS = {
   APP_CLOSE_RESPONSE: 'app:close-response',
   APP_FLUSH_PERSIST_REQUEST: 'app:flush-persist-request',
   APP_FLUSH_PERSIST_RESPONSE: 'app:flush-persist-response',
+  APP_SET_BADGE_COUNT: 'app:set-badge-count',
 
   // Local provider scan/import
   PROVIDERS_SCAN_LOCAL: 'providers:scan-local',

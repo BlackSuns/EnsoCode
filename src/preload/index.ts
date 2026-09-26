@@ -188,6 +188,9 @@ const electronAPI = {
     respondFlushPersist: (requestId: string): void => {
       ipcRenderer.send(IPC_CHANNELS.APP_FLUSH_PERSIST_RESPONSE, requestId);
     },
+    setBadgeCount: (count: number): void => {
+      ipcRenderer.send(IPC_CHANNELS.APP_SET_BADGE_COUNT, count);
+    },
   },
 
   settings: {

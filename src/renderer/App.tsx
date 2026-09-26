@@ -35,6 +35,7 @@ import { Button } from '@/components/ui/button';
 import { ToastProvider } from '@/components/ui/toast';
 import { useAutoArchiveScan } from '@/hooks/useAutoArchiveScan';
 import { useBackgroundImage } from '@/hooks/useBackgroundImage';
+import { useDockBadge } from '@/hooks/useDockBadge';
 import { useGenerationStallTimeout } from '@/hooks/useGenerationStallTimeout';
 import { useWindowsWindowChrome } from '@/hooks/useWindowsWindowChrome';
 import { useI18n } from '@/i18n';
@@ -68,6 +69,7 @@ export default function App() {
   useBackgroundImage();
   useGenerationStallTimeout();
   useAutoArchiveScan();
+  useDockBadge();
   const [searchOpen, setSearchOpen] = useState(false);
   const [closeRequestId, setCloseRequestId] = useState<string | null>(null);
   useWindowsWindowChrome();
