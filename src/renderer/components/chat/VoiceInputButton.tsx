@@ -6,12 +6,16 @@ import { Spinner } from '@/components/ui/spinner';
 import { useI18n } from '@/i18n';
 import { eventToBinding, formatBinding, isHoldReleased } from '@/lib/keybindings';
 import { Z_INDEX } from '@/lib/z-index';
-import { releaseAction } from './holdGesture';
+import { pushLevel, releaseAction, WAVE_BARS } from './holdGesture';
 import { useVoiceInput } from './useVoiceInput';
 import { voiceNotePlacement } from './voiceNotePlacement';
 
 /** 预览只留最近的一段，长句不撑满屏幕 */
 const PREVIEW_CHARS = 120;
+/** 工具栏里放不下整段波形，只画最近几格 */
+const MINI_BARS = 12;
+const MINI_BAR_KEYS = Array.from({ length: MINI_BARS }, (_, i) => `bar-${i}`);
+const SILENT = pushLevel([], 0);
 
 type Placement = ReturnType<typeof voiceNotePlacement>;
 
@@ -83,8 +87,13 @@ export function VoiceInputButton({
   const { phase, elapsed, error, setError, partial, correcting, start, finish, cancel } =
     useVoiceInput({ startSession, requestMicAccess, onText });
   const anchorRef = useRef<HTMLDivElement>(null);
-  const latest = useRef({ phase, start, finish, cancel });
-  latest.current = { phase, start, finish, cancel };
+  const [levels, setLevels] = useState(SILENT);
+  const begin = () => {
+    setLevels(SILENT);
+    return start({ onLevel: (level) => setLevels((prev) => pushLevel(prev, level)) });
+  };
+  const latest = useRef({ phase, start: begin, finish, cancel });
+  latest.current = { phase, start: begin, finish, cancel };
 
   useEffect(() => {
     if (!holdBinding || disabled) return;
@@ -154,9 +163,14 @@ export function VoiceInputButton({
             title={t('Stop recording')}
             className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-destructive transition-colors hover:bg-destructive/10"
           >
-            <span className="relative flex size-2">
-              <span className="absolute size-2 animate-ping rounded-full bg-destructive/60" />
-              <span className="relative size-2 rounded-full bg-destructive" />
+            <span aria-hidden className="flex h-3.5 items-center gap-[2px]">
+              {MINI_BAR_KEYS.map((key, i) => (
+                <span
+                  key={key}
+                  className="w-[2px] rounded-full bg-current transition-[height] duration-100 ease-out"
+                  style={{ height: 3 + levels[WAVE_BARS - MINI_BARS + i] * 11 }}
+                />
+              ))}
             </span>
             <span className="text-xs tabular-nums">
               {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}
@@ -177,7 +191,7 @@ export function VoiceInputButton({
         <button
           type="button"
           disabled={disabled || phase !== 'idle'}
-          onClick={() => void start()}
+          onClick={() => void begin()}
           aria-label={busyLabel ?? t('Voice input')}
           title={
             busyLabel ??
