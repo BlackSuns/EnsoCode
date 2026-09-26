@@ -5,12 +5,13 @@ import {
   type VoiceSession,
 } from '@shared/types/speech';
 import { Mic, Square, X } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Spinner } from '@/components/ui/spinner';
 import { useI18n } from '@/i18n';
 import { SilentRecordingError, startVoiceRecording, type VoiceRecording } from '@/lib/voiceCapture';
 import { Z_INDEX } from '@/lib/z-index';
+import { voiceNotePlacement } from './voiceNotePlacement';
 
 type Phase = 'idle' | 'starting' | 'recording' | 'transcribing';
 
@@ -33,7 +34,17 @@ function micErrorKey(error: unknown): string {
 /** 预览只留最近的一段，长句不撑满屏幕 */
 const PREVIEW_CHARS = 120;
 
-/** 输入框工具栏 overflow-hidden 会裁掉绝对定位的气泡，portal 到 body 按按钮位置固定定位 */
+type Placement = ReturnType<typeof voiceNotePlacement>;
+
+function measure(anchor: HTMLElement): Placement {
+  const rect = anchor.getBoundingClientRect();
+  return voiceNotePlacement(rect, { width: window.innerWidth, height: window.innerHeight });
+}
+
+/**
+ * 输入框工具栏 overflow-hidden 会裁掉绝对定位的气泡，portal 到 body 按按钮位置固定定位。
+ * 录音中窗口缩放、侧栏开合都会挪动按钮，逐帧跟随（只在位置变了才重渲染）。
+ */
 function VoiceNote({
   anchor,
   status,
@@ -43,20 +54,27 @@ function VoiceNote({
   status: boolean;
   children: ReactNode;
 }) {
-  const rect = anchor.getBoundingClientRect();
-  const maxWidth = Math.min(448, window.innerWidth * 0.8);
+  const [placement, setPlacement] = useState(() => measure(anchor));
+  useLayoutEffect(() => {
+    let frame = 0;
+    const follow = () => {
+      const next = measure(anchor);
+      setPlacement((prev) =>
+        prev.left === next.left && prev.bottom === next.bottom && prev.maxWidth === next.maxWidth
+          ? prev
+          : next
+      );
+      frame = requestAnimationFrame(follow);
+    };
+    follow();
+    return () => cancelAnimationFrame(frame);
+  }, [anchor]);
   return createPortal(
     <p
       role={status ? 'status' : undefined}
       aria-live="polite"
       data-testid={status ? undefined : 'voice-partial'}
-      style={{
-        position: 'fixed',
-        left: Math.max(8, Math.min(rect.left, window.innerWidth - 8 - maxWidth)),
-        bottom: window.innerHeight - rect.top + 6,
-        maxWidth,
-        zIndex: Z_INDEX.TOOLTIP,
-      }}
+      style={{ position: 'fixed', ...placement, zIndex: Z_INDEX.TOOLTIP }}
       className="w-max rounded-md border bg-popover px-2 py-1 text-popover-foreground text-xs shadow-md"
     >
       {children}
