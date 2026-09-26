@@ -4,7 +4,7 @@ import { app, type BrowserWindow } from 'electron';
 
 import { registerIpcHandlers } from './ipc';
 import { consumeTrayReenterAfterUpdate, readSettings } from './ipc/settings';
-import { startAgentWorker } from './services/agentHost';
+import { agentWorkerAlive, startAgentWorker, stopAgentWorkerForQuit } from './services/agentHost';
 import { attachAppQuitDrain } from './services/appQuitDrain';
 import {
   ensureTray,
@@ -179,6 +179,10 @@ if (!gotTheLock) {
         await releaseLocalChatSlot();
         await disposeLlamaRuntime();
       },
+    },
+    {
+      shouldWait: agentWorkerAlive,
+      wait: () => stopAgentWorkerForQuit(3_000),
     },
   ]);
 }
