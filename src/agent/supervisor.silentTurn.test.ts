@@ -373,4 +373,14 @@ describe('SessionSupervisor terminal turn handling', () => {
     expect(parentSession.agent.continue).not.toHaveBeenCalled();
     await supervisor.shutdown();
   });
+
+  it('worker 退出时中止在跑的会话：pi 据中断信号杀掉 bash 进程组，不留孤儿进程', async () => {
+    const { supervisor, parentSession } = await spawn();
+    parentSession.emit({ type: 'agent_start' });
+    parentSession.isStreaming = true;
+    await settle();
+    parentSession.abort.mockImplementation(() => new Promise<undefined>(() => {}));
+    await supervisor.shutdown();
+    expect(parentSession.abort).toHaveBeenCalledTimes(1);
+  });
 });

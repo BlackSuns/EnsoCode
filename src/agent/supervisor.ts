@@ -3505,6 +3505,9 @@ export class SessionSupervisor {
       managed.memory?.cancelAll('Enso worker shutdown');
       managed.agentControl?.close('Enso worker shutdown');
       managed.currentTurnId = undefined;
+      // pi 的 bash 是 detached 进程组，只在中断信号上 killProcessTree；SDK 未导出退出清理，
+      // 这里同步触发中断（不等 waitForIdle），否则 worker 退出后命令成孤儿进程
+      void managed.session.abort().catch(() => {});
     }
     return this.mcp.closeAll();
   }
