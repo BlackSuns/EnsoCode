@@ -141,6 +141,8 @@ export interface SettingsState {
   memoryDistillEnabled: boolean;
   /** 记忆创建后是否用 LLM 异步抽取实体图谱；缺省关 */
   memoryKgEnabled: boolean;
+  /** 语音输入：开启后才提示下载本地识别模型；缺省关 */
+  voiceInputEnabled: boolean;
 
   /** 是否自动检查并下载应用更新；缺省 true */
   autoUpdate: boolean;
@@ -301,6 +303,7 @@ export interface SettingsState {
   setMemoryEmbeddingRemoteProviderId: (value: string | null) => void;
   setMemoryDistillEnabled: (value: boolean) => void;
   setMemoryKgEnabled: (value: boolean) => void;
+  setVoiceInputEnabled: (value: boolean) => void;
   setEditMode: (value: EditMode) => void;
   setCompactStrategy: (value: CompactStrategy) => void;
   setSmartCompactEnabled: (value: boolean) => void;

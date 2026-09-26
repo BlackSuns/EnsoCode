@@ -997,6 +997,26 @@ export const zhTranslations: Record<string, string> = {
   'Model not downloaded': '模型未下载',
   'Downloading…': '下载中…',
   'Semantic search stays off until the model is on disk.': '模型落盘前语义检索不会生效。',
+  'Voice input': '语音输入',
+  'Adds a microphone to the composer on this computer and on paired phones. Speech is transcribed locally on this computer.':
+    '在本机和已配对手机的输入框中显示麦克风按钮，语音在这台电脑上本地识别。',
+  'Download the speech model to start using voice input.': '下载语音模型后即可使用语音输入。',
+  'SenseVoice, about {{size}}. Chinese, English, Japanese, Korean and Cantonese.':
+    'SenseVoice，约 {{size}}，支持中文、英文、日语、韩语和粤语。',
+  'Voice input is not available on this platform.': '当前平台不支持语音输入。',
+  'Download failed': '下载失败',
+  'Stop recording': '停止录音',
+  'Cancel recording': '取消录音',
+  'Transcribing…': '识别中…',
+  'Microphone access denied. Allow it in system settings.':
+    '无法使用麦克风，请在系统设置中允许访问。',
+  'No microphone found.': '没有找到麦克风。',
+  'No speech detected.': '没有识别到语音。',
+  'Voice input failed.': '语音识别失败。',
+  'Voice input is turned off.': '语音输入已关闭。',
+  'The speech model is not downloaded yet.': '语音模型尚未下载。',
+  'The recording was empty or too long.': '录音为空或过长。',
+  'Voice input needs a secure (HTTPS) connection.': '语音输入需要 HTTPS 安全连接。',
   Download: '下载',
   'Remote model': '远程模型',
   'Credentials stay in the main process and are never sent to the renderer.':

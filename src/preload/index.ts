@@ -143,6 +143,11 @@ import type {
   TerminalDataEvent,
   TerminalExitEvent,
 } from '@shared/types/sidePanel';
+import type {
+  SpeechDownloadProgressDto,
+  SpeechStatusDto,
+  SpeechTranscribeResult,
+} from '@shared/types/speech';
 import type { UpdateStatus } from '@shared/types/updater';
 import type {
   WorkflowPresetDraft,
@@ -293,6 +298,22 @@ const electronAPI = {
         listener(progress);
       ipcRenderer.on(IPC_CHANNELS.MEMORY_CHAT_MODEL_PROGRESS, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.MEMORY_CHAT_MODEL_PROGRESS, handler);
+    },
+  },
+
+  speech: {
+    status: (): Promise<SpeechStatusDto> => ipcRenderer.invoke(IPC_CHANNELS.SPEECH_STATUS),
+    download: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.SPEECH_DOWNLOAD),
+    cancelDownload: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.SPEECH_CANCEL),
+    remove: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.SPEECH_DELETE),
+    /** 16kHz 单声道 PCM */
+    transcribe: (audio: Float32Array): Promise<SpeechTranscribeResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SPEECH_TRANSCRIBE, audio),
+    requestMicAccess: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.SPEECH_MIC_ACCESS),
+    onProgress: (listener: (progress: SpeechDownloadProgressDto) => void): (() => void) => {
+      const handler = (_event: unknown, progress: SpeechDownloadProgressDto) => listener(progress);
+      ipcRenderer.on(IPC_CHANNELS.SPEECH_PROGRESS, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.SPEECH_PROGRESS, handler);
     },
   },
 

@@ -25,6 +25,7 @@
 | [hashline-stale-recovery.md](hashline-stale-recovery.md) | 文件远处变动使旧 TAG 失效；恢复必须证明上下文唯一且不改变行号坐标系 |
 | [session-before-compact-return-and-eviction-range.md](session-before-compact-return-and-eviction-range.md) | 持续记忆压缩：overflow 轮直接失败 / 走了原生摘要；memory#2 起静默丢旧史、split-turn 前缀无覆盖 |
 | [electron-builder-platform-files.md](electron-builder-platform-files.md) | 安装包 asar 里出现 src/packages，体积比应用代码大出一两百 MB |
+| [main-cjs-shim-regex.md](main-cjs-shim-regex.md) | 构建报 i18n 某条译文 Unterminated string literal，后面紧跟 CommonJS Shims |
 
 ## 共同教训
 

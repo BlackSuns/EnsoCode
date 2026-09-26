@@ -140,6 +140,7 @@ const initialState = {
   memoryEmbeddingRemoteProviderId: null as string | null,
   memoryDistillEnabled: false,
   memoryKgEnabled: false,
+  voiceInputEnabled: false,
   autoUpdate: true,
   autoRestartWhenIdle: false,
   proxyMode: 'system' as ProxyMode,
@@ -288,6 +289,7 @@ export const useSettingsStore = create<SettingsState>()(
         set({ memoryEmbeddingRemoteProviderId }),
       setMemoryDistillEnabled: (memoryDistillEnabled) => set({ memoryDistillEnabled }),
       setMemoryKgEnabled: (memoryKgEnabled) => set({ memoryKgEnabled }),
+      setVoiceInputEnabled: (voiceInputEnabled) => set({ voiceInputEnabled }),
       setEditMode: (editMode) => set({ editMode }),
       setCompactStrategy: (compactStrategy) =>
         set({ compactStrategy, smartCompactEnabled: compactStrategy === 'smart' }),

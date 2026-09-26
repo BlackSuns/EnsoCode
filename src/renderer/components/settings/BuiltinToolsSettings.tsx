@@ -10,6 +10,7 @@ import {
   ListTodo,
   type LucideIcon,
   MessageCircleQuestion,
+  Mic,
   Shrink,
   SquareTerminal,
   Users,
@@ -26,8 +27,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { useSpeechStatus } from '@/hooks/useSpeechStatus';
 import { useI18n } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
+import { formatBytes } from './MemorySettings';
 import {
   enabledOccupancyTotal,
   OccupancyEnabledTotal,
@@ -78,6 +81,82 @@ function ToolRow({
       </div>
       {children ? <div className="mt-2 space-y-2 pl-7">{children}</div> : null}
     </div>
+  );
+}
+
+function VoiceInputRow() {
+  const { t } = useI18n();
+  const enabled = useSettingsStore((state) => state.voiceInputEnabled);
+  const setEnabled = useSettingsStore((state) => state.setVoiceInputEnabled);
+  const { status, progress, error, refresh } = useSpeechStatus();
+  const detail =
+    status?.state === 'unsupported'
+      ? t('Voice input is not available on this platform.')
+      : progress
+        ? `${progress.file} · ${formatBytes(progress.received)}${
+            progress.total ? ` / ${formatBytes(progress.total)}` : ''
+          } (${progress.fileIndex + 1}/${progress.fileCount})`
+        : status?.state === 'ready'
+          ? formatBytes(status.downloadedBytes)
+          : error
+            ? `${t('Download failed')}: ${error}`
+            : t('SenseVoice, about {{size}}. Chinese, English, Japanese, Korean and Cantonese.', {
+                size: formatBytes(status?.approxBytes ?? 0),
+              });
+  return (
+    <ToolRow
+      rowId="tools.voiceInput"
+      icon={Mic}
+      title={t('Voice input')}
+      description={t(
+        'Adds a microphone to the composer on this computer and on paired phones. Speech is transcribed locally on this computer.'
+      )}
+      control={<Switch checked={enabled} onCheckedChange={setEnabled} />}
+    >
+      {enabled && status ? (
+        <div
+          className="flex items-center justify-between gap-3"
+          data-settings-row="tools.voiceModel"
+        >
+          <div className="min-w-0">
+            <p className="text-sm">
+              {status.state === 'ready'
+                ? t('Model downloaded')
+                : status.state === 'downloading'
+                  ? t('Downloading…')
+                  : status.state === 'missing'
+                    ? t('Download the speech model to start using voice input.')
+                    : t('Unavailable')}
+            </p>
+            <p className="text-muted-foreground text-xs">{detail}</p>
+          </div>
+          {status.state === 'downloading' ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void window.electronAPI.speech.cancelDownload().then(refresh)}
+            >
+              {t('Cancel')}
+            </Button>
+          ) : status.state === 'ready' ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void window.electronAPI.speech.remove().then(refresh)}
+            >
+              {t('Remove')}
+            </Button>
+          ) : status.state === 'missing' ? (
+            <Button
+              size="sm"
+              onClick={() => void window.electronAPI.speech.download().then(refresh)}
+            >
+              {t('Download')}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </ToolRow>
   );
 }
 
@@ -217,6 +296,8 @@ export function BuiltinToolsSettings() {
           )}
           control={<Switch checked={rtkEnabled} onCheckedChange={setRtkEnabled} />}
         />
+
+        <VoiceInputRow />
 
         <ToolRow
           rowId="tools.editMode"
