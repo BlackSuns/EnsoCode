@@ -9,6 +9,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { AgentChildOauthHost } from '@/components/agent/AgentChildOauthHost';
 import { addToast } from '@/components/ui/toast';
 import { toChatMentionCandidates } from '@/hooks/useMentionSearch';
+import { useSpeechStatus } from '@/hooks/useSpeechStatus';
 import { useI18n } from '@/i18n';
 import {
   oauthCredentialContext,
@@ -60,6 +61,9 @@ export function ChatView() {
   const defaultModel = useSettingsStore((state) => state.defaultModel);
   const projects = useSettingsStore((state) => state.projects);
   const projectGroups = useSettingsStore((state) => state.projectGroups);
+  const voiceInputEnabled = useSettingsStore((state) => state.voiceInputEnabled);
+  const { status: speechStatus } = useSpeechStatus(voiceInputEnabled);
+  const voiceReady = voiceInputEnabled && speechStatus?.state === 'ready';
   const chrome = useSessionsStore(useShallow(selectChatChrome));
   const oauthSnapshot = useOauthCredentialStore((state) => state.snapshot);
   const candidateConversations = useSessionsStore((state) =>
@@ -470,6 +474,8 @@ export function ChatView() {
             }
             focusKey={chrome.id}
             planMode={planning}
+            transcribe={voiceReady ? window.electronAPI.speech.transcribe : undefined}
+            requestMicAccess={window.electronAPI.speech.requestMicAccess}
             placeholder={planning ? t('Describe the task — a plan comes first') : undefined}
             injectedDraft={chrome.draftText}
             injectedImages={chrome.draftImages}

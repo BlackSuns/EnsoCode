@@ -8,6 +8,7 @@ import type {
   MentionCandidate,
   UiElementMentionCandidate,
 } from '@shared/types/mentions';
+import type { SpeechTranscribeResult } from '@shared/types/speech';
 import { ArrowUp, CircleStop, ImagePlus, SlashSquare, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,7 @@ import type { ComposerPayload, MentionSegment } from './mentionComposer';
 import { createEditorPayload, mentionPopupLayout, resolvePopupKeyAction } from './mentionComposer';
 import { SlashChip, splitSlashCommand } from './SlashChip';
 import { filterComposerCommands } from './skillCompletion';
+import { VoiceInputButton } from './VoiceInputButton';
 
 interface ComposerProps {
   cwd?: string;
@@ -79,6 +81,10 @@ interface ComposerProps {
   placeholder?: string;
   /** Plan 模式：边框提示当前只读规划 */
   planMode?: boolean;
+  /** 语音输入：给出即显示麦克风，录音为 16kHz 单声道 PCM；桌面走 IPC，手机走配对信道 */
+  transcribe?: (audio: Float32Array) => Promise<SpeechTranscribeResult>;
+  /** 录音前向系统申请麦克风（macOS 需主进程发起） */
+  requestMicAccess?: () => Promise<boolean>;
 }
 
 interface ComposerDraft {
@@ -114,6 +120,8 @@ export function Composer({
   isolated = false,
   placeholder: placeholderText,
   planMode = false,
+  transcribe,
+  requestMicAccess,
 }: ComposerProps) {
   const { t } = useI18n();
   const keybindings = useSettingsStore((s) => s.keybindings);
@@ -753,6 +761,17 @@ export function Composer({
             >
               <ImagePlus className="h-3.5 w-3.5" />
             </button>
+            {transcribe ? (
+              <VoiceInputButton
+                transcribe={transcribe}
+                requestMicAccess={requestMicAccess}
+                disabled={locked}
+                onText={(text) => {
+                  editorRef.current?.insertText(text);
+                  editorRef.current?.focus();
+                }}
+              />
+            ) : null}
             {toolbar}
           </div>
           {/* 生成中且输入为空才显示停止；有草稿则保持发送，方便手机点按钮入队 */}
