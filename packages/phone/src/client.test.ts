@@ -655,4 +655,79 @@ describe('PairClient 缓存与续传', () => {
     expect(client.transport()).toBe('relay');
     expect(socket.sent.some((item) => item.type === 'direct-close')).toBe(true);
   });
+
+  it('host-info 声明 voiceInput 才可用，主机离线即不可用', async () => {
+    const onVoiceInput = vi.fn();
+    events.onVoiceInput = onVoiceInput;
+    const socket = await start();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'host-online' }) });
+    socket.receive({ type: 'host-info', hostname: 'h', appVersion: '1', voiceInput: true });
+    await settle();
+    expect(onVoiceInput).toHaveBeenLastCalledWith(true);
+    socket.receive({ type: 'host-info', hostname: 'h', appVersion: '1' });
+    await settle();
+    expect(onVoiceInput).toHaveBeenLastCalledWith(false);
+    socket.receive({ type: 'host-info', hostname: 'h', appVersion: '1', voiceInput: true });
+    await settle();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'host-offline' }) });
+    expect(onVoiceInput).toHaveBeenLastCalledWith(false);
+  });
+
+  function voiceChunks(socket: Socket) {
+    return socket.sent.flatMap((item) => (item.type === 'voice-chunk' ? [item] : []));
+  }
+
+  it('transcribe 按序分块上传并等待 voice-result', async () => {
+    const socket = await start();
+    const pending = client.transcribe(new Float32Array(400_000).fill(0.1));
+    await settle();
+    const sent = voiceChunks(socket);
+    expect(sent.map((c) => [c.index, c.last])).toEqual([
+      [0, undefined],
+      [1, undefined],
+      [2, true],
+    ]);
+    expect(new Set(sent.map((c) => c.requestId)).size).toBe(1);
+    socket.receive({ type: 'voice-result', requestId: 'other', text: 'x' });
+    socket.receive({ type: 'voice-result', requestId: sent[0].requestId, text: '' });
+    await settle();
+    await expect(pending).resolves.toEqual({ ok: true, text: '' });
+  });
+
+  it('host 错误码透传，未知码归为 failed', async () => {
+    const socket = await start();
+    const a = client.transcribe(new Float32Array(10));
+    const b = client.transcribe(new Float32Array(10));
+    await settle();
+    const [ca, cb] = voiceChunks(socket);
+    socket.receive({ type: 'voice-result', requestId: ca.requestId, error: 'not-ready' });
+    socket.receive({ type: 'voice-result', requestId: cb.requestId, error: 'weird' });
+    await settle();
+    await expect(a).resolves.toEqual({ ok: false, error: 'not-ready' });
+    await expect(b).resolves.toEqual({ ok: false, error: 'failed' });
+  });
+
+  it('60 秒无应答、未连接、空音频都直接失败', async () => {
+    await expect(client.transcribe(new Float32Array(10))).resolves.toEqual({
+      ok: false,
+      error: 'failed',
+    });
+    const socket = await start();
+    await expect(client.transcribe(new Float32Array(0))).resolves.toEqual({
+      ok: false,
+      error: 'invalid-audio',
+    });
+    expect(voiceChunks(socket)).toHaveLength(0);
+    const pending = client.transcribe(new Float32Array(10));
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(pending).resolves.toEqual({ ok: false, error: 'failed' });
+  });
+
+  it('断线时在途转写立即失败', async () => {
+    const socket = await start();
+    const pending = client.transcribe(new Float32Array(10));
+    await settle();
+    socket.close();
+    await expect(pending).resolves.toEqual({ ok: false, error: 'failed' });
+  });
 });

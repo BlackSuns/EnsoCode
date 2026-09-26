@@ -57,6 +57,7 @@ import type {
   PairSessionConfig,
   PairStatus,
 } from '@shared/types/pair';
+import { SPEECH_SAMPLE_RATE } from '@shared/types/speech';
 import { app, powerMonitor, powerSaveBlocker } from 'electron';
 import { readTrayPreventDisplaySleep, readTraySleepPolicy } from '../ipc/settings';
 // 会话命令一律走 agentBridge（身份解析留在 ipc/agent.ts），这里只留无需身份的 snapshot。
@@ -94,6 +95,7 @@ import {
   saveRelayUrl,
   upsertDevice,
 } from './pairStore';
+import { VoiceUploads } from './pairVoiceUpload';
 import {
   buildPushPayload,
   clearPushSubscription,
@@ -102,6 +104,7 @@ import {
   sendPush,
   setPushSubscription,
 } from './pushNotifier';
+import { onSpeechAvailabilityChange, speechAvailable, transcribeSpeech } from './speech/service';
 
 /**
  * 手机第二屏 host：跑在 main，不依赖窗口焦点。
@@ -166,6 +169,7 @@ interface Connection {
   ioEpoch: number;
   receiveQueue: Promise<void>;
   sendQueue: Promise<void>;
+  voiceUploads: VoiceUploads;
 }
 
 const connections = new Map<string, Connection>();
@@ -308,6 +312,7 @@ function syncPinnedSessions(): void {
 
 let resumeHooked = false;
 let stopNetworkWatch: (() => void) | null = null;
+let stopSpeechWatch: (() => void) | null = null;
 let cacheSeeded = false;
 
 function ensureRelayCacheSeeded(): void {
@@ -325,6 +330,12 @@ export function startPairHost(): void {
     powerMonitor.on('resume', () => reviveAll('resume'));
     stopNetworkWatch = startPairNetworkWatch({ onChange: () => reviveAll('network-change') });
   }
+  // host-info 的 voiceInput 随识别可用性变化，指纹变了才重发
+  stopSpeechWatch ??= onSpeechAvailabilityChange(() => {
+    for (const conn of connections.values()) {
+      if (conn.phoneOnline) requestMeta(conn);
+    }
+  });
   // 先装好 WebRTC 原生模块再进房：host-info 的能力声明在首次 meta 推送就要确定
   void preloadDirectPeer().finally(() => {
     for (const device of loadDevices()) {
@@ -351,11 +362,14 @@ function reviveAll(reason: 'resume' | 'network-change'): void {
 export function stopPairHost(): void {
   stopNetworkWatch?.();
   stopNetworkWatch = null;
+  stopSpeechWatch?.();
+  stopSpeechWatch = null;
   cancelPairing();
   for (const conn of connections.values()) {
     conn.closed = true;
     conn.ioEpoch++;
     conn.syncRevision++;
+    conn.voiceUploads.clear();
     if (conn.timer) clearTimeout(conn.timer);
     if (conn.providersRetry) clearTimeout(conn.providersRetry);
     conn.heartbeat?.stop();
@@ -508,6 +522,7 @@ function openConnection(device: PairedDevice): void {
     existing.closed = true;
     existing.ioEpoch++;
     existing.syncRevision++;
+    existing.voiceUploads.clear();
     if (existing.timer) clearTimeout(existing.timer);
     if (existing.providersRetry) clearTimeout(existing.providersRetry);
     existing.heartbeat?.stop();
@@ -538,6 +553,7 @@ function openConnection(device: PairedDevice): void {
     syncRevision: 0,
     receiveQueue: Promise.resolve(),
     sendQueue: Promise.resolve(),
+    voiceUploads: new VoiceUploads(),
   };
   conn.direct = new DirectLink({
     role: 'host',
@@ -582,6 +598,7 @@ function connect(conn: Connection): void {
 function clearConnectionSubscription(conn: Connection): void {
   conn.ioEpoch++;
   conn.syncRevision++;
+  conn.voiceUploads.clear();
   conn.receiveQueue = Promise.resolve();
   conn.sendQueue = Promise.resolve();
   conn.subscribedId = null;
@@ -702,6 +719,7 @@ function forgetDevice(pairId: string): void {
     conn.closed = true;
     conn.ioEpoch++;
     conn.syncRevision++;
+    conn.voiceUploads.clear();
     if (conn.timer) clearTimeout(conn.timer);
     if (conn.providersRetry) clearTimeout(conn.providersRetry);
     conn.heartbeat?.stop();
@@ -919,6 +937,16 @@ async function handleFrame(
       // 测速必须走中继，走直连会测到 DC 而不是中继路径
       void enqueueSend(conn, { type: 'probe-ack', nonce: command.nonce }, true);
       break;
+    case 'voice-chunk': {
+      const result = conn.voiceUploads.accept(command, Date.now());
+      if (result?.kind === 'error') {
+        void send(conn, { type: 'voice-result', requestId: result.requestId, error: result.error });
+      } else if (result?.kind === 'complete') {
+        // 转写耗时数秒，不能卡住本连接的收帧队列
+        void transcribeForPhone(conn, result.requestId, result.samples, generation, ioEpoch);
+      }
+      break;
+    }
     case 'spawn': {
       const check = checkSpawn(command, whitelist);
       if (!check.ok) {
@@ -962,6 +990,24 @@ async function handleFrame(
     }
   }
   syncPinnedSessions();
+}
+
+async function transcribeForPhone(
+  conn: Connection,
+  requestId: string,
+  samples: Float32Array,
+  generation: number,
+  ioEpoch: number
+): Promise<void> {
+  if (!connectionCurrent(conn, generation, ioEpoch)) return;
+  const result = await transcribeSpeech(samples, SPEECH_SAMPLE_RATE);
+  if (!connectionCurrent(conn, generation, ioEpoch)) return;
+  await send(
+    conn,
+    result.ok
+      ? { type: 'voice-result', requestId, text: result.text }
+      : { type: 'voice-result', requestId, error: result.error }
+  );
 }
 
 // ── 发：加密下行 ──────────────────────────────────────────────────────
@@ -1093,6 +1139,7 @@ async function sendMeta(conn: Connection): Promise<void> {
     hostname: os.hostname(),
     appVersion: app.getVersion(),
     ...(directReady ? { capabilities: ['direct-v1' as const], iceServers: PAIR_STUN_SERVERS } : {}),
+    ...(speechAvailable() ? { voiceInput: true as const } : {}),
   };
   const catalogEntries = slimCatalogForPhone(catalog, conn.subscribedId);
   const projectEntries = slimProjectsForPhone(projects);

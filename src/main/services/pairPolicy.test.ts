@@ -272,6 +272,42 @@ describe('直连信令帧校验', () => {
   });
 });
 
+describe('voice-chunk 校验', () => {
+  const base = { type: 'voice-chunk', requestId: 'r1', index: 0, data: 'AAAA' };
+
+  it('放行合法分块', () => {
+    const ok = [
+      base,
+      { ...base, last: true },
+      { ...base, index: 1000 },
+      { ...base, requestId: 'x'.repeat(64) },
+      { ...base, data: 'A'.repeat(600_000) },
+    ];
+    for (const cmd of ok)
+      expect(parsePhoneCommand(cmd).ok, JSON.stringify(cmd).slice(0, 80)).toBe(true);
+  });
+
+  it('requestId/index/data/last 越界或类型错误一律拒绝', () => {
+    const bad = [
+      { ...base, requestId: '' },
+      { ...base, requestId: 'x'.repeat(65) },
+      { ...base, requestId: 1 },
+      { ...base, index: -1 },
+      { ...base, index: 1001 },
+      { ...base, index: 1.5 },
+      { ...base, index: '0' },
+      { ...base, data: '' },
+      { ...base, data: 1 },
+      { ...base, data: 'A'.repeat(600_001) },
+      { ...base, last: false },
+      { ...base, last: 1 },
+      { type: 'voice-chunk', index: 0, data: 'AAAA' },
+    ];
+    for (const cmd of bad)
+      expect(parsePhoneCommand(cmd).ok, JSON.stringify(cmd).slice(0, 80)).toBe(false);
+  });
+});
+
 describe('set-model 白名单校验', () => {
   const whitelist: SpawnWhitelist = {
     projects: [],

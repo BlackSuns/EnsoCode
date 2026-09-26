@@ -120,7 +120,12 @@ export type PhoneToHost =
   /** guest 放弃本代（超时/网络变化），host 释放对应 PeerConnection */
   | { type: 'direct-close'; gen: number }
   /** 经中继的端到端测速；必须走中继，不能走直连 */
-  | { type: 'probe'; nonce: number };
+  | { type: 'probe'; nonce: number }
+  /**
+   * 语音转写上传：data 为 16kHz 单声道小端 Int16 PCM 的 base64url。
+   * 直连/中继回退可能乱序，host 按 index 拼，last 标出末块。
+   */
+  | { type: 'voice-chunk'; requestId: string; index: number; data: string; last?: true };
 
 /** 手机命令白名单：main 只接受这些 type，其余（set-approval-mode、设置写入等）拒绝 */
 export const PHONE_COMMAND_TYPES = [
@@ -157,6 +162,7 @@ export const PHONE_COMMAND_TYPES = [
   'direct-ice',
   'direct-close',
   'probe',
+  'voice-chunk',
 ] as const satisfies readonly PhoneToHost['type'][];
 
 export function isPhoneCommand(value: unknown): value is PhoneToHost {
@@ -327,7 +333,11 @@ export type HostToPhone =
       capabilities?: DirectCapability[];
       /** STUN 列表由 host 下发，guest 不硬编码，换地址只改桌面 */
       iceServers?: IceServerEntry[];
+      /** 桌面语音识别可用（设置开启且模型就绪） */
+      voiceInput?: true;
     }
   | { type: 'direct-answer'; gen: number; sdp: string }
   | ({ type: 'direct-ice'; gen: number } & DirectCandidate)
-  | { type: 'probe-ack'; nonce: number };
+  | { type: 'probe-ack'; nonce: number }
+  /** voice-chunk 的应答；error 为 SpeechErrorCode，未知值按 failed 处理 */
+  | { type: 'voice-result'; requestId: string; text?: string; error?: string };
