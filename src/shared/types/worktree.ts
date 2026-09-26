@@ -45,7 +45,6 @@ export interface WorkspaceBranches {
   currentBranch: string | null;
   defaultBranch?: string | null;
   headCommit: string | null;
-  dirty?: boolean;
   branches: WorkspaceBranch[];
   affectedConversationIds: string[];
   blockedReason?: 'busy' | 'running' | 'dirty';

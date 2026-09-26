@@ -256,7 +256,6 @@ function branchProjection(
     currentBranch: snapshot.currentBranch,
     defaultBranch: snapshot.defaultBranch ?? null,
     headCommit: snapshot.headCommit,
-    dirty: snapshot.dirty,
     affectedConversationIds,
     ...(blockedReason ? { blockedReason } : {}),
     branches: snapshot.branches.map(({ name, worktreePath }) => {
