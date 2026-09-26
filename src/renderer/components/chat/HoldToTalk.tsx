@@ -103,7 +103,7 @@ export function HoldToTalk({
   const [levels, setLevels] = useState(SILENT);
   const [held, setHeld] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const pressRef = useRef<{ id: number; y: number; at: number } | null>(null);
+  const pressRef = useRef<{ id: number; y: number; at: number; shifted: boolean } | null>(null);
 
   useEffect(() => {
     // StrictMode 开发期会卸了再装：推迟一拍关，重新挂上就不关
@@ -113,12 +113,34 @@ export function HoldToTalk({
     };
   }, []);
 
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!held || !viewport) return;
+    // 收键盘会挪视口：手指没动坐标却跳了，跳变后的下一个点重新当起点，免得误判上滑取消
+    const shift = () => {
+      if (pressRef.current) pressRef.current.shifted = true;
+    };
+    viewport.addEventListener('resize', shift);
+    viewport.addEventListener('scroll', shift);
+    return () => {
+      viewport.removeEventListener('resize', shift);
+      viewport.removeEventListener('scroll', shift);
+    };
+  }, [held]);
+
   const press = (event: PointerEvent<HTMLButtonElement>) => {
     if (disabled || pressRef.current || phase !== 'idle') return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     event.preventDefault();
+    // preventDefault 挡住了按钮抢焦点，得手动失焦才会收起软键盘
+    (document.activeElement as HTMLElement | null)?.blur();
     event.currentTarget.setPointerCapture(event.pointerId);
-    pressRef.current = { id: event.pointerId, y: event.clientY, at: performance.now() };
+    pressRef.current = {
+      id: event.pointerId,
+      y: event.clientY,
+      at: performance.now(),
+      shifted: false,
+    };
     setHeld(true);
     setCancelling(false);
     setLevels(SILENT);
@@ -139,7 +161,7 @@ export function HoldToTalk({
     const action = releaseAction({
       phase,
       heldMs: performance.now() - current.at,
-      cancelZone: interrupted || inCancelZone(current.y, event.clientY),
+      cancelZone: interrupted || (!current.shifted && inCancelZone(current.y, event.clientY)),
     });
     if (action === 'finish') void finish();
     else if (action !== 'none') cancel();
@@ -158,6 +180,10 @@ export function HoldToTalk({
         onPointerMove={(event) => {
           const current = pressRef.current;
           if (current?.id === event.pointerId) {
+            if (current.shifted) {
+              current.y = event.clientY;
+              current.shifted = false;
+            }
             setCancelling(inCancelZone(current.y, event.clientY));
           }
         }}
