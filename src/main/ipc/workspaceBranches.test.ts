@@ -123,6 +123,14 @@ describe('workspace branch IPC', () => {
       });
     }
   );
+  it.each([true, false])('projects worktree dirty=%j for quick actions', async (dirty) => {
+    mocks.read.mockResolvedValue({ ...snapshot(), dirty });
+    mocks.running.mockReturnValue(true);
+    expect(await invoke('worktree:branches', 'main-a')).toMatchObject({
+      ok: true,
+      value: { dirty },
+    });
+  });
   it('uses authoritative root cwd and includes every main-tree root, never renderer paths', async () => {
     const result = await invoke('worktree:branches', 'main-a', '/attacker');
     expect(result).toMatchObject({

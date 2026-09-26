@@ -34,9 +34,11 @@ import { MarkdownLinkContext } from './Markdown';
 import { MessageQueue } from './MessageQueue';
 import { CHAT_COL, type MessageTimelineHandle } from './MessageTimeline';
 import { ModelPicker } from './ModelPicker';
+import type { ComposerPayload } from './mentionComposer';
 import { PlanBar } from './PlanBar';
 import { PlanModeToggle } from './PlanModeToggle';
 import { PresetPicker } from './PresetPicker';
+import { QuickActionsBar } from './QuickActionsBar';
 import { RetryBar } from './RetryBar';
 import { StatsLine } from './StatsLine';
 import { dedupeSlashCommands } from './skillCompletion';
@@ -232,6 +234,14 @@ export function ChatView() {
   }, [t, skills, projectSkills, chromeCommands]);
 
   const timelineRef = useRef<MessageTimelineHandle>(null);
+  const displayedId = chrome?.id;
+  const hasCompletedTurn = useSessionsStore((state) =>
+    displayedId
+      ? (state.conversations[displayedId]?.messages.some(
+          (message) => message.role === 'assistant' && !message.optimistic
+        ) ?? false)
+      : false
+  );
   const planning =
     !chrome?.displayedParentId &&
     ['planning', 'awaiting_review'].includes(planPhase(chrome?.planState));
@@ -286,6 +296,45 @@ export function ChatView() {
       hasRunningChild={chrome.id === chrome.parentId && chrome.parentHasRunningChild}
     />
   );
+
+  const sendPayload = (payload: ComposerPayload) => {
+    if (!payload.recipient && !project) return false;
+    if (!payload.recipient && !chrome.displayedParentId && (!provider || !effectiveModelId)) {
+      return false;
+    }
+    routeComposerPayload(payload, {
+      dispatchAgent: (typeKey, task) => {
+        void useSessionsStore.getState().dispatchAgent(typeKey, task, parentSelectedModel);
+      },
+      sendCoding: (text, images) => {
+        if (!project) return;
+        // 发送后强制回到跟随（ref-chat-b 的 post-submit scroll）
+        timelineRef.current?.scrollToBottom();
+        void useSessionsStore.getState().send(
+          text,
+          {
+            providerId: provider?.id ?? '',
+            modelId: effectiveModelId,
+            cwd: project.path,
+          },
+          images
+        );
+      },
+    });
+    return true;
+  };
+  const showQuickActions =
+    chrome.started &&
+    !chrome.displayedParentId &&
+    hasCompletedTurn &&
+    !busy &&
+    !chrome.spawning &&
+    (chrome.pendingApprovals ?? []).length === 0 &&
+    capabilityApprovals.length === 0 &&
+    (chrome.pendingAsks ?? []).length === 0 &&
+    !chrome.activeOauthAsk &&
+    !chrome.rewinding &&
+    !chrome.restoringFiles;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
@@ -401,6 +450,13 @@ export function ChatView() {
               {modelBlockMessage}
             </div>
           )}
+          {showQuickActions && (
+            <QuickActionsBar
+              key={chrome.id}
+              workspaceConversationId={chrome.parentId}
+              onSend={(text) => sendPayload({ text, images: [], mentions: [] })}
+            />
+          )}
           <Composer
             cwd={project?.path}
             chatCandidates={chatCandidates}
@@ -485,38 +541,7 @@ export function ChatView() {
               </>
             }
             onActivate={activateParent}
-            onSend={(payload) => {
-              if (!payload.recipient && !project) return false;
-              if (
-                !payload.recipient &&
-                !chrome.displayedParentId &&
-                (!provider || !effectiveModelId)
-              ) {
-                return false;
-              }
-              routeComposerPayload(payload, {
-                dispatchAgent: (typeKey, task) => {
-                  void useSessionsStore
-                    .getState()
-                    .dispatchAgent(typeKey, task, parentSelectedModel);
-                },
-                sendCoding: (text, images) => {
-                  if (!project) return;
-                  // 发送后强制回到跟随（ref-chat-b 的 post-submit scroll）
-                  timelineRef.current?.scrollToBottom();
-                  void useSessionsStore.getState().send(
-                    text,
-                    {
-                      providerId: provider?.id ?? '',
-                      modelId: effectiveModelId,
-                      cwd: project.path,
-                    },
-                    images
-                  );
-                },
-              });
-              return true;
-            }}
+            onSend={sendPayload}
             onAbort={() => void useSessionsStore.getState().abort()}
           />
           <StatsLine conversationId={chrome.id} />

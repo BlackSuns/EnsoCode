@@ -88,6 +88,13 @@ const MAPPED_I18N_KEYS = [
   'Background task started',
   'Bypassed',
   'Unavailable',
+  // quickActions：按钮文案与发送文本
+  'Commit',
+  'Create PR',
+  'Start server',
+  'commit your changes',
+  'create a PR',
+  'start the dev server in the background',
 ] as const;
 
 const MODEL_CENTER_ENSO_I18N_KEYS = [

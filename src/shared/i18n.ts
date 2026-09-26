@@ -1796,6 +1796,12 @@ export const zhTranslations: Record<string, string> = {
   'Follow global unified agent modes': '跟随全局统一 Agent 模式',
   'When off, this project uses its own explicit Agent mode permission mask.':
     '关闭后，此项目使用自己明确配置的 Agent 模式权限掩码。',
+  Commit: '提交',
+  'Create PR': '创建 PR',
+  'Start server': '启动服务',
+  'commit your changes': '提交你的改动',
+  'create a PR': '创建一个 PR',
+  'start the dev server in the background': '在后台启动开发服务器',
 };
 
 export function normalizeLocale(input?: string): Locale {
