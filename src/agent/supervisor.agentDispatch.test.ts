@@ -1314,6 +1314,7 @@ describe('SessionSupervisor idle eviction', () => {
     await vi.advanceTimersByTimeAsync(20 * 60_000);
     parentSession.emit({ type: 'agent_start' });
     parentSession.emit({ type: 'agent_end', messages: [] });
+    parentSession.emit({ type: 'agent_settled' });
     await vi.advanceTimersByTimeAsync(20 * 60_000);
     await settle();
     expect(events.filter((event) => event.type === 'parent-ended')).toEqual([]);

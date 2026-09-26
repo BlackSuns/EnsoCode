@@ -253,6 +253,8 @@ interface ManagedSession {
   adaptiveDowngraded: boolean;
   /** 最近一次 auto_retry_start 携带的原始错误（取消重试时的终态错误文案） */
   lastRetryError?: string;
+  /** 已见终态 agent_end、待 agent_settled 收口；failTurn 等提前收口时清掉，settled 不再重复收 */
+  settlePending?: boolean;
   /** 当前用户轮已做过一次空回复自动续跑 */
   silentTurnNudgeUsed: boolean;
   /** 本次空回复恢复的类型；post-tool 第二次仍空则失败 */
@@ -2825,8 +2827,8 @@ export class SessionSupervisor {
         return;
       case 'auto_retry_end': {
         // 重试被取消（abortRetry）时没有后续 agent_end，在这里收口；
-        // 重试耗尽则已由 agent_end(willRetry=false) 走 failTurn，status 守卫避免重复
-        if (event.success || managed.status !== 'running') return;
+        // 重试耗尽已有 agent_end(willRetry=false)，交给 agent_settled 按末条错误收口
+        if (event.success || managed.status !== 'running' || managed.settlePending) return;
         this.failTurn(managed, managed.lastRetryError ?? event.finalError ?? 'Auto-retry failed.');
         return;
       }
@@ -2925,6 +2927,14 @@ export class SessionSupervisor {
           }
           return;
         }
+        // agent_end 不是轮次边界：pi 之后还可能溢出压缩续跑、跑排队消息，agent_settled 才收口
+        managed.settlePending = true;
+        return;
+      }
+      case 'agent_settled': {
+        if (!managed.settlePending) return;
+        managed.settlePending = false;
+        this.reconcileMessages(managed, this.transcript(managed));
         if (this.tryAdaptiveDowngrade(managed)) return;
         // 终态错误轮（重试耗尽或不可重试）按失败收口，不再误报「回复完成」
         const lastAssistant = [...managed.messages]
@@ -3193,6 +3203,7 @@ export class SessionSupervisor {
   private failTurn(managed: ManagedSession, error: string, undelivered = false): void {
     const turnId = managed.currentTurnId ?? randomUUID();
     managed.currentTurnId = undefined;
+    managed.settlePending = false;
     managed.contextUsage.setPendingSnapshot(undefined);
     managed.status = 'failed';
     // 失败轮不总结，但下一轮的起点仍要往前推，否则失败轮的消息会混进下一轮摘要
