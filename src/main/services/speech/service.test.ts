@@ -15,6 +15,7 @@ import {
   getSpeechStatus,
   onSpeechAvailabilityChange,
   openSpeechSession,
+  setSpeechCorrector,
   speechAvailable,
   syncSpeechFromSettings,
 } from './service';
@@ -196,6 +197,56 @@ describe('speech sessions', () => {
     again.push(second());
     await again.finish();
     expect(loads).toEqual(['x-asr-streaming', 'x-asr-streaming']);
+  });
+});
+
+describe('speech correction', () => {
+  const record = async (partials: string[] = []) => {
+    const session = openSpeechSession((text) => partials.push(text));
+    session.push(second());
+    return session.finish();
+  };
+
+  beforeEach(() => {
+    installModel('x-asr');
+  });
+
+  it('shows the raw text first and returns the corrected text', async () => {
+    enable({ voiceModel: 'x-asr', voiceCorrectionEnabled: true });
+    setSpeechCorrector(async (text) => text.replace('世界', '世界！'));
+    const partials: string[] = [];
+    await expect(record(partials)).resolves.toEqual({ ok: true, text: '你好，世界！。' });
+    expect(partials).toEqual(['你好，世界。']);
+  });
+
+  it('skips correction when it is switched off', async () => {
+    enable({ voiceModel: 'x-asr' });
+    const corrector = vi.fn(async () => 'changed');
+    setSpeechCorrector(corrector);
+    await expect(record()).resolves.toEqual({ ok: true, text: '你好，世界。' });
+    expect(corrector).not.toHaveBeenCalled();
+  });
+
+  it('keeps the transcript when the corrector fails, is unavailable or answers instead', async () => {
+    enable({ voiceModel: 'x-asr', voiceCorrectionEnabled: true });
+    const raw = { ok: true, text: '你好，世界。' };
+    setSpeechCorrector(async () => {
+      throw new Error('boom');
+    });
+    await expect(record()).resolves.toEqual(raw);
+    setSpeechCorrector(async () => null);
+    await expect(record()).resolves.toEqual(raw);
+    setSpeechCorrector(async () => `好的，下面是回答：${'很长的内容'.repeat(10)}`);
+    await expect(record()).resolves.toEqual(raw);
+  });
+
+  it('gives up on a correction that takes too long', async () => {
+    vi.useFakeTimers();
+    enable({ voiceModel: 'x-asr', voiceCorrectionEnabled: true });
+    setSpeechCorrector(() => new Promise(() => {}));
+    const result = record();
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expect(result).resolves.toEqual({ ok: true, text: '你好，世界。' });
   });
 });
 

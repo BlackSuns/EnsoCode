@@ -51,6 +51,9 @@ export const SETTINGS_DATA_COVERAGE = {
   memoryKgEnabled: excluded('Memory entity-graph extraction preference; not an Enso capability.'),
   voiceInputEnabled: excluded('Voice input is a device-local composer preference.'),
   voiceModel: excluded('Voice input is a device-local composer preference.'),
+  voiceCorrectionEnabled: excluded('Voice input is a device-local composer preference.'),
+  voiceCorrectionModel: excluded('Voice input is a device-local composer preference.'),
+  voiceCorrectionRemoteModel: excluded('Voice input is a device-local composer preference.'),
   editMode: excluded('File edit mode is a desktop session preference, not an Enso capability.'),
   compactStrategy: excluded('Context compaction is a desktop session preference.'),
   smartCompactEnabled: excluded(
@@ -170,6 +173,9 @@ export const SETTINGS_ACTION_COVERAGE = {
   ),
   setVoiceInputEnabled: excluded('Voice input is a device-local composer preference.'),
   setVoiceModel: excluded('Voice input is a device-local composer preference.'),
+  setVoiceCorrectionEnabled: excluded('Voice input is a device-local composer preference.'),
+  setVoiceCorrectionModel: excluded('Voice input is a device-local composer preference.'),
+  setVoiceCorrectionRemoteModel: excluded('Voice input is a device-local composer preference.'),
   setEditMode: excluded('File edit mode is a desktop session preference, not an Enso capability.'),
   setCompactStrategy: excluded('Context compaction is a desktop session preference.'),
   setSmartCompactEnabled: excluded(

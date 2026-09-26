@@ -32,9 +32,10 @@ import {
   speechRuntimeDir,
   speechRuntimeWrapperDir,
 } from './runtime';
-import { normalizeTranscript } from './text';
+import { acceptCorrection, normalizeTranscript } from './text';
 
 const IDLE_UNLOAD_MS = 10 * 60_000;
+const CORRECTION_TIMEOUT_MS = 20_000;
 const MAX_SAMPLES = SPEECH_SAMPLE_RATE * SPEECH_MAX_SECONDS;
 
 interface SpeechTestHooks {
@@ -44,6 +45,9 @@ interface SpeechTestHooks {
   createEngine: (spec: SpeechModelSpec, dir: string) => Promise<SpeechEngine>;
 }
 
+/** 返回模型原始输出；null = 纠错模型不可用（未下载 / 未配置） */
+export type SpeechCorrector = (text: string) => Promise<string | null>;
+
 interface DownloadTask {
   controller: AbortController;
   settled: Promise<void>;
@@ -52,6 +56,8 @@ interface DownloadTask {
 let hooks: SpeechTestHooks | null = null;
 let enabled = false;
 let selected: SpeechModelId = DEFAULT_SPEECH_MODEL_ID;
+let correctionEnabled = false;
+let corrector: SpeechCorrector | null = null;
 const downloads = new Map<SpeechModelId, DownloadTask>();
 let runtimeInstall: Promise<void> | null = null;
 let engine: { id: SpeechModelId; promise: Promise<SpeechEngine> } | null = null;
@@ -66,6 +72,8 @@ export function __setSpeechTestHooks(next: SpeechTestHooks | null): void {
   hooks = next;
   enabled = false;
   selected = DEFAULT_SPEECH_MODEL_ID;
+  correctionEnabled = false;
+  corrector = null;
   lastAvailable = false;
   downloads.clear();
   runtimeInstall = null;
@@ -78,6 +86,10 @@ export function setSpeechProgressSink(
   sink: ((progress: SpeechDownloadProgressDto) => void) | null
 ): void {
   progressSink = sink;
+}
+
+export function setSpeechCorrector(next: SpeechCorrector | null): void {
+  corrector = next;
 }
 
 export function onSpeechAvailabilityChange(listener: (available: boolean) => void): () => void {
@@ -130,6 +142,7 @@ function notifyAvailability(): void {
 /** settings.json 的 state 按 unknown 收窄；关闭或换模型即卸载常驻引擎 */
 export function syncSpeechFromSettings(state: Record<string, unknown>): void {
   enabled = state.voiceInputEnabled === true;
+  correctionEnabled = state.voiceCorrectionEnabled === true;
   const next = speechModelIdFromSettings(state);
   if (!enabled || next !== selected) unloadEngine();
   selected = next;
@@ -292,6 +305,26 @@ async function createSherpaEngine(spec: SpeechModelSpec, dir: string): Promise<S
   return createWorkerEngine({ wrapperDir: speechRuntimeWrapperDir(runtimeDir()), kind, config });
 }
 
+async function correct(text: string): Promise<string> {
+  const run = corrector;
+  if (!run) return text;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const output = await Promise.race([
+      run(text),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), CORRECTION_TIMEOUT_MS);
+      }),
+    ]);
+    return output === null ? text : acceptCorrection(text, output);
+  } catch (error) {
+    console.warn('[speech] correction failed:', error);
+    return text;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function rejectedSession(error: SpeechErrorCode): VoiceSession {
   return {
     push: () => {},
@@ -312,7 +345,7 @@ function joinSamples(chunks: readonly Float32Array[]): Float32Array {
 
 /**
  * 录音会话：边录边推 16kHz PCM。流式模型逐块解码并经 onPartial 给中间结果；
- * 整段模型攒到 finish 再识别。
+ * 整段模型攒到 finish 再识别。开启纠错时先把原文作为中间结果给出，再返回纠错后的定稿。
  */
 export function openSpeechSession(onPartial: (text: string) => void): VoiceSession {
   if (!enabled) return rejectedSession('disabled');
@@ -385,7 +418,12 @@ export function openSpeechSession(onPartial: (text: string) => void): VoiceSessi
         } else {
           text = await (await loaded).transcribe(joinSamples(buffered));
         }
-        return { ok: true, text: normalizeTranscript(text) };
+        text = normalizeTranscript(text);
+        if (text && correctionEnabled && corrector) {
+          partial(text);
+          text = await correct(text);
+        }
+        return { ok: true, text };
       } catch (error) {
         console.warn('[speech] transcription failed:', error);
         return { ok: false, error: 'failed' };

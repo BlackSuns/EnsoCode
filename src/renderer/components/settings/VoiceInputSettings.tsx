@@ -1,9 +1,24 @@
+import type { ChatModelDto, EmbeddingDownloadProgressDto } from '@shared/memory/dto';
 import type { SpeechModelDto, SpeechModelId } from '@shared/types/speech';
+import * as React from 'react';
+import { MODEL_PICKER_FORM_TRIGGER_CLASS, ModelPicker } from '@/components/chat/ModelPicker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { useSpeechStatus } from '@/hooks/useSpeechStatus';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
+import {
+  usableProvidersForOauthSnapshot,
+  useOauthCredentialStore,
+} from '@/stores/oauthCredentials';
 import { useSettingsStore } from '@/stores/settings';
 import { formatBytes } from './MemorySettings';
 
@@ -32,12 +47,13 @@ function DownloadActions({
   onCancel,
   onRemove,
 }: {
-  state: 'missing' | 'downloading' | 'ready';
+  state: 'missing' | 'downloading' | 'ready' | 'unavailable';
   onDownload: () => void;
   onCancel: () => void;
   onRemove: () => void;
 }) {
   const { t } = useI18n();
+  if (state === 'unavailable') return null;
   if (state === 'downloading') {
     return (
       <Button variant="outline" size="sm" onClick={onCancel}>
@@ -155,6 +171,144 @@ export function VoiceModelList() {
         <p className="text-muted-foreground text-xs">
           {t('Download the selected model to start using voice input.')}
         </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** 纠错开关 + 模型：本地 GGUF（与记忆共用下载）或远程 API 模型 */
+export function VoiceCorrectionSettings() {
+  const { t } = useI18n();
+  const enabled = useSettingsStore((state) => state.voiceCorrectionEnabled);
+  const setEnabled = useSettingsStore((state) => state.setVoiceCorrectionEnabled);
+  const modelId = useSettingsStore((state) => state.voiceCorrectionModel) || 'remote';
+  const setModelId = useSettingsStore((state) => state.setVoiceCorrectionModel);
+  const remoteModel = useSettingsStore((state) => state.voiceCorrectionRemoteModel);
+  const setRemoteModel = useSettingsStore((state) => state.setVoiceCorrectionRemoteModel);
+  const providers = useSettingsStore((state) => state.providers);
+  const oauthSnapshot = useOauthCredentialStore((state) => state.snapshot);
+  const candidates = React.useMemo(
+    () => usableProvidersForOauthSnapshot(providers, oauthSnapshot),
+    [providers, oauthSnapshot]
+  );
+  const [models, setModels] = React.useState<ChatModelDto[]>([]);
+  const [progress, setProgress] = React.useState<EmbeddingDownloadProgressDto | null>(null);
+  const refresh = React.useCallback(() => {
+    void window.electronAPI.memory.chatModels().then(setModels);
+  }, []);
+  React.useEffect(() => {
+    refresh();
+    return window.electronAPI.memory.onChatModelProgress((next) => {
+      setProgress(next.done ? null : next);
+      if (next.done) refresh();
+    });
+  }, [refresh]);
+
+  const selected = models.find((model) => model.id === modelId) ?? null;
+  const items = models.map((model) => ({
+    value: model.id,
+    label:
+      model.id === 'remote'
+        ? t('Remote (API model)')
+        : `${model.label}${model.purpose ? ` · ${t('tuned for voice')}` : ''} · ${formatBytes(model.approxBytes)}`,
+  }));
+  const remoteProvider = remoteModel
+    ? candidates.find((entry) => entry.id === remoteModel.providerId)
+    : undefined;
+  const remoteEntry = remoteProvider?.models.find((entry) => entry.id === remoteModel?.modelId);
+  const memory = window.electronAPI.memory;
+
+  return (
+    <div className="space-y-2" data-settings-row="tools.voiceCorrection">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm">{t('Correct with a language model')}</p>
+          <p className="text-muted-foreground text-xs">
+            {t(
+              'Fixes homophones, code terms and number formats after recognition. Adds about 1-3 seconds; the raw text is kept if it fails.'
+            )}
+          </p>
+        </div>
+        <Switch checked={enabled} onCheckedChange={setEnabled} />
+      </div>
+      {enabled ? (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm">{t('Correction model')}</p>
+            <Select
+              value={modelId}
+              items={items}
+              onValueChange={(value) => setModelId(String(value))}
+            >
+              <SelectTrigger className="w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {items.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          </div>
+          {selected?.downloadable ? (
+            <div className="flex items-center justify-between gap-3">
+              <p
+                className={cn(
+                  'text-xs',
+                  selected.state === 'missing' ? 'text-destructive' : 'text-muted-foreground'
+                )}
+              >
+                {progress?.modelId === selected.id
+                  ? `${formatBytes(progress.received)}${
+                      progress.total ? ` / ${formatBytes(progress.total)}` : ''
+                    }`
+                  : selected.state === 'ready'
+                    ? t('Model downloaded')
+                    : selected.state === 'downloading'
+                      ? t('Downloading…')
+                      : t('Not downloaded yet. Correction is skipped until it is.')}
+              </p>
+              <DownloadActions
+                state={selected.state}
+                onDownload={() => void memory.downloadChatModel(selected.id).then(refresh)}
+                onCancel={() => void memory.cancelChatModelDownload(selected.id).then(refresh)}
+                onRemove={() => void memory.deleteChatModel(selected.id).then(refresh)}
+              />
+            </div>
+          ) : null}
+          {modelId === 'remote' && candidates.length > 0 ? (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-muted-foreground text-xs">
+                {t('A fast, inexpensive model is enough.')}
+              </p>
+              <div className="flex shrink-0 items-center gap-1">
+                {remoteModel ? (
+                  <Button variant="ghost" size="sm" onClick={() => setRemoteModel(null)}>
+                    {t('Reset')}
+                  </Button>
+                ) : null}
+                <div className="w-56">
+                  <ModelPicker
+                    providers={candidates}
+                    providerId={remoteProvider?.id ?? ''}
+                    modelId={remoteEntry?.id ?? ''}
+                    reasoningEnabled={false}
+                    thinkingLevel="medium"
+                    showReasoningControls={false}
+                    emptyLabel={t('Follows the title-summary model')}
+                    side="bottom"
+                    triggerClassName={MODEL_PICKER_FORM_TRIGGER_CLASS}
+                    onSelect={(providerId, id) => setRemoteModel({ providerId, modelId: id })}
+                    onReasoningChange={() => {}}
+                    onThinkingChange={() => {}}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );

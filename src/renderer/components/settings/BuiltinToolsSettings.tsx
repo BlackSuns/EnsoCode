@@ -35,7 +35,7 @@ import {
   OccupancyMark,
   useOccupancyRows,
 } from './OccupancyMark';
-import { VoiceModelList } from './VoiceInputSettings';
+import { VoiceCorrectionSettings, VoiceModelList } from './VoiceInputSettings';
 
 const EDIT_MODE_LABEL: Record<EditMode, string> = {
   replace: 'Text replacement',
@@ -97,7 +97,12 @@ function VoiceInputRow() {
       )}
       control={<Switch checked={enabled} onCheckedChange={setEnabled} />}
     >
-      {enabled ? <VoiceModelList /> : null}
+      {enabled ? (
+        <>
+          <VoiceModelList />
+          <VoiceCorrectionSettings />
+        </>
+      ) : null}
     </ToolRow>
   );
 }

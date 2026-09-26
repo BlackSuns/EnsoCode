@@ -143,6 +143,9 @@ const initialState = {
   memoryKgEnabled: false,
   voiceInputEnabled: false,
   voiceModel: DEFAULT_SPEECH_MODEL_ID,
+  voiceCorrectionEnabled: false,
+  voiceCorrectionModel: 'remote',
+  voiceCorrectionRemoteModel: null as import('@shared/defaultModel').DefaultModelRef | null,
   autoUpdate: true,
   autoRestartWhenIdle: false,
   proxyMode: 'system' as ProxyMode,
@@ -293,6 +296,10 @@ export const useSettingsStore = create<SettingsState>()(
       setMemoryKgEnabled: (memoryKgEnabled) => set({ memoryKgEnabled }),
       setVoiceInputEnabled: (voiceInputEnabled) => set({ voiceInputEnabled }),
       setVoiceModel: (voiceModel) => set({ voiceModel }),
+      setVoiceCorrectionEnabled: (voiceCorrectionEnabled) => set({ voiceCorrectionEnabled }),
+      setVoiceCorrectionModel: (voiceCorrectionModel) => set({ voiceCorrectionModel }),
+      setVoiceCorrectionRemoteModel: (voiceCorrectionRemoteModel) =>
+        set({ voiceCorrectionRemoteModel }),
       setEditMode: (editMode) => set({ editMode }),
       setCompactStrategy: (compactStrategy) =>
         set({ compactStrategy, smartCompactEnabled: compactStrategy === 'smart' }),

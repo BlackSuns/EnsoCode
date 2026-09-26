@@ -146,6 +146,12 @@ export interface SettingsState {
   voiceInputEnabled: boolean;
   /** 本机语音识别模型 */
   voiceModel: SpeechModelId;
+  /** 识别后用 LLM 纠错；缺省关 */
+  voiceCorrectionEnabled: boolean;
+  /** 纠错后端：'remote' 或本地 chat 模型 id */
+  voiceCorrectionModel: string;
+  /** 纠错走远程时的模型；null 跟随标题模型 */
+  voiceCorrectionRemoteModel: DefaultModelRef | null;
 
   /** 是否自动检查并下载应用更新；缺省 true */
   autoUpdate: boolean;
@@ -308,6 +314,9 @@ export interface SettingsState {
   setMemoryKgEnabled: (value: boolean) => void;
   setVoiceInputEnabled: (value: boolean) => void;
   setVoiceModel: (model: SpeechModelId) => void;
+  setVoiceCorrectionEnabled: (value: boolean) => void;
+  setVoiceCorrectionModel: (model: string) => void;
+  setVoiceCorrectionRemoteModel: (model: DefaultModelRef | null) => void;
   setEditMode: (value: EditMode) => void;
   setCompactStrategy: (value: CompactStrategy) => void;
   setSmartCompactEnabled: (value: boolean) => void;

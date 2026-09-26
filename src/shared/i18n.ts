@@ -1012,6 +1012,14 @@ export const zhTranslations: Record<string, string> = {
   'Best with mixed Chinese-English and code terms. Slower and uses more memory.':
     '中英混说和代码术语识别最好，但较慢且更占内存。',
   'Chinese, English, Japanese, Korean and Cantonese.': '支持中文、英文、日语、韩语和粤语。',
+  'Correct with a language model': '用大模型纠错',
+  'Fixes homophones, code terms and number formats after recognition. Adds about 1-3 seconds; the raw text is kept if it fails.':
+    '识别后纠正同音错字、代码术语和数字写法，约多 1–3 秒；纠错失败时保留原文。',
+  'Correction model': '纠错模型',
+  'tuned for voice': '语音纠错专用',
+  'Not downloaded yet. Correction is skipped until it is.': '尚未下载，下载完成前不做纠错。',
+  'A fast, inexpensive model is enough.': '选一个快且便宜的模型即可。',
+  'Remote (API model)': '远程（API 模型）',
   'Voice input is not available on this platform.': '当前平台不支持语音输入。',
   'Download failed': '下载失败',
   'Stop recording': '停止录音',
