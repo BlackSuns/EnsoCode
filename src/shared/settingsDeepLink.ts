@@ -1,6 +1,7 @@
 export const SETTINGS_CATEGORIES = [
   'general',
   'shortcuts',
+  'voice',
   'appearance',
   'providers',
   'skills',

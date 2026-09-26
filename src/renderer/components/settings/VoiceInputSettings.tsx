@@ -313,3 +313,35 @@ export function VoiceCorrectionSettings() {
     </div>
   );
 }
+
+export function VoiceInputSettings() {
+  const { t } = useI18n();
+  const enabled = useSettingsStore((state) => state.voiceInputEnabled);
+  const setEnabled = useSettingsStore((state) => state.setVoiceInputEnabled);
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4" data-settings-row="voice.root">
+        <div>
+          <h3 className="font-medium text-lg">{t('Voice input')}</h3>
+          <p className="text-muted-foreground text-sm">
+            {t(
+              'Adds a microphone to the composer on this computer and on paired phones. Speech is transcribed locally on this computer.'
+            )}
+          </p>
+        </div>
+        <Switch
+          checked={enabled}
+          onCheckedChange={setEnabled}
+          aria-label={t('Voice input')}
+          className="mt-1 shrink-0"
+        />
+      </div>
+      {enabled ? (
+        <>
+          <VoiceModelList />
+          <VoiceCorrectionSettings />
+        </>
+      ) : null}
+    </div>
+  );
+}

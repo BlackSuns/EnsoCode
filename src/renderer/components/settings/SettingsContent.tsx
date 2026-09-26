@@ -7,6 +7,7 @@ import {
   Gauge,
   Keyboard,
   Layers,
+  Mic,
   Palette,
   Plug,
   Server,
@@ -40,6 +41,7 @@ import { SkillsSettings } from './SkillsSettings';
 import { SshSettings } from './SshSettings';
 import { resolveActiveCategory, visibleCategories } from './settingsCategories';
 import { UsageSettings } from './UsageSettings';
+import { VoiceInputSettings } from './VoiceInputSettings';
 import { WorkflowsSettings } from './WorkflowsSettings';
 
 function flashSettingsRow(rowId: string): void {
@@ -84,6 +86,7 @@ export function SettingsContent() {
   const allCategories: Array<{ id: SettingsCategory; icon: React.ElementType; label: string }> = [
     { id: 'general', icon: Settings, label: t('General') },
     { id: 'shortcuts', icon: Keyboard, label: t('Shortcuts') },
+    { id: 'voice', icon: Mic, label: t('Voice input') },
     { id: 'appearance', icon: Palette, label: t('Appearance') },
     { id: 'providers', icon: Server, label: t('Model Providers') },
     { id: 'presets', icon: Layers, label: t('Presets') },
@@ -153,6 +156,7 @@ export function SettingsContent() {
         {activeCategory === 'ssh' && <SshSettings />}
         {activeCategory === 'usage' && <UsageSettings />}
         {activeCategory === 'resources' && <ResourcesSettings />}
+        {activeCategory === 'voice' && <VoiceInputSettings />}
       </div>
     </div>
   );

@@ -10,7 +10,6 @@ import {
   ListTodo,
   type LucideIcon,
   MessageCircleQuestion,
-  Mic,
   Shrink,
   SquareTerminal,
   Users,
@@ -35,7 +34,6 @@ import {
   OccupancyMark,
   useOccupancyRows,
 } from './OccupancyMark';
-import { VoiceCorrectionSettings, VoiceModelList } from './VoiceInputSettings';
 
 const EDIT_MODE_LABEL: Record<EditMode, string> = {
   replace: 'Text replacement',
@@ -80,30 +78,6 @@ function ToolRow({
       </div>
       {children ? <div className="mt-2 space-y-2 pl-7">{children}</div> : null}
     </div>
-  );
-}
-
-function VoiceInputRow() {
-  const { t } = useI18n();
-  const enabled = useSettingsStore((state) => state.voiceInputEnabled);
-  const setEnabled = useSettingsStore((state) => state.setVoiceInputEnabled);
-  return (
-    <ToolRow
-      rowId="tools.voiceInput"
-      icon={Mic}
-      title={t('Voice input')}
-      description={t(
-        'Adds a microphone to the composer on this computer and on paired phones. Speech is transcribed locally on this computer.'
-      )}
-      control={<Switch checked={enabled} onCheckedChange={setEnabled} />}
-    >
-      {enabled ? (
-        <>
-          <VoiceModelList />
-          <VoiceCorrectionSettings />
-        </>
-      ) : null}
-    </ToolRow>
   );
 }
 
@@ -243,8 +217,6 @@ export function BuiltinToolsSettings() {
           )}
           control={<Switch checked={rtkEnabled} onCheckedChange={setRtkEnabled} />}
         />
-
-        <VoiceInputRow />
 
         <ToolRow
           rowId="tools.editMode"

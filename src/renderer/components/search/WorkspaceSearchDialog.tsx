@@ -85,6 +85,7 @@ const SETTINGS_CATEGORY_LABELS: Record<SettingsCategory, string> = {
   ssh: 'SSH',
   usage: 'Usage',
   resources: 'Resources',
+  voice: 'Voice input',
 };
 
 function Highlighted({ text, query }: { text: string; query: string }) {

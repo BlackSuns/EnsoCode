@@ -219,8 +219,8 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
       'Compress supported command output before it enters the model context. Takes effect on new conversations.',
   },
   {
-    id: 'tools.voiceInput',
-    category: 'tools',
+    id: 'voice.root',
+    category: 'voice',
     title: 'Voice input',
     description:
       'Adds a microphone to the composer on this computer and on paired phones. Speech is transcribed locally on this computer.',
