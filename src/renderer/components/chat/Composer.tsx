@@ -129,10 +129,8 @@ export function Composer({
 }: ComposerProps) {
   const { t } = useI18n();
   const [holdToTalk, setHoldToTalk] = useState(false);
+  // 断线重连时语音会短暂不可用：不清掉按住说话，恢复后原样回来
   const holdVoice = voiceMode === 'hold' ? voice : undefined;
-  useEffect(() => {
-    if (!holdVoice) setHoldToTalk(false);
-  }, [holdVoice]);
   const keybindings = useSettingsStore((s) => s.keybindings);
   const sendBinding = effectiveKeybindings(keybindings)['send-message'];
   const voiceHoldBinding = effectiveKeybindings(keybindings)['voice-hold'];
