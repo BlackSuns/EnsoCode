@@ -17,6 +17,7 @@ import { registerPairHandlers } from './pair';
 import { registerProjectHandlers } from './projects';
 import { registerProviderHandlers } from './providers';
 import { registerProxyHandlers } from './proxy';
+import { registerResourceHandlers } from './resources';
 import { registerSettingsHandlers } from './settings';
 import { registerSpeechHandlers } from './speech';
 import { registerSshConnectionHandlers } from './sshConnections';
@@ -51,6 +52,7 @@ export function registerIpcHandlers(): void {
   registerTerminalHandlers();
   registerWorkspaceSearchHandlers();
   registerUsageHandlers();
+  registerResourceHandlers();
   registerMemoryHandlers();
   registerBtwHandlers();
   registerAppBadgeHandlers();

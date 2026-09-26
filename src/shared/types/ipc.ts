@@ -42,6 +42,18 @@ export const IPC_CHANNELS = {
   // Local token usage statistics
   USAGE_SUMMARY: 'usage:summary',
 
+  // Resource monitor
+  RESOURCES_SAMPLE: 'resources:sample',
+  RESOURCES_STORAGE_SCAN: 'resources:storage-scan',
+  RESOURCES_STORAGE_CLEAN: 'resources:storage-clean',
+  RESOURCES_STORAGE_REVEAL: 'resources:storage-reveal',
+  RESOURCES_STORAGE_CANCEL: 'resources:storage-cancel',
+  RESOURCES_STORAGE_LAST: 'resources:storage-last',
+  RESOURCES_STORAGE_PROGRESS: 'resources:storage-progress',
+  RESOURCES_SESSIONS_CLEAN: 'resources:sessions-clean',
+  RESOURCES_SESSIONS_CLEAN_REQUEST: 'resources:sessions-clean-request',
+  RESOURCES_SESSIONS_CLEAN_DONE: 'resources:sessions-clean-done',
+
   // Memory administration
   MEMORY_LIST: 'memory:list',
   MEMORY_DETAIL: 'memory:detail',

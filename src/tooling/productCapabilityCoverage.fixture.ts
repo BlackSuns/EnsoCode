@@ -620,6 +620,18 @@ export const IPC_PRODUCT_COVERAGE = {
   USAGE_SUMMARY: excluded(
     'Read-only local token usage aggregation for the Settings → Usage panel.'
   ),
+  RESOURCES_SAMPLE: excluded('Read-only local process sampling for Settings → Resources.'),
+  RESOURCES_STORAGE_SCAN: excluded('Read-only userData disk scan for Settings → Resources.'),
+  RESOURCES_STORAGE_CLEAN: excluded('Local cache/log cleanup for Settings → Resources.'),
+  RESOURCES_STORAGE_REVEAL: excluded('Reveal a userData path in the OS file manager.'),
+  RESOURCES_STORAGE_CANCEL: excluded('Cancel the running storage scan.'),
+  RESOURCES_STORAGE_LAST: excluded('Last storage scan snapshot for instant display.'),
+  RESOURCES_STORAGE_PROGRESS: excluded('Main-to-renderer storage scan progress event.'),
+  RESOURCES_SESSIONS_CLEAN: excluded(
+    'Settings → Resources session cleanup, relayed to the main window removeConversation.'
+  ),
+  RESOURCES_SESSIONS_CLEAN_REQUEST: excluded('Main-to-renderer session cleanup relay event.'),
+  RESOURCES_SESSIONS_CLEAN_DONE: excluded('Main window acknowledgement of a session cleanup.'),
   MEMORY_LIST: excluded('Memory desktop UI; not an Enso capability.'),
   MEMORY_DETAIL: excluded('Memory desktop UI; not an Enso capability.'),
   MEMORY_ARCHIVE: excluded('Memory desktop UI; not an Enso capability.'),

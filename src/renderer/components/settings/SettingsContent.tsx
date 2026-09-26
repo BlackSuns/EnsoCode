@@ -4,6 +4,7 @@ import {
   Bot,
   Brain,
   FileText,
+  Gauge,
   Keyboard,
   Layers,
   Palette,
@@ -34,6 +35,7 @@ import { MemoryLibrary } from './MemoryLibrary';
 import { MemorySettings } from './MemorySettings';
 import { PresetsSettings } from './PresetsSettings';
 import { ProvidersSettings } from './ProvidersSettings';
+import { ResourcesSettings } from './ResourcesSettings';
 import { SkillsSettings } from './SkillsSettings';
 import { SshSettings } from './SshSettings';
 import { resolveActiveCategory, visibleCategories } from './settingsCategories';
@@ -95,6 +97,7 @@ export function SettingsContent() {
     { id: 'phone', icon: Smartphone, label: t('Devices') },
     { id: 'ssh', icon: Terminal, label: t('SSH') },
     { id: 'usage', icon: BarChart3, label: t('Usage') },
+    { id: 'resources', icon: Gauge, label: t('Resources') },
   ];
   const categories = visibleCategories(allCategories, disabledBuiltinTools);
 
@@ -149,6 +152,7 @@ export function SettingsContent() {
         {activeCategory === 'phone' && <DevicesSettings />}
         {activeCategory === 'ssh' && <SshSettings />}
         {activeCategory === 'usage' && <UsageSettings />}
+        {activeCategory === 'resources' && <ResourcesSettings />}
       </div>
     </div>
   );

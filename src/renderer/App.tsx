@@ -49,6 +49,7 @@ import { cn } from '@/lib/utils';
 import { bindPairCatalogSync } from '@/stores/pairCatalog';
 import { useRemoteNodesStore } from '@/stores/remoteNodes';
 import { useSessionsStore } from '@/stores/sessions';
+import { runSessionClean } from '@/stores/sessions/storageClean';
 import { useSettingsStore } from '@/stores/settings';
 import { flushElectronPersist } from '@/stores/settings/storage';
 import { useSidePanelStore } from '@/stores/sidePanel';
@@ -131,6 +132,16 @@ export default function App() {
     () =>
       window.electronAPI.window.onAgentComposerPrefill((prefill) => {
         useSessionsStore.getState().prefillAgent(prefill.typeKey, prefill.prompt);
+      }),
+    []
+  );
+
+  useEffect(
+    () =>
+      window.electronAPI.resources.onSessionsCleanRequest(({ requestId, request }) => {
+        void runSessionClean(request)
+          .catch(() => 0)
+          .then((removed) => window.electronAPI.resources.sessionsCleanDone(requestId, removed));
       }),
     []
   );

@@ -41,6 +41,15 @@ import type {
   TreeQuery,
 } from '@shared/memory/graphDto';
 import type { PlanRespondAction } from '@shared/planMode';
+import type {
+  ResourceSnapshot,
+  SessionCleanRequest,
+  StorageCategoryId,
+  StorageCleanResult,
+  StorageRootId,
+  StorageScanProgress,
+  StorageSnapshot,
+} from '@shared/resources';
 import type { BrowserSearchTab } from '@shared/searchAnything';
 import type { SettingsDeepLink } from '@shared/settingsDeepLink';
 import type {
@@ -232,6 +241,41 @@ const electronAPI = {
   usage: {
     summary: (days: UsageRangeDays): Promise<UsageSummaryResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.USAGE_SUMMARY, days),
+  },
+
+  resources: {
+    sample: (): Promise<ResourceSnapshot> => ipcRenderer.invoke(IPC_CHANNELS.RESOURCES_SAMPLE),
+    scanStorage: (): Promise<StorageSnapshot> =>
+      ipcRenderer.invoke(IPC_CHANNELS.RESOURCES_STORAGE_SCAN),
+    cancelScan: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.RESOURCES_STORAGE_CANCEL),
+    lastStorage: (): Promise<StorageSnapshot | null> =>
+      ipcRenderer.invoke(IPC_CHANNELS.RESOURCES_STORAGE_LAST),
+    onScanProgress: (callback: (progress: StorageScanProgress) => void): (() => void) => {
+      const listener = (_event: unknown, progress: StorageScanProgress) => callback(progress);
+      ipcRenderer.on(IPC_CHANNELS.RESOURCES_STORAGE_PROGRESS, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.RESOURCES_STORAGE_PROGRESS, listener);
+    },
+    cleanStorage: (category: StorageCategoryId): Promise<StorageCleanResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.RESOURCES_STORAGE_CLEAN, category),
+    revealStorage: (root: StorageRootId, relPath: string): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.RESOURCES_STORAGE_REVEAL, root, relPath),
+    cleanSessions: (
+      request: SessionCleanRequest
+    ): Promise<{ removed: number; snapshot: StorageSnapshot }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.RESOURCES_SESSIONS_CLEAN, request),
+    onSessionsCleanRequest: (
+      callback: (event: { requestId: string; request: SessionCleanRequest }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: unknown,
+        payload: { requestId: string; request: SessionCleanRequest }
+      ) => callback(payload);
+      ipcRenderer.on(IPC_CHANNELS.RESOURCES_SESSIONS_CLEAN_REQUEST, listener);
+      return () =>
+        ipcRenderer.removeListener(IPC_CHANNELS.RESOURCES_SESSIONS_CLEAN_REQUEST, listener);
+    },
+    sessionsCleanDone: (requestId: string, removed: number): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.RESOURCES_SESSIONS_CLEAN_DONE, requestId, removed),
   },
 
   memory: {
