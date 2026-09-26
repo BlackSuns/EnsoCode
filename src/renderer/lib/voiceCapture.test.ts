@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { createDownsampler, levelFromSamples } from './voiceCapture';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createDownsampler, ensureMicPermission, levelFromSamples } from './voiceCapture';
 
 function feed(input: Float32Array, rate: number, sizes: number[]): number[] {
   const downsample = createDownsampler(rate);
@@ -59,5 +59,42 @@ describe('levelFromSamples', () => {
     const levels = [0.005, 0.02, 0.1].map((v) => levelFromSamples(new Float32Array(512).fill(v)));
     expect(levels).toEqual([...levels].sort((a, b) => a - b));
     expect(new Set(levels).size).toBe(3);
+  });
+});
+
+describe('ensureMicPermission', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function stubMic(state: PermissionState | 'unsupported', grant: 'allow' | 'deny' = 'allow') {
+    const stopped: string[] = [];
+    const getUserMedia = vi.fn(async () => {
+      if (grant === 'deny') throw new DOMException('denied', 'NotAllowedError');
+      return { getTracks: () => [{ stop: () => stopped.push('mic') }] };
+    });
+    vi.stubGlobal('navigator', {
+      mediaDevices: { getUserMedia },
+      permissions: state === 'unsupported' ? undefined : { query: vi.fn(async () => ({ state })) },
+    });
+    return { getUserMedia, stopped };
+  }
+
+  it('does not touch the microphone when access is already granted', async () => {
+    const { getUserMedia } = stubMic('granted');
+    await ensureMicPermission();
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it('asks once and releases the microphone right away', async () => {
+    for (const state of ['prompt', 'unsupported'] as const) {
+      const { getUserMedia, stopped } = stubMic(state);
+      await ensureMicPermission();
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+      expect(stopped).toEqual(['mic']);
+    }
+  });
+
+  it('passes a refusal through', async () => {
+    stubMic('prompt', 'deny');
+    await expect(ensureMicPermission()).rejects.toMatchObject({ name: 'NotAllowedError' });
   });
 });

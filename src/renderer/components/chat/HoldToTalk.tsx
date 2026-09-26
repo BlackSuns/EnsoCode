@@ -5,17 +5,20 @@ import { createPortal } from 'react-dom';
 import { Spinner } from '@/components/ui/spinner';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
-import { primeVoiceAudio, releaseVoiceAudio } from '@/lib/voiceCapture';
+import { ensureMicPermission, primeVoiceAudio, releaseVoiceAudio } from '@/lib/voiceCapture';
 import { Z_INDEX } from '@/lib/z-index';
 import { inCancelZone, pushLevel, releaseAction, WAVE_BARS } from './holdGesture';
-import { useVoiceInput, type VoicePhase } from './useVoiceInput';
-import { ICON_BUTTON } from './VoiceInputButton';
+import { micErrorKey, useVoiceInput, type VoicePhase } from './useVoiceInput';
+import { ICON_BUTTON, VoiceNote } from './VoiceInputButton';
 
 const PREVIEW_CHARS = 200;
 const BAR_KEYS = Array.from({ length: WAVE_BARS }, (_, i) => `bar-${i}`);
 const SILENT = pushLevel([], 0);
 
-/** 工具栏里的麦克风 / 键盘切换；切到按住说话时顺手在点击手势里备好音频 */
+/**
+ * 工具栏里的麦克风 / 键盘切换。切到按住说话前先在这次点击里备好音频、走完麦克风授权：
+ * 授权弹窗若等到按住时才出，会打断那次按住。
+ */
 export function HoldToTalkToggle({
   active,
   disabled,
@@ -26,21 +29,59 @@ export function HoldToTalkToggle({
   onChange: (active: boolean) => void;
 }) {
   const { t } = useI18n();
+  const [asking, setAsking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(null), 4000);
+    return () => clearTimeout(timer);
+  }, [error]);
+
+  const enable = async () => {
+    setError(null);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError(t('Voice input needs a secure (HTTPS) connection.'));
+      return;
+    }
+    primeVoiceAudio();
+    setAsking(true);
+    try {
+      await ensureMicPermission();
+      onChange(true);
+    } catch (cause) {
+      setError(t(micErrorKey(cause)));
+    } finally {
+      setAsking(false);
+    }
+  };
+
   const label = t(active ? 'Switch to keyboard' : 'Voice input');
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => {
-        if (!active) primeVoiceAudio();
-        onChange(!active);
-      }}
-      aria-label={label}
-      title={label}
-      className={ICON_BUTTON}
-    >
-      {active ? <Keyboard className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
-    </button>
+    <div ref={anchorRef} className="flex shrink-0 items-center">
+      <button
+        type="button"
+        disabled={disabled || asking}
+        onClick={() => (active ? onChange(false) : void enable())}
+        aria-label={label}
+        title={label}
+        className={ICON_BUTTON}
+      >
+        {asking ? (
+          <Spinner className="h-3.5 w-3.5" />
+        ) : active ? (
+          <Keyboard className="h-3.5 w-3.5" />
+        ) : (
+          <Mic className="h-3.5 w-3.5" />
+        )}
+      </button>
+      {error && anchorRef.current ? (
+        <VoiceNote anchor={anchorRef.current} status>
+          {error}
+        </VoiceNote>
+      ) : null}
+    </div>
   );
 }
 

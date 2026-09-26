@@ -24,7 +24,7 @@ function measure(anchor: HTMLElement): Placement {
  * 输入框工具栏 overflow-hidden 会裁掉绝对定位的气泡，portal 到 body 按按钮位置固定定位。
  * 录音中窗口缩放、侧栏开合都会挪动按钮，逐帧跟随（只在位置变了才重渲染）。
  */
-function VoiceNote({
+export function VoiceNote({
   anchor,
   status,
   children,

@@ -24,7 +24,7 @@ const TRANSCRIBE_ERROR: Record<SpeechErrorCode, string> = {
   failed: 'Voice input failed.',
 };
 
-function micErrorKey(error: unknown): string {
+export function micErrorKey(error: unknown): string {
   const name = (error as { name?: unknown } | null)?.name;
   if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No microphone found.';
   if (name === 'NotAllowedError' || name === 'SecurityError') return MIC_DENIED;

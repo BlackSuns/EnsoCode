@@ -56,6 +56,21 @@ export function primeVoiceAudio(): AudioContext {
   return primed;
 }
 
+/**
+ * 先把麦克风授权走完：已授权直接返回，否则开一下立刻关。
+ * iOS 主屏 app 每次冷启动都会再问，放在按住说话中途弹窗会打断这次按住。
+ */
+export async function ensureMicPermission(): Promise<void> {
+  try {
+    const status = await navigator.permissions?.query({ name: 'microphone' as PermissionName });
+    if (status?.state === 'granted') return;
+  } catch {
+    // 不支持按名字查麦克风（旧 Safari / Firefox）就直接申请
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  for (const track of stream.getTracks()) track.stop();
+}
+
 export function releaseVoiceAudio(): void {
   const context = primed;
   primed = null;
