@@ -146,7 +146,10 @@ export class PairClient {
   /** 未结束的录音会话：partial 路由与结果/断线结算 */
   private voices = new Map<
     string,
-    { onPartial: (text: string) => void; settle: (result: SpeechTranscribeResult) => void }
+    {
+      onPartial: (text: string, correcting: boolean) => void;
+      settle: (result: SpeechTranscribeResult) => void;
+    }
   >();
   private metadata: Omit<PhoneCacheData, 'sessions'> = {
     catalog: [],
@@ -493,7 +496,7 @@ export class PairClient {
         break;
       }
       case 'voice-partial':
-        this.voices.get(payload.requestId)?.onPartial(payload.text);
+        this.voices.get(payload.requestId)?.onPartial(payload.text, payload.correcting === true);
         break;
       case 'direct-answer':
       case 'direct-ice':
@@ -681,7 +684,7 @@ export class PairClient {
    * 边录边传 16kHz 单声道 PCM，满一块立即发，首字不多等。
    * finish 时恰好没有余量就补 10ms 静音作 last 块（空块会被判为坏音频）。
    */
-  startVoice(onPartial: (text: string) => void): VoiceSession {
+  startVoice(onPartial: (text: string, correcting: boolean) => void): VoiceSession {
     const requestId = crypto.randomUUID();
     const maxSamples = SPEECH_SAMPLE_RATE * SPEECH_MAX_SECONDS;
     let buffer = new Float32Array(VOICE_CHUNK_SAMPLES);

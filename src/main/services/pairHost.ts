@@ -556,7 +556,13 @@ function openConnection(device: PairedDevice): void {
     voiceUploads: new VoiceUploads({
       open: openSpeechSession,
       // 每处 ioEpoch++ 都伴随 voiceUploads.clear()，旧连接的会话已取消，中间结果不会再出来
-      onPartial: (requestId, text) => void send(conn, { type: 'voice-partial', requestId, text }),
+      onPartial: (requestId, text, correcting) =>
+        void send(conn, {
+          type: 'voice-partial',
+          requestId,
+          text,
+          ...(correcting ? { correcting: true as const } : {}),
+        }),
     }),
   };
   conn.direct = new DirectLink({

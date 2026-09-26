@@ -5,7 +5,7 @@ export const startDesktopVoiceSession: StartVoiceSession = (onPartial) => {
   const api = window.electronAPI.speech;
   const id = crypto.randomUUID();
   const off = api.onPartial((partial) => {
-    if (partial.sessionId === id) onPartial(partial.text);
+    if (partial.sessionId === id) onPartial(partial.text, partial.correcting === true);
   });
   let done = false;
   return {

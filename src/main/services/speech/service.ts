@@ -355,9 +355,11 @@ function joinSamples(chunks: readonly Float32Array[]): Float32Array {
 
 /**
  * 录音会话：边录边推 16kHz PCM。流式模型逐块解码并经 onPartial 给中间结果；
- * 整段模型攒到 finish 再识别。开启纠错时先把原文作为中间结果给出，再返回纠错后的定稿。
+ * 整段模型攒到 finish 再识别。开启纠错时先把原文标记为纠错中给出，再返回纠错后的定稿。
  */
-export function openSpeechSession(onPartial: (text: string) => void): VoiceSession {
+export function openSpeechSession(
+  onPartial: (text: string, correcting: boolean) => void
+): VoiceSession {
   if (!enabled) return rejectedSession('disabled');
   if (!modelReady(selected)) return rejectedSession('not-ready');
   const spec = SPEECH_MODELS[selected];
@@ -385,10 +387,10 @@ export function openSpeechSession(onPartial: (text: string) => void): VoiceSessi
     activeSessions--;
     scheduleIdleUnload();
   };
-  const partial = (text: string) => {
-    if (phase === 'closed' || !text || text === lastPartial) return;
+  const partial = (text: string, correcting = false) => {
+    if (phase === 'closed' || !text || (text === lastPartial && !correcting)) return;
     lastPartial = text;
-    onPartial(text);
+    onPartial(text, correcting);
   };
 
   return {
@@ -430,7 +432,7 @@ export function openSpeechSession(onPartial: (text: string) => void): VoiceSessi
         }
         text = normalizeTranscript(text);
         if (text && correctionEnabled && corrector) {
-          partial(text);
+          partial(text, true);
           text = await correct(text);
         }
         return { ok: true, text };

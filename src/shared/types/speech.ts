@@ -54,6 +54,8 @@ export const SPEECH_SESSION_ID_MAX = 64;
 export interface SpeechPartialDto {
   sessionId: string;
   text: string;
+  /** 识别已定稿、正在纠错；text 是纠错前原文 */
+  correcting: boolean;
 }
 
 /** 输入框录音会话：边录边推 16kHz PCM，中间结果经 onPartial 回调，finish 给定稿（已纠错） */
@@ -63,4 +65,6 @@ export interface VoiceSession {
   cancel(): void;
 }
 
-export type StartVoiceSession = (onPartial: (text: string) => void) => VoiceSession;
+export type StartVoiceSession = (
+  onPartial: (text: string, correcting: boolean) => void
+) => VoiceSession;

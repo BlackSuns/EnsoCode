@@ -343,7 +343,7 @@ export type HostToPhone =
   | { type: 'direct-answer'; gen: number; sdp: string }
   | ({ type: 'direct-ice'; gen: number } & DirectCandidate)
   | { type: 'probe-ack'; nonce: number }
-  /** 识别中间结果（整句覆盖，不是增量） */
-  | { type: 'voice-partial'; requestId: string; text: string }
+  /** 识别中间结果（整句覆盖，不是增量）；correcting = 已定稿、正在纠错 */
+  | { type: 'voice-partial'; requestId: string; text: string; correcting?: true }
   /** voice-chunk 的应答；error 为 SpeechErrorCode，未知值按 failed 处理 */
   | { type: 'voice-result'; requestId: string; text?: string; error?: string };

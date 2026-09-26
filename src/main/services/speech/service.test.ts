@@ -202,8 +202,8 @@ describe('speech sessions', () => {
 });
 
 describe('speech correction', () => {
-  const record = async (partials: string[] = []) => {
-    const session = openSpeechSession((text) => partials.push(text));
+  const record = async (partials: [string, boolean][] = []) => {
+    const session = openSpeechSession((text, correcting) => partials.push([text, correcting]));
     session.push(second());
     return session.finish();
   };
@@ -212,12 +212,37 @@ describe('speech correction', () => {
     installModel('x-asr');
   });
 
-  it('shows the raw text first and returns the corrected text', async () => {
+  it('shows the raw text as being corrected and returns the corrected text', async () => {
     enable({ voiceModel: 'x-asr', voiceCorrectionEnabled: true });
     setSpeechCorrector(async (text) => text.replace('世界', '世界！'));
-    const partials: string[] = [];
+    const partials: [string, boolean][] = [];
     await expect(record(partials)).resolves.toEqual({ ok: true, text: '你好，世界！。' });
-    expect(partials).toEqual(['你好，世界。']);
+    expect(partials).toEqual([['你好，世界。', true]]);
+  });
+
+  it('announces the correction even when the streamed text is already final', async () => {
+    installModel('x-asr-streaming');
+    __setSpeechTestHooks({
+      root,
+      platform: 'darwin',
+      arch: 'arm64',
+      createEngine: async () => ({
+        ...fakeEngine('x-asr-streaming'),
+        openStream: () => ({
+          accept: async () => '你好。',
+          finish: async () => '你好。',
+          cancel: () => {},
+        }),
+      }),
+    });
+    enable({ voiceCorrectionEnabled: true });
+    setSpeechCorrector(async (text) => text);
+    const partials: [string, boolean][] = [];
+    await expect(record(partials)).resolves.toEqual({ ok: true, text: '你好。' });
+    expect(partials).toEqual([
+      ['你好。', false],
+      ['你好。', true],
+    ]);
   });
 
   it('skips correction when it is switched off', async () => {

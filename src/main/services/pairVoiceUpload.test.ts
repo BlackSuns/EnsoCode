@@ -15,12 +15,12 @@ interface FakeSession extends VoiceSession {
   pushed: number[][];
   finished: boolean;
   cancelled: boolean;
-  emit(text: string): void;
+  emit(text: string, correcting?: boolean): void;
 }
 
 function setup(limits: { maxSamples?: number; maxActive?: number; ttlMs?: number } = {}) {
   const sessions: FakeSession[] = [];
-  const partials: [string, string][] = [];
+  const partials: [string, string, boolean?][] = [];
   const up = new VoiceUploads({
     ...limits,
     open: (onPartial) => {
@@ -41,7 +41,8 @@ function setup(limits: { maxSamples?: number; maxActive?: number; ttlMs?: number
       sessions.push(s);
       return s;
     },
-    onPartial: (requestId, text) => partials.push([requestId, text]),
+    onPartial: (requestId, text, correcting) =>
+      partials.push(correcting ? [requestId, text, true] : [requestId, text]),
   });
   return { up, sessions, partials };
 }
@@ -75,7 +76,7 @@ describe('手机语音流式上传', () => {
     expect(sessions[0].finished).toBe(true);
   });
 
-  it('中间结果带 requestId 转出；cancel/finish 后的迟到 partial 丢弃', () => {
+  it('中间结果带 requestId 转出；cancel 后的迟到 partial 丢弃', () => {
     const { up, sessions, partials } = setup();
     const [a] = enc([0.1], 1);
     up.accept(chunk('r', 0, a));
@@ -84,9 +85,22 @@ describe('手机语音流式上传', () => {
     up.cancel('r');
     expect(sessions[0].cancelled).toBe(true);
     sessions[0].emit('迟到');
-    up.accept(chunk('s', 0, a, true));
-    sessions[1].emit('完成后');
     expect(partials).toEqual([['r', '你好']]);
+  });
+
+  it('收尾纠错期间的中间结果照常转出，结果出来后或连接清理后丢弃', async () => {
+    const { up, sessions, partials } = setup();
+    const [a] = enc([0.1], 1);
+    const done = up.accept(chunk('s', 0, a, true));
+    sessions[0].emit('原文', true);
+    expect(partials).toEqual([['s', '原文', true]]);
+    if (done?.kind === 'finish') await done.result;
+    await Promise.resolve();
+    sessions[0].emit('完成后');
+    up.accept(chunk('t', 0, a, true));
+    up.clear();
+    sessions[1].emit('断线后', true);
+    expect(partials).toEqual([['s', '原文', true]]);
   });
 
   it('非法数据报 invalid-audio 并取消会话，同 id 后续分块忽略且不占名额', () => {

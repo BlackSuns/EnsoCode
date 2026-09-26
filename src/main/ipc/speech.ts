@@ -95,9 +95,9 @@ export function registerSpeechHandlers(): void {
         oldest.cancel();
         owned.delete(oldestId);
       }
-      session = openSpeechSession((text) => {
+      session = openSpeechSession((text, correcting) => {
         if (sender.isDestroyed()) return;
-        const partial: SpeechPartialDto = { sessionId, text };
+        const partial: SpeechPartialDto = { sessionId, text, correcting };
         sender.send(IPC_CHANNELS.SPEECH_PARTIAL, partial);
       });
       owned.set(sessionId, session);

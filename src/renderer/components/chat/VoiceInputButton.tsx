@@ -102,6 +102,7 @@ export function VoiceInputButton({
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [partial, setPartial] = useState('');
+  const [correcting, setCorrecting] = useState(false);
   const recordingRef = useRef<VoiceRecording | null>(null);
   const sessionRef = useRef<VoiceSession | null>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -126,6 +127,7 @@ export function VoiceInputButton({
     recordingRef.current = null;
     sessionRef.current = null;
     setPartial('');
+    setCorrecting(false);
     setPhase('idle');
   }, []);
 
@@ -147,6 +149,7 @@ export function VoiceInputButton({
     } finally {
       sessionRef.current = null;
       setPartial('');
+      setCorrecting(false);
       setPhase('idle');
     }
   }, [onText, t]);
@@ -182,8 +185,10 @@ export function VoiceInputButton({
       if (requestMicAccess && !(await requestMicAccess())) {
         throw new DOMException('microphone denied', 'NotAllowedError');
       }
-      const session = startSession((text) => {
-        if (sessionRef.current === session) setPartial(text);
+      const session = startSession((text, isCorrecting) => {
+        if (sessionRef.current !== session) return;
+        setPartial(text);
+        setCorrecting(isCorrecting);
       });
       sessionRef.current = session;
       try {
@@ -194,6 +199,7 @@ export function VoiceInputButton({
         throw cause;
       }
       setPartial('');
+      setCorrecting(false);
       setElapsed(0);
       setPhase('recording');
     } catch (cause) {
@@ -201,6 +207,10 @@ export function VoiceInputButton({
       setError(t(micErrorKey(cause)));
     }
   };
+
+  const preview = partial.length > PREVIEW_CHARS ? `…${partial.slice(-PREVIEW_CHARS)}` : partial;
+  const busyLabel =
+    phase === 'transcribing' ? t(correcting ? 'Correcting…' : 'Transcribing…') : null;
 
   return (
     <div ref={anchorRef} className="relative flex shrink-0 items-center">
@@ -237,8 +247,8 @@ export function VoiceInputButton({
           type="button"
           disabled={disabled || phase !== 'idle'}
           onClick={() => void start()}
-          aria-label={phase === 'transcribing' ? t('Transcribing…') : t('Voice input')}
-          title={phase === 'transcribing' ? t('Transcribing…') : t('Voice input')}
+          aria-label={busyLabel ?? t('Voice input')}
+          title={busyLabel ?? t('Voice input')}
           className={ICON_BUTTON}
         >
           {phase === 'idle' ? <Mic className="h-3.5 w-3.5" /> : <Spinner className="h-3.5 w-3.5" />}
@@ -247,7 +257,17 @@ export function VoiceInputButton({
       {anchorRef.current && (error || partial) ? (
         <VoiceNote anchor={anchorRef.current} status={Boolean(error)}>
           {error ??
-            (partial.length > PREVIEW_CHARS ? `…${partial.slice(-PREVIEW_CHARS)}` : partial)}
+            (correcting ? (
+              <span className="flex items-start gap-1.5">
+                <Spinner aria-hidden className="mt-0.5 size-3 shrink-0" />
+                <span>
+                  <span className="text-muted-foreground">{t('Correcting…')} </span>
+                  {preview}
+                </span>
+              </span>
+            ) : (
+              preview
+            ))}
         </VoiceNote>
       ) : null}
     </div>

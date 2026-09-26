@@ -39,16 +39,18 @@ const DEAD_MAX = 32;
 
 export class VoiceUploads {
   private uploads = new Map<string, Upload>();
+  /** 已收齐、正在出定稿（可能在纠错）；这期间的中间结果仍要转出 */
+  private finishing = new Set<Upload>();
   private dead = new Set<string>();
   private readonly open: StartVoiceSession;
-  private readonly onPartial: (requestId: string, text: string) => void;
+  private readonly onPartial: (requestId: string, text: string, correcting: boolean) => void;
   private readonly maxSamples: number;
   private readonly maxActive: number;
   private readonly ttlMs: number;
 
   constructor(options: {
     open: StartVoiceSession;
-    onPartial: (requestId: string, text: string) => void;
+    onPartial: (requestId: string, text: string, correcting: boolean) => void;
     maxSamples?: number;
     maxActive?: number;
     /** 距最后一次收到分块的空闲上限；录音本身可长达数分钟 */
@@ -97,7 +99,11 @@ export class VoiceUploads {
     }
     if (upload.next !== upload.total) return null;
     this.retire(requestId, upload);
-    return { kind: 'finish', requestId, result: upload.session.finish() };
+    this.finishing.add(upload);
+    const result = upload.session.finish();
+    const settled = () => this.finishing.delete(upload);
+    result.then(settled, settled);
+    return { kind: 'finish', requestId, result };
   }
 
   /** 取消并判死；未知 id 忽略 */
@@ -114,14 +120,17 @@ export class VoiceUploads {
       upload.session.cancel();
     }
     this.uploads.clear();
+    this.finishing.clear();
     this.dead.clear();
   }
 
   private start(requestId: string): Upload {
     const upload: Upload = {
-      // 会话离开活跃表（结束/取消）后的迟到中间结果不再转出
-      session: this.open((text) => {
-        if (this.uploads.get(requestId) === upload) this.onPartial(requestId, text);
+      // 取消或定稿送出后的迟到中间结果不再转出
+      session: this.open((text, correcting) => {
+        if (this.uploads.get(requestId) === upload || this.finishing.has(upload)) {
+          this.onPartial(requestId, text, correcting);
+        }
       }),
       pending: new Map(),
       next: 0,

@@ -754,14 +754,17 @@ describe('PairClient 缓存与续传', () => {
     socket.receive({ type: 'voice-partial', requestId: id, text: '你' });
     socket.receive({ type: 'voice-partial', requestId: 'other', text: 'x' });
     await settle();
-    expect(a.mock.calls).toEqual([['你']]);
+    expect(a.mock.calls).toEqual([['你', false]]);
     const pending = va.finish();
-    socket.receive({ type: 'voice-partial', requestId: id, text: '你好' });
+    socket.receive({ type: 'voice-partial', requestId: id, text: '你好', correcting: true });
     socket.receive({ type: 'voice-result', requestId: id, text: '你好。' });
     socket.receive({ type: 'voice-partial', requestId: id, text: '迟到' });
     await settle();
     await expect(pending).resolves.toEqual({ ok: true, text: '你好。' });
-    expect(a.mock.calls).toEqual([['你'], ['你好']]);
+    expect(a.mock.calls).toEqual([
+      ['你', false],
+      ['你好', true],
+    ]);
     expect(b).not.toHaveBeenCalled();
   });
 

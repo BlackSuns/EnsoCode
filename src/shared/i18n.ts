@@ -1025,6 +1025,7 @@ export const zhTranslations: Record<string, string> = {
   'Stop recording': '停止录音',
   'Cancel recording': '取消录音',
   'Transcribing…': '识别中…',
+  'Correcting…': '纠错中…',
   'Microphone access denied. Allow it in system settings.':
     '无法使用麦克风，请在系统设置中允许访问。',
   'No microphone found.': '没有找到麦克风。',
