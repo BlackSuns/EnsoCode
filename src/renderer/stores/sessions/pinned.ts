@@ -37,7 +37,7 @@ interface SidebarConversation {
 type Conversations = Record<string, SidebarConversation | undefined>;
 
 /** 会话的最后活跃时刻:最后一条消息时间 → 持久化 lastActiveAt(messages 被剥离时) → createdAt */
-function lastActiveAt(conversation: SidebarConversation): number {
+export function lastActiveAt(conversation: SidebarConversation): number {
   return (
     conversation.messages.at(-1)?.timestamp ?? conversation.lastActiveAt ?? conversation.createdAt
   );
