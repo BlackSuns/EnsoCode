@@ -263,6 +263,16 @@ export async function deleteSpeechModel(id: SpeechModelId): Promise<boolean> {
     return false;
   } finally {
     notifyAvailability();
+    // 各窗口都按 done 事件重查状态：设置窗删了当前模型，主窗口的麦克风要跟着消失
+    progressSink?.({
+      modelId: id,
+      file: '',
+      fileIndex: 0,
+      fileCount: 0,
+      received: 0,
+      total: null,
+      done: true,
+    });
   }
 }
 

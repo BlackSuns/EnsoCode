@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { SpeechModelId } from '@shared/types/speech';
+import type { SpeechDownloadProgressDto, SpeechModelId } from '@shared/types/speech';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
@@ -16,6 +16,7 @@ import {
   onSpeechAvailabilityChange,
   openSpeechSession,
   setSpeechCorrector,
+  setSpeechProgressSink,
   speechAvailable,
   syncSpeechFromSettings,
 } from './service';
@@ -277,5 +278,15 @@ describe('speech status', () => {
     expect(getSpeechStatus().state).toBe('missing');
     off();
     expect(seen).toEqual([true, false]);
+  });
+
+  it('announces a deletion so other windows re-read the status', async () => {
+    installModel('x-asr');
+    const events: SpeechDownloadProgressDto[] = [];
+    setSpeechProgressSink((progress) => events.push(progress));
+    await deleteSpeechModel('x-asr');
+    setSpeechProgressSink(null);
+    expect(events).toEqual([expect.objectContaining({ modelId: 'x-asr', done: true })]);
+    expect(events[0].error).toBeUndefined();
   });
 });
