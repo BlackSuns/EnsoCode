@@ -265,6 +265,9 @@ interface ManagedSession {
   requestStartMs?: number;
   toolStartAt: Map<string, number>;
   toolDurations: Map<string, number>;
+  /** 流式增量合并窗口：窗口内只记下待发下标，窗口结束或遇到其他事件时发最新正文 */
+  upsertTimer?: ReturnType<typeof setTimeout>;
+  upsertPending?: number;
   gate: ApprovalGate;
   asks: AskManager;
   pendingTaskReminders: string[];
@@ -2737,6 +2740,7 @@ export class SessionSupervisor {
     event: Parameters<Parameters<AgentSession['subscribe']>[0]>[0]
   ): void {
     managed.lastActivityAt = Date.now();
+    if (event.type !== 'message_update') this.flushStreamingUpsert(managed);
     switch (event.type) {
       case 'agent_start':
         managed.silentTurnNudgeUsed = false;
@@ -2790,7 +2794,7 @@ export class SessionSupervisor {
             timing.thinkingEndMs = Date.now();
           }
         }
-        this.replaceLastMessage(managed, projected);
+        this.replaceLastMessage(managed, projected, true);
         return;
       }
       case 'message_end': {
@@ -3042,21 +3046,60 @@ export class SessionSupervisor {
     });
   }
 
-  private replaceLastMessage(managed: ManagedSession, message: ProjectedMessage | null): void {
+  private replaceLastMessage(
+    managed: ManagedSession,
+    message: ProjectedMessage | null,
+    streaming = false
+  ): void {
     if (!message) return;
     if (managed.messages.length === 0) {
       this.upsertLocalMessage(managed, message);
       return;
     }
     const index = managed.messages.length - 1;
-    const decorated = this.withTiming(managed, index, message);
-    managed.messages[index] = decorated;
+    managed.messages[index] = this.withTiming(managed, index, message);
+    if (!streaming) {
+      this.emitUpsert(managed, index);
+      return;
+    }
+    // 每次增量都下发整条消息：长回复的 IPC 体积与 renderer 重算随长度平方增长，按窗口合并
+    if (managed.upsertTimer) {
+      managed.upsertPending = index;
+      return;
+    }
+    this.emitUpsert(managed, index);
+    this.armUpsertWindow(managed);
+  }
+
+  private armUpsertWindow(managed: ManagedSession): void {
+    managed.upsertTimer = setTimeout(() => {
+      managed.upsertTimer = undefined;
+      const index = managed.upsertPending;
+      if (index === undefined) return;
+      managed.upsertPending = undefined;
+      if (this.sessions.get(managed.identity.sessionId) !== managed) return;
+      this.emitUpsert(managed, index);
+      this.armUpsertWindow(managed);
+    }, STREAM_UPSERT_WINDOW_MS);
+  }
+
+  private flushStreamingUpsert(managed: ManagedSession): void {
+    if (managed.upsertTimer) clearTimeout(managed.upsertTimer);
+    managed.upsertTimer = undefined;
+    const index = managed.upsertPending;
+    managed.upsertPending = undefined;
+    if (index !== undefined) this.emitUpsert(managed, index);
+  }
+
+  private emitUpsert(managed: ManagedSession, index: number): void {
+    const message = managed.messages[index];
+    if (!message) return;
     this.options.emit({
       type: 'message-upsert',
       identity: managed.identity,
       seq: ++managed.seq,
       index,
-      message: decorated,
+      message,
     });
   }
 
@@ -3233,6 +3276,7 @@ export class SessionSupervisor {
   }
 
   private emitStatus(managed: ManagedSession, error?: string): void {
+    this.flushStreamingUpsert(managed);
     this.options.emit({
       type: 'status',
       identity: managed.identity,
@@ -3789,6 +3833,8 @@ export class SessionSupervisor {
 
 /** 投影 idle 但 pi 仍 streaming 时，等它真正空闲的上限；超时视为僵尸轮 */
 const ZOMBIE_TURN_WAIT_MS = 5_000;
+/** 流式增量下发间隔：约 20 帧/秒，肉眼连贯，长回复的 IPC 与 markdown 重算降一个量级 */
+const STREAM_UPSERT_WINDOW_MS = 50;
 
 /** 限时等 pi 空闲；true = 已空闲，false = 超时仍在跑 */
 export function waitIdleBounded(

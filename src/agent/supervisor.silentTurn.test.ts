@@ -383,4 +383,38 @@ describe('SessionSupervisor terminal turn handling', () => {
     await supervisor.shutdown();
     expect(parentSession.abort).toHaveBeenCalledTimes(1);
   });
+
+  it('流式增量合并下发：窗口内只发首帧与末帧，其他事件前先补发最新正文', async () => {
+    const { events, supervisor, parentSession } = await spawn();
+    const assistant = (text: string) => ({
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      stopReason: 'stop',
+    });
+    const upserts = () =>
+      events.flatMap((event) =>
+        event.type === 'message-upsert' && event.message.role === 'assistant'
+          ? [event.message.content.map((part) => ('text' in part ? part.text : '')).join('')]
+          : []
+      );
+    parentSession.emit({ type: 'agent_start' });
+    parentSession.emit({ type: 'message_start', message: assistant('') });
+    for (const text of ['a', 'ab', 'abc', 'abcd']) {
+      parentSession.emit({ type: 'message_update', message: assistant(text) });
+    }
+    expect(upserts()).toEqual(['', 'a']);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(upserts()).toEqual(['', 'a', 'abcd']);
+
+    parentSession.emit({ type: 'message_update', message: assistant('abcde') });
+    parentSession.emit({ type: 'message_update', message: assistant('abcdef') });
+    parentSession.emit({ type: 'tool_execution_start', toolCallId: 't1' });
+    const order = events.map((event) => event.type);
+    expect(upserts().at(-1)).toBe('abcdef');
+    expect(order.lastIndexOf('message-upsert')).toBeLessThan(order.lastIndexOf('tool-output'));
+
+    parentSession.emit({ type: 'message_end', message: assistant('abcdefg') });
+    expect(upserts().at(-1)).toBe('abcdefg');
+    await supervisor.shutdown();
+  });
 });
