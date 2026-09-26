@@ -145,6 +145,8 @@ import type {
 } from '@shared/types/sidePanel';
 import type {
   SpeechDownloadProgressDto,
+  SpeechModelId,
+  SpeechPartialDto,
   SpeechStatusDto,
   SpeechTranscribeResult,
 } from '@shared/types/speech';
@@ -303,12 +305,24 @@ const electronAPI = {
 
   speech: {
     status: (): Promise<SpeechStatusDto> => ipcRenderer.invoke(IPC_CHANNELS.SPEECH_STATUS),
-    download: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.SPEECH_DOWNLOAD),
-    cancelDownload: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.SPEECH_CANCEL),
-    remove: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.SPEECH_DELETE),
-    /** 16kHz 单声道 PCM */
-    transcribe: (audio: Float32Array): Promise<SpeechTranscribeResult> =>
-      ipcRenderer.invoke(IPC_CHANNELS.SPEECH_TRANSCRIBE, audio),
+    download: (modelId: SpeechModelId): Promise<boolean> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SPEECH_DOWNLOAD, modelId),
+    cancelDownload: (modelId: SpeechModelId): Promise<boolean> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SPEECH_CANCEL, modelId),
+    remove: (modelId: SpeechModelId): Promise<boolean> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SPEECH_DELETE, modelId),
+    /** 16kHz 单声道 PCM；首块到达即开会话 */
+    pushAudio: (sessionId: string, audio: Float32Array): void =>
+      ipcRenderer.send(IPC_CHANNELS.SPEECH_SESSION_PUSH, sessionId, audio),
+    finishSession: (sessionId: string): Promise<SpeechTranscribeResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SPEECH_SESSION_FINISH, sessionId),
+    cancelSession: (sessionId: string): void =>
+      ipcRenderer.send(IPC_CHANNELS.SPEECH_SESSION_CANCEL, sessionId),
+    onPartial: (listener: (partial: SpeechPartialDto) => void): (() => void) => {
+      const handler = (_event: unknown, partial: SpeechPartialDto) => listener(partial);
+      ipcRenderer.on(IPC_CHANNELS.SPEECH_PARTIAL, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.SPEECH_PARTIAL, handler);
+    },
     requestMicAccess: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.SPEECH_MIC_ACCESS),
     onProgress: (listener: (progress: SpeechDownloadProgressDto) => void): (() => void) => {
       const handler = (_event: unknown, progress: SpeechDownloadProgressDto) => listener(progress);

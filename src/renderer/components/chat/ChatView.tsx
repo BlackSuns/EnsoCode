@@ -11,12 +11,12 @@ import { addToast } from '@/components/ui/toast';
 import { toChatMentionCandidates } from '@/hooks/useMentionSearch';
 import { useSpeechStatus } from '@/hooks/useSpeechStatus';
 import { useI18n } from '@/i18n';
+import { startDesktopVoiceSession } from '@/lib/voiceSession';
 import {
   oauthCredentialContext,
   usableProvidersForOauthSnapshot,
   useOauthCredentialStore,
 } from '@/stores/oauthCredentials';
-
 import { useSessionsStore } from '@/stores/sessions';
 import { selectChatChrome } from '@/stores/sessions/chatChrome';
 import { selectChatCandidateConversations } from '@/stores/sessions/sidebarDirectory';
@@ -60,8 +60,13 @@ export function ChatView() {
   const projects = useSettingsStore((state) => state.projects);
   const projectGroups = useSettingsStore((state) => state.projectGroups);
   const voiceInputEnabled = useSettingsStore((state) => state.voiceInputEnabled);
+  const voiceModel = useSettingsStore((state) => state.voiceModel);
   const { status: speechStatus } = useSpeechStatus(voiceInputEnabled);
-  const voiceReady = voiceInputEnabled && speechStatus?.state === 'ready';
+  // 按本窗口的选择判断：换模型后 Main 同步设置有延迟，status.selected 可能还是旧的
+  const voiceReady =
+    voiceInputEnabled &&
+    speechStatus?.state !== 'unsupported' &&
+    speechStatus?.models.find((model) => model.id === voiceModel)?.state === 'ready';
   const chrome = useSessionsStore(useShallow(selectChatChrome));
   const oauthSnapshot = useOauthCredentialStore((state) => state.snapshot);
   const candidateConversations = useSessionsStore((state) =>
@@ -418,7 +423,7 @@ export function ChatView() {
             }
             focusKey={chrome.id}
             planMode={planning}
-            transcribe={voiceReady ? window.electronAPI.speech.transcribe : undefined}
+            voice={voiceReady ? startDesktopVoiceSession : undefined}
             requestMicAccess={window.electronAPI.speech.requestMicAccess}
             placeholder={planning ? t('Describe the task — a plan comes first') : undefined}
             injectedDraft={chrome.draftText}

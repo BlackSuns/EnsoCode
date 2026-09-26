@@ -50,6 +50,7 @@ export const SETTINGS_DATA_COVERAGE = {
   memoryDistillEnabled: excluded('Memory auto-distillation preference; not an Enso capability.'),
   memoryKgEnabled: excluded('Memory entity-graph extraction preference; not an Enso capability.'),
   voiceInputEnabled: excluded('Voice input is a device-local composer preference.'),
+  voiceModel: excluded('Voice input is a device-local composer preference.'),
   editMode: excluded('File edit mode is a desktop session preference, not an Enso capability.'),
   compactStrategy: excluded('Context compaction is a desktop session preference.'),
   smartCompactEnabled: excluded(
@@ -168,6 +169,7 @@ export const SETTINGS_ACTION_COVERAGE = {
     'Memory entity-graph extraction preference; not an Enso capability.'
   ),
   setVoiceInputEnabled: excluded('Voice input is a device-local composer preference.'),
+  setVoiceModel: excluded('Voice input is a device-local composer preference.'),
   setEditMode: excluded('File edit mode is a desktop session preference, not an Enso capability.'),
   setCompactStrategy: excluded('Context compaction is a desktop session preference.'),
   setSmartCompactEnabled: excluded(
@@ -637,7 +639,10 @@ export const IPC_PRODUCT_COVERAGE = {
   SPEECH_CANCEL: excluded('Voice input settings UI; not an Enso capability.'),
   SPEECH_DELETE: excluded('Voice input settings UI; not an Enso capability.'),
   SPEECH_PROGRESS: excluded('Voice input settings UI; not an Enso capability.'),
-  SPEECH_TRANSCRIBE: excluded('Composer dictation; not an Enso capability.'),
+  SPEECH_SESSION_PUSH: excluded('Composer dictation; not an Enso capability.'),
+  SPEECH_SESSION_FINISH: excluded('Composer dictation; not an Enso capability.'),
+  SPEECH_SESSION_CANCEL: excluded('Composer dictation; not an Enso capability.'),
+  SPEECH_PARTIAL: excluded('Composer dictation; not an Enso capability.'),
   SPEECH_MIC_ACCESS: excluded('Composer dictation microphone permission.'),
   MEMORY_REEMBED: excluded('Memory desktop UI; not an Enso capability.'),
   MEMORY_CHANGED: excluded('Memory desktop UI; not an Enso capability.'),

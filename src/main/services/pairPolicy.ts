@@ -230,6 +230,11 @@ export function parsePhoneCommand(value: unknown): CommandCheck {
       }
       if (v.last !== undefined && v.last !== true) return { ok: false, error: 'invalid last' };
       return { ok: true, command: value as PhoneToHost };
+    case 'voice-cancel':
+      if (!isStr(v.requestId) || v.requestId.length > 64) {
+        return { ok: false, error: 'invalid requestId' };
+      }
+      return { ok: true, command: value as PhoneToHost };
     default:
       return { ok: false, error: `command not allowed: ${String(v.type)}` };
   }

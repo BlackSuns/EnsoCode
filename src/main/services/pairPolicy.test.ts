@@ -279,7 +279,7 @@ describe('voice-chunk 校验', () => {
     const ok = [
       base,
       { ...base, last: true },
-      { ...base, index: 1000 },
+      { ...base, index: 4000 },
       { ...base, requestId: 'x'.repeat(64) },
       { ...base, data: 'A'.repeat(600_000) },
     ];
@@ -293,7 +293,7 @@ describe('voice-chunk 校验', () => {
       { ...base, requestId: 'x'.repeat(65) },
       { ...base, requestId: 1 },
       { ...base, index: -1 },
-      { ...base, index: 1001 },
+      { ...base, index: 4001 },
       { ...base, index: 1.5 },
       { ...base, index: '0' },
       { ...base, data: '' },
@@ -305,6 +305,16 @@ describe('voice-chunk 校验', () => {
     ];
     for (const cmd of bad)
       expect(parsePhoneCommand(cmd).ok, JSON.stringify(cmd).slice(0, 80)).toBe(false);
+  });
+});
+
+describe('voice-cancel 校验', () => {
+  it('requestId 合法才放行', () => {
+    expect(parsePhoneCommand({ type: 'voice-cancel', requestId: 'r1' }).ok).toBe(true);
+    expect(parsePhoneCommand({ type: 'voice-cancel', requestId: 'x'.repeat(64) }).ok).toBe(true);
+    for (const requestId of ['', 'x'.repeat(65), 1, undefined]) {
+      expect(parsePhoneCommand({ type: 'voice-cancel', requestId }).ok).toBe(false);
+    }
   });
 });
 

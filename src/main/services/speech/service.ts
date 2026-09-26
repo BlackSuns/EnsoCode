@@ -1,16 +1,29 @@
 import fs from 'node:fs';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import {
+  DEFAULT_SPEECH_MODEL_ID,
   SPEECH_MAX_SECONDS,
+  SPEECH_MODEL_IDS,
   SPEECH_SAMPLE_RATE,
   type SpeechDownloadProgressDto,
+  type SpeechErrorCode,
+  type SpeechModelDto,
+  type SpeechModelId,
   type SpeechStatusDto,
   type SpeechTranscribeResult,
+  type VoiceSession,
 } from '@shared/types/speech';
 import { app } from 'electron';
 import { downloadedBytes, downloadModel, isModelReady } from '../memory/embedding/downloader';
-import { SENSE_VOICE_MODEL, SPEECH_APPROX_BYTES } from './model';
+import { downloadArchiveModel } from './archive';
+import type { SpeechEngine, SpeechEngineStream } from './engine';
+import {
+  recognizerConfig,
+  SPEECH_MODELS,
+  type SpeechModelSpec,
+  speechModelDirName,
+  speechModelIdFromSettings,
+} from './model';
 import {
   installSpeechRuntime,
   isSpeechRuntimeReady,
@@ -19,50 +32,45 @@ import {
   speechRuntimeDir,
   speechRuntimeWrapperDir,
 } from './runtime';
+import { normalizeTranscript } from './text';
 
 const IDLE_UNLOAD_MS = 10 * 60_000;
-
-interface RecognizerStream {
-  acceptWaveform(wave: { samples: Float32Array; sampleRate: number }): void;
-}
-
-interface Recognizer {
-  createStream(): RecognizerStream;
-  decodeAsync(stream: RecognizerStream): Promise<void>;
-  getResult(stream: RecognizerStream): { text?: unknown };
-}
-
-interface RecognizerPaths {
-  runtimeDir: string;
-  model: string;
-  tokens: string;
-}
+const MAX_SAMPLES = SPEECH_SAMPLE_RATE * SPEECH_MAX_SECONDS;
 
 interface SpeechTestHooks {
   root: string;
   platform: string;
   arch: string;
-  createRecognizer: (paths: RecognizerPaths) => Promise<Recognizer>;
+  createEngine: (spec: SpeechModelSpec, dir: string) => Promise<SpeechEngine>;
+}
+
+interface DownloadTask {
+  controller: AbortController;
+  settled: Promise<void>;
 }
 
 let hooks: SpeechTestHooks | null = null;
 let enabled = false;
-let download: { controller: AbortController; settled: Promise<void> } | null = null;
-let recognizer: Promise<Recognizer> | null = null;
+let selected: SpeechModelId = DEFAULT_SPEECH_MODEL_ID;
+const downloads = new Map<SpeechModelId, DownloadTask>();
+let runtimeInstall: Promise<void> | null = null;
+let engine: { id: SpeechModelId; promise: Promise<SpeechEngine> } | null = null;
+let activeSessions = 0;
 let idleTimer: NodeJS.Timeout | null = null;
-let queue: Promise<unknown> = Promise.resolve();
 let progressSink: ((progress: SpeechDownloadProgressDto) => void) | null = null;
 let lastAvailable = false;
 const availabilityListeners = new Set<(available: boolean) => void>();
 
-/** 仅供测试：临时目录 + 假识别器，不碰真实 userData 与原生插件 */
+/** 仅供测试：临时目录 + 假引擎，不碰真实 userData 与原生插件 */
 export function __setSpeechTestHooks(next: SpeechTestHooks | null): void {
   hooks = next;
   enabled = false;
+  selected = DEFAULT_SPEECH_MODEL_ID;
   lastAvailable = false;
-  download = null;
-  unloadRecognizer();
-  queue = Promise.resolve();
+  downloads.clear();
+  runtimeInstall = null;
+  unloadEngine();
+  activeSessions = 0;
   availabilityListeners.clear();
 }
 
@@ -91,21 +99,21 @@ function runtimeDir(): string {
   return speechRuntimeDir(path.join(speechRoot(), 'runtime'), SHERPA_ONNX_VERSION);
 }
 
-function modelDir(): string {
-  return path.join(speechRoot(), 'models', SENSE_VOICE_MODEL.id);
+function modelDir(id: SpeechModelId): string {
+  return path.join(speechRoot(), 'models', speechModelDirName(id));
 }
 
-function assetsReady(): boolean {
+function runtimeReady(): boolean {
   const pkg = platformPackage();
-  return (
-    pkg !== null &&
-    isSpeechRuntimeReady(runtimeDir(), pkg) &&
-    isModelReady(modelDir(), SENSE_VOICE_MODEL)
-  );
+  return pkg !== null && isSpeechRuntimeReady(runtimeDir(), pkg);
+}
+
+function modelReady(id: SpeechModelId): boolean {
+  return runtimeReady() && isModelReady(modelDir(id), SPEECH_MODELS[id]);
 }
 
 export function speechAvailable(): boolean {
-  return enabled && assetsReady();
+  return enabled && modelReady(selected);
 }
 
 function notifyAvailability(): void {
@@ -119,80 +127,124 @@ function notifyAvailability(): void {
   }
 }
 
-/** settings.json 的 state 按 unknown 收窄；关闭即卸载常驻模型 */
+/** settings.json 的 state 按 unknown 收窄；关闭或换模型即卸载常驻引擎 */
 export function syncSpeechFromSettings(state: Record<string, unknown>): void {
   enabled = state.voiceInputEnabled === true;
-  if (!enabled) unloadRecognizer();
+  const next = speechModelIdFromSettings(state);
+  if (!enabled || next !== selected) unloadEngine();
+  selected = next;
   notifyAvailability();
 }
 
-export function getSpeechStatus(): SpeechStatusDto {
-  const base = {
-    approxBytes: SPEECH_APPROX_BYTES,
-    downloadedBytes: downloadedBytes(modelDir(), SENSE_VOICE_MODEL),
-  };
-  if (!platformPackage()) return { ...base, state: 'unsupported' };
-  if (download) return { ...base, state: 'downloading' };
-  return { ...base, state: assetsReady() ? 'ready' : 'missing' };
+function archivedBytes(id: SpeechModelId): number {
+  try {
+    return fs.statSync(path.join(modelDir(id), '.archive.part')).size;
+  } catch {
+    return 0;
+  }
 }
 
-export async function startSpeechDownload(): Promise<boolean> {
+function modelDto(id: SpeechModelId): SpeechModelDto {
+  const spec = SPEECH_MODELS[id];
+  const ready = modelReady(id);
+  return {
+    id,
+    streaming: spec.streaming,
+    approxBytes: spec.approxBytes,
+    memoryBytes: spec.memoryBytes,
+    downloadedBytes:
+      spec.archive && !ready ? archivedBytes(id) : downloadedBytes(modelDir(id), spec),
+    state: downloads.has(id) ? 'downloading' : ready ? 'ready' : 'missing',
+  };
+}
+
+export function getSpeechStatus(): SpeechStatusDto {
+  const models = SPEECH_MODEL_IDS.map(modelDto);
+  const current = models.find((model) => model.id === selected) as SpeechModelDto;
+  return {
+    state: platformPackage() ? current.state : 'unsupported',
+    selected,
+    models,
+  };
+}
+
+/** 多个模型同时下载时共用一次引擎安装 */
+async function ensureRuntime(pkg: string, signal: AbortSignal): Promise<void> {
+  if (isSpeechRuntimeReady(runtimeDir(), pkg)) return;
+  runtimeInstall ??= installSpeechRuntime({
+    dir: runtimeDir(),
+    platformPackage: pkg,
+    version: SHERPA_ONNX_VERSION,
+    signal,
+  }).finally(() => {
+    runtimeInstall = null;
+  });
+  await runtimeInstall;
+}
+
+export async function startSpeechDownload(id: SpeechModelId): Promise<boolean> {
   const pkg = platformPackage();
-  if (!pkg || download) return false;
+  if (!pkg || downloads.has(id)) return false;
+  const spec = SPEECH_MODELS[id];
   const controller = new AbortController();
   let settle!: () => void;
   const task = { controller, settled: new Promise<void>((resolve) => (settle = resolve)) };
-  download = task;
-  const fileCount = SENSE_VOICE_MODEL.files.length + 1;
-  const emit = (progress: Omit<SpeechDownloadProgressDto, 'fileCount'>) => {
-    if (download === task) progressSink?.({ ...progress, fileCount });
+  downloads.set(id, task);
+  const fileCount = (spec.archive ? 1 : spec.files.length) + 1;
+  const emit = (progress: Omit<SpeechDownloadProgressDto, 'fileCount' | 'modelId'>) => {
+    if (downloads.get(id) === task) progressSink?.({ ...progress, modelId: id, fileCount });
   };
   let error: string | undefined;
   try {
     if (!isSpeechRuntimeReady(runtimeDir(), pkg)) {
       emit({ file: pkg, fileIndex: 0, received: 0, total: null });
-      await installSpeechRuntime({
-        dir: runtimeDir(),
-        platformPackage: pkg,
-        version: SHERPA_ONNX_VERSION,
-        signal: controller.signal,
-      });
+      await ensureRuntime(pkg, controller.signal);
     }
     controller.signal.throwIfAborted();
-    await downloadModel(SENSE_VOICE_MODEL, modelDir(), {
+    const options = {
       signal: controller.signal,
-      onProgress: (p) => emit({ ...p, fileIndex: p.fileIndex + 1 }),
-    });
+      onProgress: (p: {
+        file: string;
+        fileIndex: number;
+        received: number;
+        total: number | null;
+      }) =>
+        emit({ file: p.file, fileIndex: p.fileIndex + 1, received: p.received, total: p.total }),
+    };
+    if (spec.archive) await downloadArchiveModel(spec, modelDir(id), options);
+    else await downloadModel(spec, modelDir(id), options);
     return true;
   } catch (cause) {
     error = cause instanceof Error ? cause.message : String(cause);
     return false;
   } finally {
     emit({ file: '', fileIndex: 0, received: 0, total: null, done: true, error });
-    if (download === task) download = null;
+    if (downloads.get(id) === task) downloads.delete(id);
     settle();
     notifyAvailability();
   }
 }
 
-export function cancelSpeechDownload(): boolean {
-  if (!download || download.controller.signal.aborted) return false;
-  download.controller.abort();
+export function cancelSpeechDownload(id: SpeechModelId): boolean {
+  const task = downloads.get(id);
+  if (!task || task.controller.signal.aborted) return false;
+  task.controller.abort();
   return true;
 }
 
-/** 删模型必删；已加载的原生插件在 Windows 上删不掉运行时，失败就留着（约 30MB） */
-export async function deleteSpeechAssets(): Promise<boolean> {
-  const task = download;
-  cancelSpeechDownload();
+/** 删模型必删；最后一个模型删掉时顺带删引擎（Windows 上已加载的原生插件删不掉，留着约 30MB） */
+export async function deleteSpeechModel(id: SpeechModelId): Promise<boolean> {
+  const task = downloads.get(id);
+  cancelSpeechDownload(id);
   await task?.settled;
-  unloadRecognizer();
-  await queue.catch(() => {});
+  if (engine?.id === id) unloadEngine();
   try {
-    fs.rmSync(modelDir(), { recursive: true, force: true });
-    try {
-      fs.rmSync(runtimeDir(), { recursive: true, force: true });
-    } catch {}
+    fs.rmSync(modelDir(id), { recursive: true, force: true });
+    if (!SPEECH_MODEL_IDS.some((other) => fs.existsSync(modelDir(other)))) {
+      try {
+        fs.rmSync(runtimeDir(), { recursive: true, force: true });
+      } catch {}
+    }
     return true;
   } catch {
     return false;
@@ -201,77 +253,154 @@ export async function deleteSpeechAssets(): Promise<boolean> {
   }
 }
 
-function unloadRecognizer(): void {
+function unloadEngine(): void {
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = null;
-  recognizer = null;
+  const current = engine;
+  engine = null;
+  void current?.promise.then(
+    (loaded) => loaded.dispose(),
+    () => {}
+  );
 }
 
-function loadRecognizer(): Promise<Recognizer> {
-  if (!recognizer) {
-    const paths = {
-      runtimeDir: runtimeDir(),
-      model: path.join(modelDir(), 'model.int8.onnx'),
-      tokens: path.join(modelDir(), 'tokens.txt'),
-    };
-    const pending = (hooks?.createRecognizer ?? createSherpaRecognizer)(paths);
-    recognizer = pending;
+function scheduleIdleUnload(): void {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
+  if (activeSessions > 0 || !engine) return;
+  idleTimer = setTimeout(unloadEngine, IDLE_UNLOAD_MS);
+  idleTimer.unref?.();
+}
+
+function loadEngine(): Promise<SpeechEngine> {
+  if (engine?.id !== selected) {
+    unloadEngine();
+    const spec = SPEECH_MODELS[selected];
+    const pending = (hooks?.createEngine ?? createSherpaEngine)(spec, modelDir(selected));
+    const entry = { id: selected, promise: pending };
+    engine = entry;
     pending.catch(() => {
-      if (recognizer === pending) recognizer = null;
+      if (engine === entry) engine = null;
     });
   }
-  return recognizer;
+  return engine.promise;
 }
 
-async function createSherpaRecognizer(paths: RecognizerPaths): Promise<Recognizer> {
-  // 不能写成 require(...)：electron-vite 见到它会往 main 包插 CJS shim，插入点用正则找，会落进 i18n 字符串
-  const load = createRequire(import.meta.url);
-  const sherpa = load(speechRuntimeWrapperDir(paths.runtimeDir)) as {
-    OfflineRecognizer: { createAsync(config: unknown): Promise<Recognizer> };
+async function createSherpaEngine(spec: SpeechModelSpec, dir: string): Promise<SpeechEngine> {
+  const { createWorkerEngine } = await import('./engine');
+  const { kind, config } = recognizerConfig(spec, dir);
+  return createWorkerEngine({ wrapperDir: speechRuntimeWrapperDir(runtimeDir()), kind, config });
+}
+
+function rejectedSession(error: SpeechErrorCode): VoiceSession {
+  return {
+    push: () => {},
+    finish: () => Promise.resolve({ ok: false, error }),
+    cancel: () => {},
   };
-  return sherpa.OfflineRecognizer.createAsync({
-    featConfig: { sampleRate: SPEECH_SAMPLE_RATE, featureDim: 80 },
-    modelConfig: {
-      senseVoice: { model: paths.model, language: 'auto', useInverseTextNormalization: 1 },
-      tokens: paths.tokens,
-      numThreads: 2,
-      provider: 'cpu',
-      debug: 0,
-    },
-  });
 }
 
-/** 一次只解码一段；识别器懒加载、空闲 10 分钟卸载（常驻约 250MB） */
-export function transcribeSpeech(
-  samples: Float32Array,
-  sampleRate: number
-): Promise<SpeechTranscribeResult> {
-  if (!enabled) return Promise.resolve({ ok: false, error: 'disabled' });
-  if (
-    sampleRate !== SPEECH_SAMPLE_RATE ||
-    samples.length === 0 ||
-    samples.length > SPEECH_SAMPLE_RATE * SPEECH_MAX_SECONDS
-  ) {
-    return Promise.resolve({ ok: false, error: 'invalid-audio' });
+function joinSamples(chunks: readonly Float32Array[]): Float32Array {
+  const out = new Float32Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
   }
-  if (!assetsReady()) return Promise.resolve({ ok: false, error: 'not-ready' });
-  const run = queue.then(async (): Promise<SpeechTranscribeResult> => {
-    try {
-      const rec = await loadRecognizer();
-      const stream = rec.createStream();
-      stream.acceptWaveform({ samples, sampleRate });
-      await rec.decodeAsync(stream);
-      const text = rec.getResult(stream).text;
-      return { ok: true, text: typeof text === 'string' ? text.trim() : '' };
-    } catch (error) {
-      console.warn('[speech] transcription failed:', error);
-      return { ok: false, error: 'failed' };
-    } finally {
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(unloadRecognizer, IDLE_UNLOAD_MS);
-      idleTimer.unref?.();
-    }
+  return out;
+}
+
+/**
+ * 录音会话：边录边推 16kHz PCM。流式模型逐块解码并经 onPartial 给中间结果；
+ * 整段模型攒到 finish 再识别。
+ */
+export function openSpeechSession(onPartial: (text: string) => void): VoiceSession {
+  if (!enabled) return rejectedSession('disabled');
+  if (!modelReady(selected)) return rejectedSession('not-ready');
+  const spec = SPEECH_MODELS[selected];
+  const loaded = loadEngine();
+  activeSessions++;
+  scheduleIdleUnload();
+
+  let phase: 'open' | 'finishing' | 'closed' = 'open';
+  let total = 0;
+  let overflow = false;
+  let failed = false;
+  let lastPartial = '';
+  const buffered: Float32Array[] = [];
+  const stream: Promise<SpeechEngineStream> | null = spec.streaming
+    ? loaded.then((ready) => ready.openStream())
+    : null;
+  stream?.catch(() => {
+    failed = true;
   });
-  queue = run;
-  return run;
+  let chain: Promise<void> = Promise.resolve();
+
+  const close = () => {
+    if (phase === 'closed') return;
+    phase = 'closed';
+    activeSessions--;
+    scheduleIdleUnload();
+  };
+  const partial = (text: string) => {
+    if (phase === 'closed' || !text || text === lastPartial) return;
+    lastPartial = text;
+    onPartial(text);
+  };
+
+  return {
+    push: (samples) => {
+      if (phase !== 'open' || overflow || samples.length === 0) return;
+      total += samples.length;
+      if (total > MAX_SAMPLES) {
+        overflow = true;
+        return;
+      }
+      if (!stream) {
+        buffered.push(samples);
+        return;
+      }
+      chain = chain
+        .then(async () => partial(normalizeTranscript(await (await stream).accept(samples))))
+        .catch(() => {
+          failed = true;
+        });
+    },
+    finish: async (): Promise<SpeechTranscribeResult> => {
+      if (phase !== 'open') return { ok: false, error: 'failed' };
+      phase = 'finishing';
+      try {
+        if (overflow || total === 0) {
+          void stream?.then(
+            (s) => s.cancel(),
+            () => {}
+          );
+          return { ok: false, error: 'invalid-audio' };
+        }
+        let text: string;
+        if (stream) {
+          await chain;
+          if (failed) throw new Error('streaming decode failed');
+          text = await (await stream).finish();
+        } else {
+          text = await (await loaded).transcribe(joinSamples(buffered));
+        }
+        return { ok: true, text: normalizeTranscript(text) };
+      } catch (error) {
+        console.warn('[speech] transcription failed:', error);
+        return { ok: false, error: 'failed' };
+      } finally {
+        close();
+      }
+    },
+    cancel: () => {
+      if (phase !== 'open') return;
+      close();
+      buffered.length = 0;
+      void stream?.then(
+        (s) => s.cancel(),
+        () => {}
+      );
+    },
+  };
 }

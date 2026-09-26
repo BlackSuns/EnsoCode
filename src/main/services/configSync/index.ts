@@ -91,6 +91,7 @@ export const CONFIG_SYNC_FIELD_POLICY = {
   memoryDistillEnabled: { mode: 'portable' },
   memoryKgEnabled: { mode: 'portable' },
   voiceInputEnabled: { mode: 'excluded', reason: 'speech model lives on this device' },
+  voiceModel: { mode: 'excluded', reason: 'speech model lives on this device' },
   autoUpdate: { mode: 'excluded', reason: 'device update policy' },
   autoRestartWhenIdle: { mode: 'excluded', reason: 'device update policy' },
   proxyMode: { mode: 'excluded', reason: 'device network configuration' },

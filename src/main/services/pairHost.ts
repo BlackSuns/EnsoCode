@@ -57,7 +57,7 @@ import type {
   PairSessionConfig,
   PairStatus,
 } from '@shared/types/pair';
-import { SPEECH_SAMPLE_RATE } from '@shared/types/speech';
+import type { SpeechTranscribeResult } from '@shared/types/speech';
 import { app, powerMonitor, powerSaveBlocker } from 'electron';
 import { readTrayPreventDisplaySleep, readTraySleepPolicy } from '../ipc/settings';
 // 会话命令一律走 agentBridge（身份解析留在 ipc/agent.ts），这里只留无需身份的 snapshot。
@@ -104,7 +104,7 @@ import {
   sendPush,
   setPushSubscription,
 } from './pushNotifier';
-import { onSpeechAvailabilityChange, speechAvailable, transcribeSpeech } from './speech/service';
+import { onSpeechAvailabilityChange, openSpeechSession, speechAvailable } from './speech/service';
 
 /**
  * 手机第二屏 host：跑在 main，不依赖窗口焦点。
@@ -553,7 +553,11 @@ function openConnection(device: PairedDevice): void {
     syncRevision: 0,
     receiveQueue: Promise.resolve(),
     sendQueue: Promise.resolve(),
-    voiceUploads: new VoiceUploads(),
+    voiceUploads: new VoiceUploads({
+      open: openSpeechSession,
+      // 每处 ioEpoch++ 都伴随 voiceUploads.clear()，旧连接的会话已取消，中间结果不会再出来
+      onPartial: (requestId, text) => void send(conn, { type: 'voice-partial', requestId, text }),
+    }),
   };
   conn.direct = new DirectLink({
     role: 'host',
@@ -938,15 +942,18 @@ async function handleFrame(
       void enqueueSend(conn, { type: 'probe-ack', nonce: command.nonce }, true);
       break;
     case 'voice-chunk': {
-      const result = conn.voiceUploads.accept(command, Date.now());
+      const result = conn.voiceUploads.accept(command);
       if (result?.kind === 'error') {
         void send(conn, { type: 'voice-result', requestId: result.requestId, error: result.error });
-      } else if (result?.kind === 'complete') {
-        // 转写耗时数秒，不能卡住本连接的收帧队列
-        void transcribeForPhone(conn, result.requestId, result.samples, generation, ioEpoch);
+      } else if (result?.kind === 'finish') {
+        // 定稿可能耗时数秒，不能卡住本连接的收帧队列
+        void replyVoiceResult(conn, result.requestId, result.result, generation, ioEpoch);
       }
       break;
     }
+    case 'voice-cancel':
+      conn.voiceUploads.cancel(command.requestId);
+      break;
     case 'spawn': {
       const check = checkSpawn(command, whitelist);
       if (!check.ok) {
@@ -992,15 +999,16 @@ async function handleFrame(
   syncPinnedSessions();
 }
 
-async function transcribeForPhone(
+async function replyVoiceResult(
   conn: Connection,
   requestId: string,
-  samples: Float32Array,
+  pending: Promise<SpeechTranscribeResult>,
   generation: number,
   ioEpoch: number
 ): Promise<void> {
-  if (!connectionCurrent(conn, generation, ioEpoch)) return;
-  const result = await transcribeSpeech(samples, SPEECH_SAMPLE_RATE);
+  const result = await pending.catch(
+    (): SpeechTranscribeResult => ({ ok: false, error: 'failed' })
+  );
   if (!connectionCurrent(conn, generation, ioEpoch)) return;
   await send(
     conn,

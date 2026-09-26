@@ -1,13 +1,16 @@
 import {
   SPEECH_MAX_SECONDS,
   type SpeechErrorCode,
-  type SpeechTranscribeResult,
+  type StartVoiceSession,
+  type VoiceSession,
 } from '@shared/types/speech';
 import { Mic, Square, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Spinner } from '@/components/ui/spinner';
 import { useI18n } from '@/i18n';
 import { SilentRecordingError, startVoiceRecording, type VoiceRecording } from '@/lib/voiceCapture';
+import { Z_INDEX } from '@/lib/z-index';
 
 type Phase = 'idle' | 'starting' | 'recording' | 'transcribing';
 
@@ -27,16 +30,51 @@ function micErrorKey(error: unknown): string {
   return 'Voice input failed.';
 }
 
+/** 预览只留最近的一段，长句不撑满屏幕 */
+const PREVIEW_CHARS = 120;
+
+/** 输入框工具栏 overflow-hidden 会裁掉绝对定位的气泡，portal 到 body 按按钮位置固定定位 */
+function VoiceNote({
+  anchor,
+  status,
+  children,
+}: {
+  anchor: HTMLElement;
+  status: boolean;
+  children: ReactNode;
+}) {
+  const rect = anchor.getBoundingClientRect();
+  const maxWidth = Math.min(448, window.innerWidth * 0.8);
+  return createPortal(
+    <p
+      role={status ? 'status' : undefined}
+      aria-live="polite"
+      data-testid={status ? undefined : 'voice-partial'}
+      style={{
+        position: 'fixed',
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - 8 - maxWidth)),
+        bottom: window.innerHeight - rect.top + 6,
+        maxWidth,
+        zIndex: Z_INDEX.TOOLTIP,
+      }}
+      className="w-max rounded-md border bg-popover px-2 py-1 text-popover-foreground text-xs shadow-md"
+    >
+      {children}
+    </p>,
+    document.body
+  );
+}
+
 const ICON_BUTTON =
   'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40';
 
 export function VoiceInputButton({
-  transcribe,
+  startSession,
   requestMicAccess,
   disabled,
   onText,
 }: {
-  transcribe: (audio: Float32Array) => Promise<SpeechTranscribeResult>;
+  startSession: StartVoiceSession;
   requestMicAccess?: () => Promise<boolean>;
   disabled?: boolean;
   onText: (text: string) => void;
@@ -45,9 +83,18 @@ export function VoiceInputButton({
   const [phase, setPhase] = useState<Phase>('idle');
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [partial, setPartial] = useState('');
   const recordingRef = useRef<VoiceRecording | null>(null);
+  const sessionRef = useRef<VoiceSession | null>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => () => recordingRef.current?.cancel(), []);
+  useEffect(
+    () => () => {
+      recordingRef.current?.cancel();
+      sessionRef.current?.cancel();
+    },
+    []
+  );
 
   useEffect(() => {
     if (!error) return;
@@ -57,26 +104,34 @@ export function VoiceInputButton({
 
   const cancel = useCallback(() => {
     recordingRef.current?.cancel();
+    sessionRef.current?.cancel();
     recordingRef.current = null;
+    sessionRef.current = null;
+    setPartial('');
     setPhase('idle');
   }, []);
 
   const finish = useCallback(async () => {
     const recording = recordingRef.current;
-    if (!recording) return;
+    const session = sessionRef.current;
+    if (!recording || !session) return;
     recordingRef.current = null;
     setPhase('transcribing');
     try {
-      const result = await transcribe(await recording.stop());
+      await recording.stop();
+      const result = await session.finish();
       if (!result.ok) setError(t(TRANSCRIBE_ERROR[result.error]));
       else if (!result.text) setError(t('No speech detected.'));
       else onText(result.text);
     } catch (cause) {
+      session.cancel();
       setError(t(cause instanceof SilentRecordingError ? MIC_DENIED : 'Voice input failed.'));
     } finally {
+      sessionRef.current = null;
+      setPartial('');
       setPhase('idle');
     }
-  }, [onText, t, transcribe]);
+  }, [onText, t]);
 
   useEffect(() => {
     if (phase !== 'recording') return;
@@ -109,7 +164,18 @@ export function VoiceInputButton({
       if (requestMicAccess && !(await requestMicAccess())) {
         throw new DOMException('microphone denied', 'NotAllowedError');
       }
-      recordingRef.current = await startVoiceRecording();
+      const session = startSession((text) => {
+        if (sessionRef.current === session) setPartial(text);
+      });
+      sessionRef.current = session;
+      try {
+        recordingRef.current = await startVoiceRecording((samples) => session.push(samples));
+      } catch (cause) {
+        session.cancel();
+        sessionRef.current = null;
+        throw cause;
+      }
+      setPartial('');
       setElapsed(0);
       setPhase('recording');
     } catch (cause) {
@@ -119,7 +185,7 @@ export function VoiceInputButton({
   };
 
   return (
-    <div className="relative flex shrink-0 items-center">
+    <div ref={anchorRef} className="relative flex shrink-0 items-center">
       {phase === 'recording' ? (
         <>
           <button
@@ -160,13 +226,11 @@ export function VoiceInputButton({
           {phase === 'idle' ? <Mic className="h-3.5 w-3.5" /> : <Spinner className="h-3.5 w-3.5" />}
         </button>
       )}
-      {error ? (
-        <p
-          role="status"
-          className="absolute bottom-full left-0 z-10 mb-1.5 w-max max-w-64 rounded-md border bg-popover px-2 py-1 text-popover-foreground text-xs shadow-md"
-        >
-          {error}
-        </p>
+      {anchorRef.current && (error || partial) ? (
+        <VoiceNote anchor={anchorRef.current} status={Boolean(error)}>
+          {error ??
+            (partial.length > PREVIEW_CHARS ? `…${partial.slice(-PREVIEW_CHARS)}` : partial)}
+        </VoiceNote>
       ) : null}
     </div>
   );

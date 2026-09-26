@@ -124,8 +124,11 @@ export type PhoneToHost =
   /**
    * 语音转写上传：data 为 16kHz 单声道小端 Int16 PCM 的 base64url。
    * 直连/中继回退可能乱序，host 按 index 拼，last 标出末块。
+   * 录音中约 200ms 发一块，host 边收边识别并回推 voice-partial。
    */
-  | { type: 'voice-chunk'; requestId: string; index: number; data: string; last?: true };
+  | { type: 'voice-chunk'; requestId: string; index: number; data: string; last?: true }
+  /** 放弃录音：host 丢弃该 requestId 的识别会话，不再回 voice-result */
+  | { type: 'voice-cancel'; requestId: string };
 
 /** 手机命令白名单：main 只接受这些 type，其余（set-approval-mode、设置写入等）拒绝 */
 export const PHONE_COMMAND_TYPES = [
@@ -163,6 +166,7 @@ export const PHONE_COMMAND_TYPES = [
   'direct-close',
   'probe',
   'voice-chunk',
+  'voice-cancel',
 ] as const satisfies readonly PhoneToHost['type'][];
 
 export function isPhoneCommand(value: unknown): value is PhoneToHost {
@@ -339,5 +343,7 @@ export type HostToPhone =
   | { type: 'direct-answer'; gen: number; sdp: string }
   | ({ type: 'direct-ice'; gen: number } & DirectCandidate)
   | { type: 'probe-ack'; nonce: number }
+  /** 识别中间结果（整句覆盖，不是增量） */
+  | { type: 'voice-partial'; requestId: string; text: string }
   /** voice-chunk 的应答；error 为 SpeechErrorCode，未知值按 failed 处理 */
   | { type: 'voice-result'; requestId: string; text?: string; error?: string };

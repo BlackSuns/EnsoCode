@@ -51,6 +51,7 @@ import {
   SPEECH_SAMPLE_RATE,
   type SpeechErrorCode,
   type SpeechTranscribeResult,
+  type VoiceSession,
 } from '@shared/types/speech';
 import { type PhoneCacheData, type PhoneCacheStore, phoneCache } from './sessionCache';
 import {
@@ -72,6 +73,8 @@ export type ConnState = 'connecting' | 'online' | 'host-offline' | 'unauthorized
 export type SessionView = GuestSessionView;
 
 const VOICE_TIMEOUT_MS = 60_000;
+/** 约 200ms 一块：桌面边收边识别 */
+const VOICE_CHUNK_SAMPLES = SPEECH_SAMPLE_RATE / 5;
 const SPEECH_ERRORS: readonly string[] = [
   'disabled',
   'not-ready',
@@ -140,7 +143,11 @@ export class PairClient {
   private probeNonce = 0;
   private probeSentAt: number | null = null;
   private voiceInput = false;
-  private voiceWaits = new Map<string, (result: SpeechTranscribeResult) => void>();
+  /** 未结束的录音会话：partial 路由与结果/断线结算 */
+  private voices = new Map<
+    string,
+    { onPartial: (text: string) => void; settle: (result: SpeechTranscribeResult) => void }
+  >();
   private metadata: Omit<PhoneCacheData, 'sessions'> = {
     catalog: [],
     pinnedOrder: [],
@@ -475,7 +482,7 @@ export class PairClient {
         break;
       case 'voice-result': {
         const { error } = payload;
-        this.voiceWaits.get(payload.requestId)?.(
+        this.voices.get(payload.requestId)?.settle(
           error === undefined
             ? { ok: true, text: typeof payload.text === 'string' ? payload.text : '' }
             : {
@@ -485,6 +492,9 @@ export class PairClient {
         );
         break;
       }
+      case 'voice-partial':
+        this.voices.get(payload.requestId)?.onPartial(payload.text);
+        break;
       case 'direct-answer':
       case 'direct-ice':
         this.direct.handleSignal(payload);
@@ -667,34 +677,92 @@ export class PairClient {
     return this.sessions.get(sessionId);
   }
 
-  /** 16kHz 单声道 PCM 分块发给桌面转写 */
-  transcribe(audio: Float32Array): Promise<SpeechTranscribeResult> {
-    if (audio.length === 0 || audio.length > SPEECH_SAMPLE_RATE * SPEECH_MAX_SECONDS) {
-      return Promise.resolve({ ok: false, error: 'invalid-audio' });
-    }
-    if (!this.canSend()) return Promise.resolve({ ok: false, error: 'failed' });
+  /**
+   * 边录边传 16kHz 单声道 PCM，满一块立即发，首字不多等。
+   * finish 时恰好没有余量就补 10ms 静音作 last 块（空块会被判为坏音频）。
+   */
+  startVoice(onPartial: (text: string) => void): VoiceSession {
     const requestId = crypto.randomUUID();
-    return new Promise((resolve) => {
-      const timer = setTimeout(
-        () => this.voiceWaits.get(requestId)?.({ ok: false, error: 'failed' }),
-        VOICE_TIMEOUT_MS
-      );
-      this.voiceWaits.set(requestId, (result) => {
-        clearTimeout(timer);
-        this.voiceWaits.delete(requestId);
-        resolve(result);
+    const maxSamples = SPEECH_SAMPLE_RATE * SPEECH_MAX_SECONDS;
+    let buffer = new Float32Array(VOICE_CHUNK_SAMPLES);
+    let filled = 0;
+    let index = 0;
+    let total = 0;
+    let overflow = false;
+    let finishing: Promise<SpeechTranscribeResult> | null = null;
+    let outcome: SpeechTranscribeResult | null = null;
+    let resolveFinish: ((result: SpeechTranscribeResult) => void) | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = (result: SpeechTranscribeResult): void => {
+      if (outcome) return;
+      outcome = result;
+      clearTimeout(timer);
+      this.voices.delete(requestId);
+      resolveFinish?.(result);
+    };
+    const emit = (samples: Float32Array, last: boolean): void => {
+      // 漏发一块桌面就永远凑不齐：发不出去立即判失败
+      if (!this.canSend()) {
+        settle({ ok: false, error: 'failed' });
+        return;
+      }
+      const [data] = encodeVoiceChunks(samples, samples.length);
+      this.send({
+        type: 'voice-chunk',
+        requestId,
+        index: index++,
+        data,
+        ...(last ? { last: true as const } : {}),
       });
-      const chunks = encodeVoiceChunks(audio);
-      chunks.forEach((data, index) => {
-        this.send({
-          type: 'voice-chunk',
-          requestId,
-          index,
-          data,
-          ...(index === chunks.length - 1 ? { last: true as const } : {}),
-        });
-      });
-    });
+    };
+    const abandon = (result: SpeechTranscribeResult): void => {
+      if (index > 0 && !outcome) this.send({ type: 'voice-cancel', requestId });
+      settle(result);
+    };
+    this.voices.set(requestId, { onPartial, settle });
+    return {
+      push: (samples) => {
+        if (outcome || finishing || overflow) return;
+        if (total + samples.length > maxSamples) {
+          overflow = true;
+          return;
+        }
+        total += samples.length;
+        let offset = 0;
+        while (offset < samples.length && !outcome) {
+          const n = Math.min(samples.length - offset, VOICE_CHUNK_SAMPLES - filled);
+          buffer.set(samples.subarray(offset, offset + n), filled);
+          filled += n;
+          offset += n;
+          if (filled < VOICE_CHUNK_SAMPLES) continue;
+          emit(buffer, false);
+          buffer = new Float32Array(VOICE_CHUNK_SAMPLES);
+          filled = 0;
+        }
+      },
+      finish: () => {
+        if (finishing) return finishing;
+        finishing = outcome
+          ? Promise.resolve(outcome)
+          : new Promise<SpeechTranscribeResult>((resolve) => {
+              resolveFinish = resolve;
+            });
+        if (outcome) return finishing;
+        if (overflow) abandon({ ok: false, error: 'invalid-audio' });
+        else if (total === 0) settle({ ok: false, error: 'invalid-audio' });
+        else {
+          emit(
+            filled > 0 ? buffer.subarray(0, filled) : new Float32Array(SPEECH_SAMPLE_RATE / 100),
+            true
+          );
+          if (!outcome) {
+            timer = setTimeout(() => settle({ ok: false, error: 'failed' }), VOICE_TIMEOUT_MS);
+          }
+        }
+        return finishing;
+      },
+      cancel: () => abandon({ ok: false, error: 'failed' }),
+    };
   }
 
   private setVoiceInput(available: boolean): void {
@@ -706,7 +774,7 @@ export class PairClient {
   /** 断线后 host 侧缓冲随连接清掉，结果不会再来：在途请求立即失败 */
   private dropVoice(): void {
     this.setVoiceInput(false);
-    for (const finish of [...this.voiceWaits.values()]) finish({ ok: false, error: 'failed' });
+    for (const voice of [...this.voices.values()]) voice.settle({ ok: false, error: 'failed' });
   }
 
   private canSend(): boolean {

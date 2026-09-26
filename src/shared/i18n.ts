@@ -1000,9 +1000,18 @@ export const zhTranslations: Record<string, string> = {
   'Voice input': '语音输入',
   'Adds a microphone to the composer on this computer and on paired phones. Speech is transcribed locally on this computer.':
     '在本机和已配对手机的输入框中显示麦克风按钮，语音在这台电脑上本地识别。',
-  'Download the speech model to start using voice input.': '下载语音模型后即可使用语音输入。',
-  'SenseVoice, about {{size}}. Chinese, English, Japanese, Korean and Cantonese.':
-    'SenseVoice，约 {{size}}，支持中文、英文、日语、韩语和粤语。',
+  'Speech model': '识别模型',
+  Streaming: '流式',
+  'After you stop': '整段',
+  Downloaded: '已下载',
+  'Download {{size}} · Memory about {{memory}}': '下载 {{size}} · 内存约 {{memory}}',
+  'Download the selected model to start using voice input.': '下载所选模型后即可使用语音输入。',
+  'X-ASR Streaming': 'X-ASR 流式',
+  'Text appears while you speak. Chinese and English.': '边说边出字，支持中文和英文。',
+  'Most accurate on everyday speech. Chinese and English.': '日常说话识别最准，支持中文和英文。',
+  'Best with mixed Chinese-English and code terms. Slower and uses more memory.':
+    '中英混说和代码术语识别最好，但较慢且更占内存。',
+  'Chinese, English, Japanese, Korean and Cantonese.': '支持中文、英文、日语、韩语和粤语。',
   'Voice input is not available on this platform.': '当前平台不支持语音输入。',
   'Download failed': '下载失败',
   'Stop recording': '停止录音',

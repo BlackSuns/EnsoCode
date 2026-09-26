@@ -3,7 +3,8 @@ import { fromBase64Url, toBase64Url } from './encoding';
 /** 每块原始 PCM 上限：384KB，base64 后约 512KB，留足中继 1MB 帧的加密/JSON 余量 */
 export const VOICE_CHUNK_MAX_SAMPLES = 192_000;
 export const VOICE_CHUNK_MAX_CHARS = 600_000;
-export const VOICE_CHUNK_MAX_INDEX = 1000;
+/** 手机约 200ms 一块，300 秒约 1500 块，留余量 */
+export const VOICE_CHUNK_MAX_INDEX = 4000;
 
 /** Float32 PCM → 若干块小端 Int16 base64url */
 export function encodeVoiceChunks(

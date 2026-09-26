@@ -8,7 +8,7 @@ import type {
   MentionCandidate,
   UiElementMentionCandidate,
 } from '@shared/types/mentions';
-import type { SpeechTranscribeResult } from '@shared/types/speech';
+import type { StartVoiceSession } from '@shared/types/speech';
 import { ArrowUp, CircleStop, ImagePlus, SlashSquare, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -81,8 +81,8 @@ interface ComposerProps {
   placeholder?: string;
   /** Plan 模式：边框提示当前只读规划 */
   planMode?: boolean;
-  /** 语音输入：给出即显示麦克风，录音为 16kHz 单声道 PCM；桌面走 IPC，手机走配对信道 */
-  transcribe?: (audio: Float32Array) => Promise<SpeechTranscribeResult>;
+  /** 语音输入：给出即显示麦克风，边录边推 16kHz PCM；桌面走 IPC，手机走配对信道 */
+  voice?: StartVoiceSession;
   /** 录音前向系统申请麦克风（macOS 需主进程发起） */
   requestMicAccess?: () => Promise<boolean>;
 }
@@ -120,7 +120,7 @@ export function Composer({
   isolated = false,
   placeholder: placeholderText,
   planMode = false,
-  transcribe,
+  voice,
   requestMicAccess,
 }: ComposerProps) {
   const { t } = useI18n();
@@ -761,9 +761,9 @@ export function Composer({
             >
               <ImagePlus className="h-3.5 w-3.5" />
             </button>
-            {transcribe ? (
+            {voice ? (
               <VoiceInputButton
-                transcribe={transcribe}
+                startSession={voice}
                 requestMicAccess={requestMicAccess}
                 disabled={locked}
                 onText={(text) => {

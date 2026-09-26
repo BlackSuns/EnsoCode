@@ -1,9 +1,16 @@
 import { decodeVoiceChunk } from '@enso/pair';
-import { SPEECH_MAX_SECONDS, SPEECH_SAMPLE_RATE, type SpeechErrorCode } from '@shared/types/speech';
+import {
+  SPEECH_MAX_SECONDS,
+  SPEECH_SAMPLE_RATE,
+  type SpeechErrorCode,
+  type SpeechTranscribeResult,
+  type StartVoiceSession,
+  type VoiceSession,
+} from '@shared/types/speech';
 
 /**
- * 手机语音分块拼包（单连接一份）。直连/中继回退会乱序，按 index 存；
- * 收到 last 才知道总块数，齐了才交付。
+ * 手机语音流式上传（单连接一份）：首块到达即开识别会话，边收边 push。
+ * 直连/中继回退会乱序，按 index 缓冲，只推从 0 连续的前缀；末块及之前全齐才 finish。
  */
 
 export interface VoiceChunkInput {
@@ -14,94 +21,133 @@ export interface VoiceChunkInput {
 }
 
 export type VoiceUploadResult =
-  | { kind: 'complete'; requestId: string; samples: Float32Array }
+  | { kind: 'finish'; requestId: string; result: Promise<SpeechTranscribeResult> }
   | { kind: 'error'; requestId: string; error: SpeechErrorCode };
 
 interface Upload {
-  startedAt: number;
-  chunks: Map<number, Int16Array>;
+  session: VoiceSession;
+  timer?: ReturnType<typeof setTimeout>;
+  pending: Map<number, Int16Array>;
+  next: number;
+  maxIndex: number;
   total?: number;
   samples: number;
 }
 
-/** 已失败/超时的 requestId 记一阵，后续分块静默丢弃，避免重建半截上传占名额 */
+/** 已失败/结束的 requestId 记一阵，后续分块静默丢弃，避免重开半截会话占名额 */
 const DEAD_MAX = 32;
 
 export class VoiceUploads {
   private uploads = new Map<string, Upload>();
-  private dead = new Map<string, number>();
+  private dead = new Set<string>();
+  private readonly open: StartVoiceSession;
+  private readonly onPartial: (requestId: string, text: string) => void;
   private readonly maxSamples: number;
   private readonly maxActive: number;
   private readonly ttlMs: number;
 
-  constructor(limits: { maxSamples?: number; maxActive?: number; ttlMs?: number } = {}) {
-    this.maxSamples = limits.maxSamples ?? SPEECH_SAMPLE_RATE * SPEECH_MAX_SECONDS;
-    this.maxActive = limits.maxActive ?? 2;
-    this.ttlMs = limits.ttlMs ?? 120_000;
+  constructor(options: {
+    open: StartVoiceSession;
+    onPartial: (requestId: string, text: string) => void;
+    maxSamples?: number;
+    maxActive?: number;
+    /** 距最后一次收到分块的空闲上限；录音本身可长达数分钟 */
+    ttlMs?: number;
+  }) {
+    this.open = options.open;
+    this.onPartial = options.onPartial;
+    this.maxSamples = options.maxSamples ?? SPEECH_SAMPLE_RATE * SPEECH_MAX_SECONDS;
+    this.maxActive = options.maxActive ?? 2;
+    this.ttlMs = options.ttlMs ?? 30_000;
   }
 
   /** null = 等待更多分块或已忽略 */
-  accept(chunk: VoiceChunkInput, now: number): VoiceUploadResult | null {
-    this.prune(now);
+  accept(chunk: VoiceChunkInput): VoiceUploadResult | null {
     const { requestId, index } = chunk;
     if (this.dead.has(requestId)) return null;
+    const pcm = decodeVoiceChunk(chunk.data);
     let upload = this.uploads.get(requestId);
     if (!upload) {
-      if (this.uploads.size >= this.maxActive) return this.fail(requestId, 'failed', now);
-      upload = { startedAt: now, chunks: new Map(), samples: 0 };
-      this.uploads.set(requestId, upload);
+      if (this.uploads.size >= this.maxActive) return this.fail(requestId, 'failed');
+      if (!pcm) return this.fail(requestId, 'invalid-audio');
+      upload = this.start(requestId);
     }
-    const pcm = decodeVoiceChunk(chunk.data);
-    if (!pcm || upload.chunks.has(index)) return this.fail(requestId, 'invalid-audio', now);
+    if (!pcm || index < upload.next || upload.pending.has(index)) {
+      return this.fail(requestId, 'invalid-audio');
+    }
     if (chunk.last) {
-      if (upload.total !== undefined) return this.fail(requestId, 'invalid-audio', now);
-      upload.total = index + 1;
-      for (const i of upload.chunks.keys()) {
-        if (i >= index) return this.fail(requestId, 'invalid-audio', now);
+      if (upload.total !== undefined || upload.maxIndex >= index) {
+        return this.fail(requestId, 'invalid-audio');
       }
+      upload.total = index + 1;
     } else if (upload.total !== undefined && index >= upload.total) {
-      return this.fail(requestId, 'invalid-audio', now);
+      return this.fail(requestId, 'invalid-audio');
     }
     upload.samples += pcm.length;
-    if (upload.samples > this.maxSamples) return this.fail(requestId, 'invalid-audio', now);
-    upload.chunks.set(index, pcm);
-    if (upload.chunks.size !== upload.total) return null;
-    this.uploads.delete(requestId);
-    const samples = new Float32Array(upload.samples);
-    let offset = 0;
-    for (let i = 0; i < upload.total; i++) {
-      const part = upload.chunks.get(i) as Int16Array;
-      for (let j = 0; j < part.length; j++) samples[offset + j] = part[j] / 32768;
-      offset += part.length;
+    if (upload.samples > this.maxSamples) return this.fail(requestId, 'invalid-audio');
+    upload.maxIndex = Math.max(upload.maxIndex, index);
+    upload.pending.set(index, pcm);
+    clearTimeout(upload.timer);
+    upload.timer = setTimeout(() => this.cancel(requestId), this.ttlMs);
+    for (let part = upload.pending.get(upload.next); part; part = upload.pending.get(upload.next)) {
+      upload.pending.delete(upload.next++);
+      const samples = new Float32Array(part.length);
+      for (let i = 0; i < part.length; i++) samples[i] = part[i] / 32768;
+      upload.session.push(samples);
     }
-    return { kind: 'complete', requestId, samples };
+    if (upload.next !== upload.total) return null;
+    this.retire(requestId, upload);
+    return { kind: 'finish', requestId, result: upload.session.finish() };
+  }
+
+  /** 取消并判死；未知 id 忽略 */
+  cancel(requestId: string): void {
+    const upload = this.uploads.get(requestId);
+    if (!upload) return;
+    this.retire(requestId, upload);
+    upload.session.cancel();
   }
 
   clear(): void {
+    for (const upload of this.uploads.values()) {
+      clearTimeout(upload.timer);
+      upload.session.cancel();
+    }
     this.uploads.clear();
     this.dead.clear();
   }
 
-  private fail(requestId: string, error: SpeechErrorCode, now: number): VoiceUploadResult {
-    this.uploads.delete(requestId);
-    this.markDead(requestId, now);
+  private start(requestId: string): Upload {
+    const upload: Upload = {
+      // 会话离开活跃表（结束/取消）后的迟到中间结果不再转出
+      session: this.open((text) => {
+        if (this.uploads.get(requestId) === upload) this.onPartial(requestId, text);
+      }),
+      pending: new Map(),
+      next: 0,
+      maxIndex: -1,
+      samples: 0,
+    };
+    this.uploads.set(requestId, upload);
+    return upload;
+  }
+
+  private fail(requestId: string, error: SpeechErrorCode): VoiceUploadResult {
+    this.cancel(requestId);
+    this.markDead(requestId);
     return { kind: 'error', requestId, error };
   }
 
-  private markDead(requestId: string, now: number): void {
-    this.dead.set(requestId, now);
-    if (this.dead.size > DEAD_MAX) this.dead.delete(this.dead.keys().next().value as string);
+  /** 移出活跃表（释放名额、停 TTL）并判死 */
+  private retire(requestId: string, upload: Upload): void {
+    clearTimeout(upload.timer);
+    this.uploads.delete(requestId);
+    this.markDead(requestId);
   }
 
-  private prune(now: number): void {
-    for (const [id, upload] of this.uploads) {
-      if (now - upload.startedAt > this.ttlMs) {
-        this.uploads.delete(id);
-        this.markDead(id, now);
-      }
-    }
-    for (const [id, at] of this.dead) {
-      if (now - at > this.ttlMs) this.dead.delete(id);
-    }
+  private markDead(requestId: string): void {
+    this.dead.delete(requestId);
+    this.dead.add(requestId);
+    if (this.dead.size > DEAD_MAX) this.dead.delete(this.dead.values().next().value as string);
   }
 }

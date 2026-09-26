@@ -21,6 +21,7 @@ import type {
   SubagentModelEntry,
 } from '@shared/types';
 import type { AgentMode, ApprovalMode, ThinkingLevel } from '@shared/types/agent';
+import type { SpeechModelId } from '@shared/types/speech';
 import type { ModelPricing, PricingTable } from '@shared/usage/pricing';
 import type { WindowsLocalShell } from '@shared/windowsLocalShell';
 import type { OauthCredentialSnapshot } from '@/stores/oauthCredentials';
@@ -143,6 +144,8 @@ export interface SettingsState {
   memoryKgEnabled: boolean;
   /** 语音输入：开启后才提示下载本地识别模型；缺省关 */
   voiceInputEnabled: boolean;
+  /** 本机语音识别模型 */
+  voiceModel: SpeechModelId;
 
   /** 是否自动检查并下载应用更新；缺省 true */
   autoUpdate: boolean;
@@ -304,6 +307,7 @@ export interface SettingsState {
   setMemoryDistillEnabled: (value: boolean) => void;
   setMemoryKgEnabled: (value: boolean) => void;
   setVoiceInputEnabled: (value: boolean) => void;
+  setVoiceModel: (model: SpeechModelId) => void;
   setEditMode: (value: EditMode) => void;
   setCompactStrategy: (value: CompactStrategy) => void;
   setSmartCompactEnabled: (value: boolean) => void;

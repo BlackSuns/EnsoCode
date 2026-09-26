@@ -545,11 +545,14 @@ export function App() {
         )}
         historyLoading={Boolean(activeId && historyPending.has(activeId))}
         onLoadOlder={() => activeId && clientRef.current?.requestHistory(activeId)}
-        transcribe={
+        voice={
           voiceInput
-            ? (audio) =>
-                clientRef.current?.transcribe(audio) ??
-                Promise.resolve({ ok: false, error: 'failed' })
+            ? (onPartial) =>
+                clientRef.current?.startVoice(onPartial) ?? {
+                  push: () => {},
+                  finish: () => Promise.resolve({ ok: false, error: 'failed' }),
+                  cancel: () => {},
+                }
             : undefined
         }
         queued={withoutQueuedIds(entry?.queued, queueEchoes, activeId ?? '')}

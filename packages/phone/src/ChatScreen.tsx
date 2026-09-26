@@ -1,7 +1,7 @@
 import type { CatalogEntry } from '@enso/pair';
 import { localCompactionNoticeIndex } from '@shared/pair/guestProjection';
 import type { AttachedImage, ProjectedMessage, SlashCommand } from '@shared/types/agent';
-import type { SpeechTranscribeResult } from '@shared/types/speech';
+import type { StartVoiceSession } from '@shared/types/speech';
 import { Bot, ChevronDown, Loader2, MessageCircle, PanelLeft, SquarePen } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { ApprovalBar } from '@/components/chat/ApprovalBar';
@@ -50,7 +50,7 @@ interface Props {
   historyLoading?: boolean;
   onLoadOlder?(): void;
   /** 桌面语音识别可用时才给：Composer 据此显示麦克风 */
-  transcribe?: (audio: Float32Array) => Promise<SpeechTranscribeResult>;
+  voice?: StartVoiceSession;
   /** coworker tab 组（仅当父会话雇有 coworker 时有值）：主会话 + 子会话 */
   tabGroup?: { parent: CatalogEntry; children: CatalogEntry[] };
   onSelectTab?(sessionId: string): void;
@@ -393,7 +393,7 @@ export function ChatScreen(props: Props) {
                   return undefined;
                 }}
                 onAbort={props.onAbort}
-                transcribe={props.transcribe}
+                voice={props.voice}
               />
               <SessionStatsLine usageTotals={props.usageTotals} context={props.context} />
             </div>

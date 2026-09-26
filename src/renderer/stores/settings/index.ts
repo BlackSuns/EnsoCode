@@ -24,6 +24,7 @@ import {
 import { parseTerminalShell } from '@shared/terminalShell';
 import { DEFAULT_DISABLED_BUILTIN_TOOLS } from '@shared/types';
 import type { AgentMode, SourceAuthorityProjection } from '@shared/types/agent';
+import { DEFAULT_SPEECH_MODEL_ID } from '@shared/types/speech';
 import { parseUsageModelPricing } from '@shared/usage/pricing';
 import { parseWindowsLocalShell } from '@shared/windowsLocalShell';
 import { create } from 'zustand';
@@ -141,6 +142,7 @@ const initialState = {
   memoryDistillEnabled: false,
   memoryKgEnabled: false,
   voiceInputEnabled: false,
+  voiceModel: DEFAULT_SPEECH_MODEL_ID,
   autoUpdate: true,
   autoRestartWhenIdle: false,
   proxyMode: 'system' as ProxyMode,
@@ -290,6 +292,7 @@ export const useSettingsStore = create<SettingsState>()(
       setMemoryDistillEnabled: (memoryDistillEnabled) => set({ memoryDistillEnabled }),
       setMemoryKgEnabled: (memoryKgEnabled) => set({ memoryKgEnabled }),
       setVoiceInputEnabled: (voiceInputEnabled) => set({ voiceInputEnabled }),
+      setVoiceModel: (voiceModel) => set({ voiceModel }),
       setEditMode: (editMode) => set({ editMode }),
       setCompactStrategy: (compactStrategy) =>
         set({ compactStrategy, smartCompactEnabled: compactStrategy === 'smart' }),
