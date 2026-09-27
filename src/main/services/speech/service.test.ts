@@ -18,6 +18,7 @@ import {
   setSpeechCorrector,
   setSpeechProgressSink,
   speechAvailable,
+  startSpeechDownload,
   syncSpeechFromSettings,
 } from './service';
 
@@ -199,6 +200,37 @@ describe('speech sessions', () => {
     await again.finish();
     expect(loads).toEqual(['x-asr-streaming', 'x-asr-streaming']);
   });
+
+  it('uses the third-party service without a download or a supported local runtime', async () => {
+    __setSpeechTestHooks({
+      root,
+      platform: 'freebsd',
+      arch: 'x64',
+      createEngine: async (spec) => {
+        loads.push(spec.id);
+        return fakeEngine(spec.id);
+      },
+    });
+    enable({ voiceModel: 'enso-asr-streaming' });
+    expect(speechAvailable()).toBe(true);
+    expect(getSpeechStatus().state).toBe('ready');
+    const partials: string[] = [];
+    const session = openSpeechSession((text) => partials.push(text));
+    session.push(second());
+    await expect(session.finish()).resolves.toEqual({ ok: true, text: '字。' });
+    expect(partials).toEqual(['字']);
+    enable({ voiceModel: 'enso-asr' });
+    const whole = openSpeechSession(() => {});
+    whole.push(second());
+    await expect(whole.finish()).resolves.toEqual({ ok: true, text: '你好，世界。' });
+    expect(transcribed).toEqual([16_000]);
+    expect(loads).toEqual(['enso-asr-streaming', 'enso-asr']);
+    for (const id of ['enso-asr-streaming', 'enso-asr'] as const) {
+      await expect(startSpeechDownload(id)).resolves.toBe(false);
+      await expect(deleteSpeechModel(id)).resolves.toBe(false);
+    }
+    expect(speechAvailable()).toBe(true);
+  });
 });
 
 describe('speech correction', () => {
@@ -277,17 +309,19 @@ describe('speech correction', () => {
 });
 
 describe('speech status', () => {
-  it('lists every model with its streaming flag and download state', () => {
+  it('lists every model with its streaming flag, location and download state', () => {
     installModel('x-asr');
     enable({ voiceModel: 'x-asr' });
     const status = getSpeechStatus();
     expect(status.selected).toBe('x-asr');
     expect(status.state).toBe('ready');
-    expect(status.models.map((m) => [m.id, m.streaming, m.state])).toEqual([
-      ['x-asr-streaming', true, 'missing'],
-      ['x-asr', false, 'ready'],
-      ['qwen3-asr', false, 'missing'],
-      ['sense-voice', false, 'missing'],
+    expect(status.models.map((m) => [m.id, m.streaming, m.remote, m.state])).toEqual([
+      ['x-asr-streaming', true, false, 'missing'],
+      ['x-asr', false, false, 'ready'],
+      ['qwen3-asr', false, false, 'missing'],
+      ['sense-voice', false, false, 'missing'],
+      ['enso-asr-streaming', true, true, 'ready'],
+      ['enso-asr', false, true, 'ready'],
     ]);
   });
 

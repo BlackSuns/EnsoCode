@@ -998,8 +998,8 @@ export const zhTranslations: Record<string, string> = {
   'Downloading…': '下载中…',
   'Semantic search stays off until the model is on disk.': '模型落盘前语义检索不会生效。',
   'Voice input': '语音输入',
-  'Adds a microphone to the composer on this computer and on paired phones. Speech is transcribed locally on this computer.':
-    '在本机和已配对手机的输入框中显示麦克风按钮，语音在这台电脑上本地识别。',
+  'Adds a microphone to the composer on this computer and on paired phones. Local models transcribe speech on this computer.':
+    '在本机和已配对手机的输入框中显示麦克风按钮，本地模型在这台电脑上识别语音。',
   'Speech model': '识别模型',
   Streaming: '流式',
   'After you stop': '整段',
@@ -1012,6 +1012,14 @@ export const zhTranslations: Record<string, string> = {
   'Best with mixed Chinese-English and code terms. Slower and uses more memory.':
     '中英混说和代码术语识别最好，但较慢且更占内存。',
   'Chinese, English, Japanese, Korean and Cantonese.': '支持中文、英文、日语、韩语和粤语。',
+  'enso-asr Streaming': 'enso-asr 流式',
+  'Text appears while you speak. No download; needs a network connection.':
+    '边说边出字，无需下载，需要联网。',
+  'Uploads after you stop; nothing is sent if you cancel. No download; needs a network connection.':
+    '说完再上传识别，取消录音不会上传。无需下载，需要联网。',
+  'Third-party service': '第三方服务',
+  'What you say is uploaded to a third-party service for recognition. Avoid it for sensitive content.':
+    '你说的话会上传到第三方服务识别，敏感内容请勿使用。',
   'Correct with a language model': '用大模型纠错',
   'Fixes homophones, code terms and number formats after recognition. Adds about 1-3 seconds; the raw text is kept if it fails.':
     '识别后纠正同音错字、代码术语和数字写法，约多 1–3 秒；纠错失败时保留原文。',

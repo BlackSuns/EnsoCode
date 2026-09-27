@@ -2,7 +2,14 @@
 export const SPEECH_SAMPLE_RATE = 16_000;
 export const SPEECH_MAX_SECONDS = 300;
 
-export const SPEECH_MODEL_IDS = ['x-asr-streaming', 'x-asr', 'qwen3-asr', 'sense-voice'] as const;
+export const SPEECH_MODEL_IDS = [
+  'x-asr-streaming',
+  'x-asr',
+  'qwen3-asr',
+  'sense-voice',
+  'enso-asr-streaming',
+  'enso-asr',
+] as const;
 export type SpeechModelId = (typeof SPEECH_MODEL_IDS)[number];
 export const DEFAULT_SPEECH_MODEL_ID: SpeechModelId = 'x-asr-streaming';
 
@@ -16,6 +23,8 @@ export interface SpeechModelDto {
   id: SpeechModelId;
   /** 边说边出字 */
   streaming: boolean;
+  /** 第三方服务识别：无需下载，音频会发出本机 */
+  remote: boolean;
   /** 下载体积 */
   approxBytes: number;
   /** 加载后常驻内存估算 */

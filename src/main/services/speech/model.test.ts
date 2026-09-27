@@ -12,17 +12,27 @@ describe('speech model registry', () => {
     expect(speechModelIdFromSettings({ voiceModel: 'qwen3-asr' })).toBe('qwen3-asr');
   });
 
-  it('marks only the streaming transducer as streaming and gives every model a download path', () => {
+  it('marks the streaming models and gives every local model a download path', () => {
     expect(SPEECH_MODEL_IDS.filter((id) => SPEECH_MODELS[id].streaming)).toEqual([
       'x-asr-streaming',
+      'enso-asr-streaming',
     ]);
     for (const id of SPEECH_MODEL_IDS) {
       const spec = SPEECH_MODELS[id];
       expect(spec.id).toBe(id);
+      if (spec.remoteUrl) {
+        expect(spec.remoteUrl).toMatch(/^https:\/\/[^/]+$/);
+        expect(spec.files).toEqual([]);
+        continue;
+      }
       expect(Boolean(spec.sources) !== Boolean(spec.archive)).toBe(true);
       expect(spec.approxBytes).toBeGreaterThan(0);
       expect(spec.memoryBytes).toBeGreaterThan(0);
     }
+    expect(SPEECH_MODEL_IDS.filter((id) => SPEECH_MODELS[id].remoteUrl)).toEqual([
+      'enso-asr-streaming',
+      'enso-asr',
+    ]);
   });
 
   it('builds an online transducer config for the streaming model', () => {
