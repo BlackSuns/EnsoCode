@@ -150,7 +150,11 @@ export function VoiceModelList() {
                       {model.remote ? t('Third-party service') : t('Local')}
                     </Badge>
                     <Badge variant={model.streaming ? 'info' : 'secondary'} size="sm">
-                      {model.streaming ? t('Streaming') : t('After you stop')}
+                      {model.streaming
+                        ? t('Streaming')
+                        : model.remote
+                          ? t('After you stop')
+                          : t('Sentence by sentence')}
                     </Badge>
                     {model.state === 'ready' && !model.remote ? (
                       <Badge variant="success" size="sm">

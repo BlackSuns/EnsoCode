@@ -1,4 +1,5 @@
 import type { SpeechEngine, SpeechEngineStream } from './engine';
+import { joinSegments } from './text';
 
 /** 实测建连到 ready 常需 3-10s；服务端排队最多 10s、连上游 12s 超时会自己报错，这里只兜底断网 */
 const READY_TIMEOUT_MS = 25_000;
@@ -54,18 +55,6 @@ function toPcm16(samples: Float32Array): Uint8Array<ArrayBuffer> {
   for (let i = 0; i < samples.length; i++) {
     const s = Math.max(-1, Math.min(1, samples[i]));
     view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-  return out;
-}
-
-const CJK = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/;
-
-/** 服务端按句给结果：已定稿的句子与当前句拼接，两侧都不是中日韩字符时才补空格 */
-export function joinSegments(parts: readonly string[]): string {
-  let out = '';
-  for (const part of parts) {
-    if (!part) continue;
-    out += out && !CJK.test(out.at(-1) ?? '') && !CJK.test(part[0]) ? ` ${part}` : part;
   }
   return out;
 }

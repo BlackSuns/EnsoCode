@@ -1003,6 +1003,7 @@ export const zhTranslations: Record<string, string> = {
   'Speech model': '识别模型',
   Streaming: '流式',
   'After you stop': '整段',
+  'Sentence by sentence': '逐句',
   Downloaded: '已下载',
   'Download {{size}} · Memory about {{memory}}': '下载 {{size}} · 内存约 {{memory}}',
   'Download the selected model to start using voice input.': '下载所选模型后即可使用语音输入。',

@@ -1,5 +1,17 @@
 /** 识别结果与纠错的纯文本处理，不依赖 Electron */
 
+const CJK = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/;
+
+/** 逐句识别的结果按顺序拼接，两侧都不是中日韩字符时才补空格 */
+export function joinSegments(parts: readonly string[]): string {
+  let out = '';
+  for (const part of parts) {
+    if (!part) continue;
+    out += out && !CJK.test(out.at(-1) ?? '') && !CJK.test(part[0]) ? ` ${part}` : part;
+  }
+  return out;
+}
+
 export function normalizeTranscript(text: string): string {
   return (
     text

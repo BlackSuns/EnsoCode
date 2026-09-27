@@ -1,4 +1,5 @@
 import { SPEECH_SAMPLE_RATE } from '@shared/types/speech';
+import { createVoiceActivity, decibels, MIN_SPEECH_MS } from '@shared/voiceActivity';
 
 /**
  * 边录边降到 16kHz：按窗口取均值（比逐点抽取少混叠），跨块保留未凑满窗口的尾巴，
@@ -33,14 +34,6 @@ export function createDownsampler(inputRate: number): (chunk: Float32Array) => F
   };
 }
 
-/** 一块音频的 RMS 响度（dBFS），全静音记 -100 */
-function decibels(data: Float32Array): number {
-  let sum = 0;
-  for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
-  const rms = Math.sqrt(sum / Math.max(1, data.length));
-  return rms > 0 ? Math.max(-100, 20 * Math.log10(rms)) : -100;
-}
-
 /** 一块音频的响度映射到 0–1，按 dB 线性：-55dB 以下算静音，-10dB 顶满 */
 export function levelFromSamples(data: Float32Array): number {
   return Math.min(1, Math.max(0, (decibels(data) + 55) / 45));
@@ -48,26 +41,17 @@ export function levelFromSamples(data: Float32Array): number {
 
 /** 开口后停顿这么久算说完 */
 export const SPEECH_END_SILENCE_MS = 2000;
-/** 累计出声这么久才算开口，咳嗽、按键声不触发 */
-const MIN_SPEECH_MS = 300;
-/** 高出底噪这么多、且不低于绝对下限才算人声 */
-const SPEECH_OVER_FLOOR_DB = 12;
-const MIN_SPEECH_DB = -50;
-/** 底噪取近期最小响度，随环境变吵缓慢上浮 */
-const FLOOR_RISE_DB_PER_S = 3;
 
 /** 喂 16kHz 音频块，开口之后静音满 silenceMs 时返回 true */
 export function createSpeechEndDetector(
   silenceMs = SPEECH_END_SILENCE_MS
 ): (samples: Float32Array) => boolean {
-  let floor = Number.POSITIVE_INFINITY;
+  const isSpeech = createVoiceActivity();
   let spokenMs = 0;
   let quietMs = 0;
   return (samples) => {
     const ms = (samples.length / SPEECH_SAMPLE_RATE) * 1000;
-    const db = decibels(samples);
-    floor = Math.min(db, floor + (FLOOR_RISE_DB_PER_S * ms) / 1000);
-    if (db > Math.max(floor + SPEECH_OVER_FLOOR_DB, MIN_SPEECH_DB)) {
+    if (isSpeech(samples)) {
       spokenMs += ms;
       quietMs = 0;
     } else quietMs += ms;

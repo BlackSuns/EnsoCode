@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  type ConnectRemote,
-  createRemoteSpeechEngine,
-  joinSegments,
-  type RemoteHandlers,
-} from './remote';
+import { type ConnectRemote, createRemoteSpeechEngine, type RemoteHandlers } from './remote';
 
 interface FakeSocket {
   url: string;
@@ -249,14 +244,5 @@ describe('remote whole-recording transcription', () => {
     const bad = post(Response.json({ error: 'empty audio' }, { status: 400 }));
     await expect(bad.engine.transcribe(new Float32Array([0.5]))).rejects.toThrow('empty audio');
     expect(bad.calls).toHaveLength(1);
-  });
-});
-
-describe('joinSegments', () => {
-  it('adds a space only between two non-CJK edges', () => {
-    expect(joinSegments(['你好。', '然后'])).toBe('你好。然后');
-    expect(joinSegments(['Hello.', 'World'])).toBe('Hello. World');
-    expect(joinSegments(['好的', 'OK'])).toBe('好的OK');
-    expect(joinSegments(['', 'a', ''])).toBe('a');
   });
 });

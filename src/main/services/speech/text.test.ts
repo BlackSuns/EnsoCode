@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { acceptCorrection, buildCorrectionRequest, normalizeTranscript } from './text';
+import {
+  acceptCorrection,
+  buildCorrectionRequest,
+  joinSegments,
+  normalizeTranscript,
+} from './text';
+
+describe('joinSegments', () => {
+  it('adds a space only between two non-CJK edges', () => {
+    expect(joinSegments(['你好。', '然后'])).toBe('你好。然后');
+    expect(joinSegments(['Hello.', 'World'])).toBe('Hello. World');
+    expect(joinSegments(['好的', 'OK'])).toBe('好的OK');
+    expect(joinSegments(['', 'a', ''])).toBe('a');
+  });
+});
 
 describe('normalizeTranscript', () => {
   it('drops the space the transducer puts after CJK punctuation and trims', () => {

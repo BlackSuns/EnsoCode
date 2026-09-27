@@ -33,7 +33,8 @@ import {
   speechRuntimeDir,
   speechRuntimeWrapperDir,
 } from './runtime';
-import { acceptCorrection, normalizeTranscript } from './text';
+import { createPauseSegmenter, joinSamples } from './segment';
+import { acceptCorrection, joinSegments, normalizeTranscript } from './text';
 
 const IDLE_UNLOAD_MS = 10 * 60_000;
 const CORRECTION_TIMEOUT_MS = 20_000;
@@ -348,19 +349,10 @@ function rejectedSession(error: SpeechErrorCode): VoiceSession {
   };
 }
 
-function joinSamples(chunks: readonly Float32Array[]): Float32Array {
-  const out = new Float32Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return out;
-}
-
 /**
  * 录音会话：边录边推 16kHz PCM。流式模型逐块解码并经 onPartial 给中间结果；
- * 整段模型攒到 finish 再识别。开启纠错时先把原文标记为纠错中给出，再返回纠错后的定稿。
+ * 本地整段模型按停顿逐句识别并给中间结果；第三方整段模型攒到 finish 再上传。
+ * 开启纠错时先把原文标记为纠错中给出，再返回纠错后的定稿。
  */
 export function openSpeechSession(
   onPartial: (text: string, correcting: boolean) => void
@@ -384,7 +376,11 @@ export function openSpeechSession(
   stream?.catch(() => {
     failed = true;
   });
+  const segmenter = spec.streaming || spec.remoteUrl ? null : createPauseSegmenter();
+  const sentences: string[] = [];
   let chain: Promise<void> = Promise.resolve();
+  const recognize = async (samples: Float32Array) =>
+    normalizeTranscript(await (await loaded).transcribe(samples));
 
   const close = () => {
     if (phase === 'closed') return;
@@ -404,6 +400,20 @@ export function openSpeechSession(
       total += samples.length;
       if (total > MAX_SAMPLES) {
         overflow = true;
+        return;
+      }
+      if (segmenter) {
+        for (const sentence of segmenter.push(samples)) {
+          chain = chain
+            .then(async () => {
+              if (phase === 'closed') return;
+              sentences.push(await recognize(sentence));
+              partial(joinSegments(sentences));
+            })
+            .catch(() => {
+              failed = true;
+            });
+        }
         return;
       }
       if (!stream) {
@@ -432,6 +442,12 @@ export function openSpeechSession(
           await chain;
           if (failed) throw new Error('streaming decode failed');
           text = await (await stream).finish();
+        } else if (segmenter) {
+          const tail = segmenter.flush();
+          await chain;
+          if (failed) throw new Error('sentence decode failed');
+          if (tail.speech || sentences.length === 0) sentences.push(await recognize(tail.samples));
+          text = joinSegments(sentences);
         } else {
           text = await (await loaded).transcribe(joinSamples(buffered));
         }
@@ -452,6 +468,7 @@ export function openSpeechSession(
       if (phase !== 'open') return;
       close();
       buffered.length = 0;
+      segmenter?.flush();
       void stream?.then(
         (s) => s.cancel(),
         () => {}

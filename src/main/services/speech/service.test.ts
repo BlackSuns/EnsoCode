@@ -9,6 +9,7 @@ vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 import type { SpeechEngine } from './engine';
 import { SPEECH_MODELS, speechModelDirName } from './model';
 import { SHERPA_ONNX_VERSION, speechRuntimeDir } from './runtime';
+import { joinSamples } from './segment';
 import {
   __setSpeechTestHooks,
   deleteSpeechModel,
@@ -74,6 +75,10 @@ function fakeEngine(id: SpeechModelId): SpeechEngine {
 }
 
 const second = () => new Float32Array(16_000);
+const tone = (seconds: number) =>
+  Float32Array.from({ length: seconds * 16_000 }, (_, i) => 0.3 * Math.sin(i / 10));
+const quiet = (seconds: number) => new Float32Array(seconds * 16_000);
+const concat = (...parts: Float32Array[]) => joinSamples(parts);
 const enable = (extra: Record<string, unknown> = {}) =>
   syncSpeechFromSettings({ voiceInputEnabled: true, ...extra });
 
@@ -143,6 +148,23 @@ describe('speech sessions', () => {
     expect(transcribed).toEqual([32_000, 32_000]);
     expect(loads).toEqual(['x-asr']);
     expect(partials).toEqual([]);
+  });
+
+  it('recognizes a local whole-utterance model sentence by sentence while recording', async () => {
+    installModel('qwen3-asr');
+    enable({ voiceModel: 'qwen3-asr' });
+    const partials: string[] = [];
+    const session = openSpeechSession((text) => partials.push(text));
+    session.push(concat(quiet(0.3), tone(1), quiet(1.2)));
+    await vi.waitFor(() => expect(partials).toEqual(['你好，世界。']));
+    session.push(concat(tone(1), quiet(0.3)));
+    await expect(session.finish()).resolves.toEqual({
+      ok: true,
+      text: '你好，世界。你好，世界。',
+    });
+    expect(transcribed).toHaveLength(2);
+    expect(transcribed[0] + transcribed[1]).toBe(16_000 * 3.8);
+    expect(partials).toEqual(['你好，世界。']);
   });
 
   it('rejects empty recordings and recordings longer than the cap', async () => {
