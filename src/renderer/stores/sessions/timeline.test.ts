@@ -2949,3 +2949,82 @@ describe('memory_capture 记录记忆行', () => {
     );
   });
 });
+
+describe('ask_user 询问用户行', () => {
+  const ask = (
+    args: Record<string, unknown>,
+    result?: { text: string; isError?: boolean },
+    running = false
+  ) =>
+    buildTimeline(
+      [
+        user('帮我定一下'),
+        {
+          role: 'assistant',
+          stopReason: 'toolUse',
+          content: [{ type: 'toolCall', id: 'q1', name: 'ask_user', arguments: args }],
+        },
+        ...(result
+          ? [
+              {
+                role: 'toolResult',
+                toolCallId: 'q1',
+                toolName: 'ask_user',
+                isError: result.isError === true,
+                content: [{ type: 'text', text: result.text }],
+              } satisfies ProjectedMessage,
+            ]
+          : []),
+      ],
+      running
+    ).find((item) => item.kind === 'tool');
+  const args = { question: ' 用哪个方案？\n说明一下 ', options: [' A ', 'B', 'C', 'D', 'E'] };
+
+  it('摘要取问题；带出当时展示的选项（同实际展示最多 4 个）与用户选的那个', () => {
+    expect(ask(args, { text: 'B' })).toMatchObject({
+      state: 'ok',
+      summary: '用哪个方案？\n说明一下',
+      output: null,
+      ask: {
+        question: '用哪个方案？\n说明一下',
+        options: ['A', 'B', 'C', 'D'],
+        answer: 'B',
+        autoSelected: false,
+      },
+    });
+  });
+
+  it('自定义回答原样带出；回执前捎带的系统提醒照常显示', () => {
+    const notice =
+      '<background-task-update>\nMessage from coworker "B":\nhi\n</background-task-update>';
+    expect(ask(args, { text: `${notice}\n\n都不要，用 F` })).toMatchObject({
+      output: notice,
+      ask: { answer: '都不要，用 F', autoSelected: false },
+    });
+  });
+
+  it('超时按默认项自动选择时，回答取默认项本身并注明', () => {
+    expect(
+      ask({ ...args, default_option: 'A' }, { text: 'A (auto-selected: no response in time)' })
+    ).toMatchObject({ output: null, ask: { answer: 'A', autoSelected: true } });
+  });
+
+  it('等待回答或已取消时没有回答，取消原因照常显示', () => {
+    expect(ask(args, undefined, true)).toMatchObject({
+      state: 'running',
+      output: null,
+      ask: { answer: null },
+    });
+    expect(ask(args, { text: 'question cancelled', isError: true })).toMatchObject({
+      state: 'error',
+      output: 'question cancelled',
+      ask: { answer: null },
+    });
+  });
+
+  it('没有问题（调用失败）时不改写，按原样显示', () => {
+    const tool = ask({ options: ['A'] }, { text: 'question is required', isError: true });
+    expect(tool).toMatchObject({ output: 'question is required' });
+    expect(tool).not.toHaveProperty('ask');
+  });
+});

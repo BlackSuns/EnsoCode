@@ -72,6 +72,7 @@ import {
   thinkingRowExpanded,
 } from '@/stores/sessions/timeline';
 import { useSettingsStore } from '@/stores/settings';
+import { AskUserResult } from './AskUserResult';
 import { CodeBlock } from './CodeBlock';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useChatHost } from './chatHost';
@@ -165,7 +166,11 @@ function itemEqual(prev: TimelineRowProps, next: TimelineRowProps): boolean {
         a.plan?.title === b.plan?.title &&
         a.plan?.text === b.plan?.text &&
         a.sentMessage === b.sentMessage &&
-        a.memoryContent === b.memoryContent
+        a.memoryContent === b.memoryContent &&
+        a.ask?.question === b.ask?.question &&
+        a.ask?.options.join('\n') === b.ask?.options.join('\n') &&
+        a.ask?.answer === b.ask?.answer &&
+        a.ask?.autoSelected === b.ask?.autoSelected
       );
     case 'tool-group':
       return (
@@ -1586,7 +1591,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
       : sandbox?.calls.length && item.state !== 'error'
         ? summarizeSandboxCalls(sandbox.calls)
         : item.summary;
-  const hasBody = Boolean(item.output || item.source || sentMessage);
+  const hasBody = Boolean(item.output || item.source || sentMessage || item.ask);
   const expandable = hasDiff || hasWrite || hasFileChanges || hasBody;
   // edit 的 diff 与 write 的内容只在本轮直播（running）且开启 expandLiveEdits 时默认展开；
   // 历史会话挂载时全部折叠——否则切会话时视口内成排 FileDiff 同步解析+高亮，
@@ -1752,6 +1757,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                 <MemoryCaptureResult view={memoryCapture} />
               ) : (
                 <>
+                  {item.ask && <AskUserResult ask={item.ask} waiting={item.state === 'running'} />}
                   {sentMessage && (
                     <div className="px-3 py-2 text-sm">
                       <Markdown text={sentMessage} />

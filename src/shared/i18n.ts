@@ -963,6 +963,9 @@ export const zhTranslations: Record<string, string> = {
   'Expand sidebar': '展开侧边栏',
   'Approval required': '需要审批',
   'Waiting for your answer': '等待你回答',
+  'Custom answer': '自定义回答',
+  'No answer in time; the default was selected': '超时未回答，已自动选择默认项',
+  Selected: '已选',
   'Type an answer…': '输入回答…',
   'Message will queue until this round finishes…': '消息将排队,本轮结束后发送…',
   'Press {{key}} to steer the next queued message into this round…':

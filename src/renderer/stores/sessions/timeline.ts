@@ -85,6 +85,8 @@ export type TimelineItem =
       sentMessage?: string;
       /** memory_capture 记下的正文（写入回执不带正文）；其它工具缺省 */
       memoryContent?: string;
+      /** ask_user 当时的问题、选项与用户的回答；其它工具缺省 */
+      ask?: AskUserView;
     }
   | {
       kind: 'tool-group';
@@ -466,6 +468,51 @@ function extractCapturedMemory(
   const text = content.trim();
   const heading = typeof title === 'string' ? title.trim() : '';
   return { title: heading || text.split('\n', 1)[0].trim(), content: text };
+}
+
+export interface AskUserView {
+  question: string;
+  /** 当时展示的选项（ask_user 最多展示前 4 个）；自由问答为空 */
+  options: string[];
+  /** 用户的回答；等待中、已取消或超时失败为 null */
+  answer: string | null;
+  /** 超时无人回答，按 default_option 自动选择 */
+  autoSelected: boolean;
+}
+
+/** 工具结果前捎带的系统提醒块（withSystemReminders 注入），不是回答的一部分 */
+const LEADING_NOTICE = /^\s*<(system-reminder|background-task-update)>[\s\S]*?<\/\1>/;
+const AUTO_SELECTED = / \(auto-selected: no response in time\)$/;
+
+/** ask_user 的问题与选项取自参数，回答取自回执；回执里捎带的提醒留给调用方照常显示 */
+function extractAsk(
+  name: string,
+  args: unknown,
+  output: string | null,
+  answered: boolean
+): { ask: AskUserView; output: string | null } | null {
+  if (name !== 'ask_user' || !args || typeof args !== 'object') return null;
+  const { question, options } = args as Record<string, unknown>;
+  if (typeof question !== 'string' || !question.trim()) return null;
+  const shown = Array.isArray(options)
+    ? options
+        .slice(0, 4)
+        .flatMap((option) => (typeof option === 'string' && option.trim() ? [option.trim()] : []))
+    : [];
+  const ask = { question: question.trim(), options: shown, answer: null, autoSelected: false };
+  if (!answered || !output) return { ask, output };
+  let rest = output;
+  const notices: string[] = [];
+  for (let block = LEADING_NOTICE.exec(rest); block; block = LEADING_NOTICE.exec(rest)) {
+    notices.push(block[0].trim());
+    rest = rest.slice(block[0].length);
+  }
+  const reply = rest.trim();
+  const answer = reply.replace(AUTO_SELECTED, '');
+  return {
+    ask: { ...ask, answer: answer || null, autoSelected: answer !== reply },
+    output: notices.join('\n\n') || null,
+  };
 }
 
 /** edit 工具参数里取出替换块（保持同一数组引用，供 memo 做引用比较） */
@@ -891,6 +938,12 @@ function buildMessageTimeline(
           }
           const sent = extractSentMessage(part.name, part.arguments, spawnedAgents);
           const captured = extractCapturedMemory(part.name, part.arguments);
+          const asked = extractAsk(
+            part.name,
+            part.arguments,
+            output,
+            Boolean(result && !result.isError)
+          );
           const patchPaths =
             part.name !== 'apply_patch'
               ? null
@@ -909,10 +962,11 @@ function buildMessageTimeline(
                   : toProjectRelativePath(patchPaths[0] ?? '', cwd)
                 : (sent?.summary ??
                   captured?.title ??
+                  asked?.ask.question ??
                   call.summary ??
                   summarizeArgs(call.args, cwd)),
             source: execSource,
-            output: sent ? stripDeliveryReceipt(output) : output,
+            output: sent ? stripDeliveryReceipt(output) : asked ? asked.output : output,
             nestedPending: nestedPendingCount(part.id, pendingApprovals) || undefined,
             state: result
               ? result.isError || sandboxView?.status === 'failed'
@@ -941,6 +995,7 @@ function buildMessageTimeline(
               : {}),
             ...(sent ? { sentMessage: sent.text } : {}),
             ...(captured ? { memoryContent: captured.content } : {}),
+            ...(asked ? { ask: asked.ask } : {}),
             ...(result || !toolStartedAt ? {} : { startedAt: toolStartedAt[part.id] ?? null }),
           });
           return;
