@@ -2638,6 +2638,19 @@ describe('typed Agent child projection', () => {
       expect(conversation.compaction).toBeUndefined();
       expect(conversation.compactionNoticeAt).toBe(5);
     });
+
+    it('只持有尾窗时锚点取绝对下标，与时间线行 key 同口径', () => {
+      seedCompaction({ compaction: 'running', historyBaseIndex: 100 });
+      onAgentEvent?.({
+        type: 'compaction',
+        identity: { sessionId: 'parent', generation: 'pg1' },
+        seq: 1,
+        state: 'end',
+      });
+      expect(
+        sessionsModule.useSessionsStore.getState().conversations.parent.compactionNoticeAt
+      ).toBe(105);
+    });
   });
 
   it('summon only pre-fills the parent composer and never dispatches', () => {

@@ -1390,7 +1390,10 @@ export const useSessionsStore = create<SessionsState>()(
                         ...(event.error || event.abandoned
                           ? {}
                           : {
-                              compactionNoticeAt: state.conversations[id].messages?.length ?? 0,
+                              // 与时间线行 key 同为绝对下标：只持有尾窗时要加上窗起点
+                              compactionNoticeAt:
+                                (state.conversations[id].historyBaseIndex ?? 0) +
+                                (state.conversations[id].messages?.length ?? 0),
                             }),
                       }
                     : {}),

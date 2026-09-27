@@ -2162,6 +2162,41 @@ describe('compaction 摘要行', () => {
     const timeline = buildTimeline([user('old')], false, [], undefined, { compactionNoticeAt: 5 });
     expect(timeline.map((item) => item.kind)).toEqual(['user']);
   });
+
+  it('锚点不在最新摘要之后（冷缓存清空时记成 0）时不钉提示，不能顶成尾窗首行', () => {
+    const tail: ProjectedMessage[] = [
+      { role: 'assistant', content: [{ type: 'text', text: 'before' }] },
+      { role: 'compactionSummary', content: [{ type: 'text', text: 'S' }] },
+      user('kept'),
+    ];
+    for (const compactionNoticeAt of [0, 3, 691]) {
+      const timeline = buildTimeline(tail, false, [], undefined, {
+        compactionNoticeAt,
+        historyBaseIndex: 690,
+      });
+      expect(timeline.map((item) => item.kind)).toEqual(['text', 'compaction', 'user']);
+    }
+  });
+
+  it('尾窗分页时锚点按绝对下标落在摘要之后', () => {
+    const timeline = buildTimeline(
+      [
+        { role: 'compactionSummary', content: [{ type: 'text', text: 'S' }] },
+        user('kept'),
+        user('new-after-compact'),
+      ],
+      false,
+      [],
+      undefined,
+      { compactionNoticeAt: 692, historyBaseIndex: 690 }
+    );
+    expect(timeline.map((item) => item.kind)).toEqual([
+      'compaction',
+      'user',
+      'compaction-notice',
+      'user',
+    ]);
+  });
 });
 
 describe('buildTimeline 运行中工具的增量输出', () => {

@@ -1004,6 +1004,9 @@ const messageItemTime = (
 function insertCompactionNotice(items: TimelineItem[], noticeAt: number): TimelineItem[] {
   const lastSummary = items.findLast((item) => item.kind === 'compaction');
   if (!lastSummary) return items;
+  // 锚点必须在它提示的那次摘要之后；更早说明锚点已失效（如冷缓存清空时记成 0）。
+  // 否则提示会顶成首行，上滑分页的前置行对不上，翻一页就停
+  if (noticeAt <= messageItemIndex(lastSummary)) return items;
   let at = items.length;
   for (let i = 0; i < items.length; i++) {
     const index = messageItemIndex(items[i]);
