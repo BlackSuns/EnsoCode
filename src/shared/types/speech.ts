@@ -12,6 +12,8 @@ export const SPEECH_MODEL_IDS = [
 ] as const;
 export type SpeechModelId = (typeof SPEECH_MODEL_IDS)[number];
 export const DEFAULT_SPEECH_MODEL_ID: SpeechModelId = 'qwen3-asr';
+/** 录音设备跟随系统默认（Chromium 的 'default' 设备 id） */
+export const SYSTEM_MICROPHONE = 'default';
 
 export function isSpeechModelId(value: unknown): value is SpeechModelId {
   return typeof value === 'string' && (SPEECH_MODEL_IDS as readonly string[]).includes(value);

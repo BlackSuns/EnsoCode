@@ -1,4 +1,4 @@
-import { SPEECH_SAMPLE_RATE } from '@shared/types/speech';
+import { SPEECH_SAMPLE_RATE, SYSTEM_MICROPHONE } from '@shared/types/speech';
 import { createVoiceActivity, decibels, MIN_SPEECH_MS } from '@shared/voiceActivity';
 
 /**
@@ -97,8 +97,30 @@ export function releaseVoiceAudio(): void {
 export interface VoiceCaptureOptions {
   /** 已启动的 AudioContext（见 primeVoiceAudio），录完不关闭 */
   context?: AudioContext;
+  /** 录音设备；缺省或 SYSTEM_MICROPHONE 跟随系统 */
+  deviceId?: string;
   /** 每块原始音频的响度 0–1，画波形用 */
   onLevel?: (level: number) => void;
+}
+
+const CAPTURE: MediaTrackConstraints = {
+  channelCount: 1,
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
+
+/** 选中的麦克风拔掉或打不开时退回系统默认；拒绝授权照常报错 */
+async function openMicrophone(deviceId?: string): Promise<MediaStream> {
+  const media = navigator.mediaDevices;
+  if (!deviceId || deviceId === SYSTEM_MICROPHONE) return media.getUserMedia({ audio: CAPTURE });
+  try {
+    return await media.getUserMedia({ audio: { ...CAPTURE, deviceId: { exact: deviceId } } });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    if (name === 'NotAllowedError' || name === 'SecurityError') throw error;
+    return media.getUserMedia({ audio: CAPTURE });
+  }
 }
 
 /** 迟迟等不到真信号就不等了，交给录完时的静音检测兜底 */
@@ -126,14 +148,7 @@ export async function startVoiceRecording(
   const resumed = context.resume();
   let stream: MediaStream | undefined;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
+    stream = await openMicrophone(options.deviceId);
     // 没有用户激活时 resume 永不落定（Chrome 自动播放策略），别让按钮一直转圈
     await Promise.race([
       resumed,

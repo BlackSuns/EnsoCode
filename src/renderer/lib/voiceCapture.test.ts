@@ -218,6 +218,47 @@ describe('startVoiceRecording live', () => {
     expect(await settled(recording.live)).toBe(true);
   });
 
+  function stubMicrophone(failure: (audio: MediaTrackConstraints) => string | null) {
+    const asked: MediaTrackConstraints[] = [];
+    vi.stubGlobal('navigator', {
+      mediaDevices: {
+        getUserMedia: async ({ audio }: MediaStreamConstraints) => {
+          asked.push(audio as MediaTrackConstraints);
+          const name = failure(audio as MediaTrackConstraints);
+          if (name) throw new DOMException('cannot open', name);
+          return { getTracks: () => [{ stop: () => {} }] };
+        },
+      },
+    });
+    return asked;
+  }
+
+  it('records from the chosen microphone and follows the system otherwise', async () => {
+    const { context } = fakeCapture();
+    const asked = stubMicrophone(() => null);
+    for (const deviceId of ['usb-mic', 'default', undefined]) {
+      (await startVoiceRecording(() => {}, { context, deviceId })).cancel();
+    }
+    expect(asked.map((audio) => audio.deviceId)).toEqual([
+      { exact: 'usb-mic' },
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it('falls back to the system microphone when the chosen one is gone, not when access is denied', async () => {
+    const { context } = fakeCapture();
+    const gone = stubMicrophone((audio) => (audio.deviceId ? 'OverconstrainedError' : null));
+    (await startVoiceRecording(() => {}, { context, deviceId: 'usb-mic' })).cancel();
+    expect(gone.map((audio) => audio.deviceId)).toEqual([{ exact: 'usb-mic' }, undefined]);
+
+    const denied = stubMicrophone(() => 'NotAllowedError');
+    await expect(
+      startVoiceRecording(() => {}, { context, deviceId: 'usb-mic' })
+    ).rejects.toMatchObject({ name: 'NotAllowedError' });
+    expect(denied).toHaveLength(1);
+  });
+
   it('gives up waiting after a while so the UI never sticks', async () => {
     vi.useFakeTimers();
     const { context, emit } = fakeCapture();

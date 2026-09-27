@@ -6,6 +6,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { useI18n } from '@/i18n';
 import { eventToBinding, formatBinding, isHoldReleased } from '@/lib/keybindings';
 import { Z_INDEX } from '@/lib/z-index';
+import { useSettingsStore } from '@/stores/settings';
 import { pushLevel, releaseAction, WAVE_BARS } from './holdGesture';
 import { useVoiceInput } from './useVoiceInput';
 import { voiceNotePlacement } from './voiceNotePlacement';
@@ -88,9 +89,14 @@ export function VoiceInputButton({
     useVoiceInput({ startSession, requestMicAccess, onText });
   const anchorRef = useRef<HTMLDivElement>(null);
   const [levels, setLevels] = useState(SILENT);
+  const deviceId = useSettingsStore((state) => state.voiceInputDevice);
   const begin = (autoStop = false) => {
     setLevels(SILENT);
-    return start({ autoStop, onLevel: (level) => setLevels((prev) => pushLevel(prev, level)) });
+    return start({
+      autoStop,
+      deviceId,
+      onLevel: (level) => setLevels((prev) => pushLevel(prev, level)),
+    });
   };
   const latest = useRef({ phase, start: begin, finish, cancel });
   latest.current = { phase, start: begin, finish, cancel };

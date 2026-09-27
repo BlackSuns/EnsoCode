@@ -1001,6 +1001,9 @@ export const zhTranslations: Record<string, string> = {
   'Adds a microphone to the composer on this computer and on paired phones. Local models transcribe speech on this computer.':
     '在本机和已配对手机的输入框中显示麦克风按钮，本地模型在这台电脑上识别语音。',
   'Speech model': '识别模型',
+  Microphone: '麦克风',
+  'Microphone {{n}}': '麦克风 {{n}}',
+  'Disconnected, using the system default': '已断开，暂用系统默认',
   Streaming: '流式',
   'After you stop': '整段',
   'Sentence by sentence': '逐句',

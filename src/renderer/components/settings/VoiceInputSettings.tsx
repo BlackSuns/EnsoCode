@@ -1,5 +1,5 @@
 import type { ChatModelDto, EmbeddingDownloadProgressDto } from '@shared/memory/dto';
-import type { SpeechModelDto, SpeechModelId } from '@shared/types/speech';
+import { type SpeechModelDto, type SpeechModelId, SYSTEM_MICROPHONE } from '@shared/types/speech';
 import * as React from 'react';
 import { MODEL_PICKER_FORM_TRIGGER_CLASS, ModelPicker } from '@/components/chat/ModelPicker';
 import { Badge } from '@/components/ui/badge';
@@ -363,10 +363,74 @@ export function VoiceInputSettings() {
       </div>
       {enabled ? (
         <>
+          <MicrophoneSetting />
           <VoiceModelList />
           <VoiceCorrectionSettings />
         </>
       ) : null}
+    </div>
+  );
+}
+
+/** 本机输入设备，插拔时刷新；'default' / 'communications' 是系统别名，用「跟随系统」代替 */
+function useMicrophones(): MediaDeviceInfo[] {
+  const [devices, setDevices] = React.useState<MediaDeviceInfo[]>([]);
+  React.useEffect(() => {
+    const media = navigator.mediaDevices;
+    if (!media?.enumerateDevices) return;
+    let alive = true;
+    const load = () =>
+      void media.enumerateDevices().then((all) => {
+        if (!alive) return;
+        setDevices(
+          all.filter(
+            (device) =>
+              device.kind === 'audioinput' &&
+              device.deviceId !== SYSTEM_MICROPHONE &&
+              device.deviceId !== 'communications'
+          )
+        );
+      });
+    load();
+    media.addEventListener('devicechange', load);
+    return () => {
+      alive = false;
+      media.removeEventListener('devicechange', load);
+    };
+  }, []);
+  return devices;
+}
+
+function MicrophoneSetting() {
+  const { t } = useI18n();
+  const deviceId = useSettingsStore((state) => state.voiceInputDevice);
+  const setDeviceId = useSettingsStore((state) => state.setVoiceInputDevice);
+  const devices = useMicrophones();
+  const items = [
+    { value: SYSTEM_MICROPHONE, label: t('System default') },
+    ...devices.map((device, index) => ({
+      value: device.deviceId,
+      label: device.label || t('Microphone {{n}}', { n: index + 1 }),
+    })),
+  ];
+  if (!items.some((item) => item.value === deviceId)) {
+    items.push({ value: deviceId, label: t('Disconnected, using the system default') });
+  }
+  return (
+    <div className="flex items-center justify-between gap-3" data-settings-row="voice.microphone">
+      <p className="text-sm">{t('Microphone')}</p>
+      <Select value={deviceId} items={items} onValueChange={(value) => setDeviceId(String(value))}>
+        <SelectTrigger className="w-64">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectPopup>
+          {items.map((item) => (
+            <SelectItem key={item.value} value={item.value}>
+              {item.label}
+            </SelectItem>
+          ))}
+        </SelectPopup>
+      </Select>
     </div>
   );
 }

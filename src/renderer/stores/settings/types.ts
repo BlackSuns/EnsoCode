@@ -144,6 +144,8 @@ export interface SettingsState {
   memoryKgEnabled: boolean;
   /** 语音输入：开启后才提示下载本地识别模型；缺省关 */
   voiceInputEnabled: boolean;
+  /** 桌面录音用的麦克风设备 id；SYSTEM_MICROPHONE 跟随系统 */
+  voiceInputDevice: string;
   /** 本机语音识别模型 */
   voiceModel: SpeechModelId;
   /** 识别后用 LLM 纠错；缺省关 */
@@ -313,6 +315,7 @@ export interface SettingsState {
   setMemoryDistillEnabled: (value: boolean) => void;
   setMemoryKgEnabled: (value: boolean) => void;
   setVoiceInputEnabled: (value: boolean) => void;
+  setVoiceInputDevice: (deviceId: string) => void;
   setVoiceModel: (model: SpeechModelId) => void;
   setVoiceCorrectionEnabled: (value: boolean) => void;
   setVoiceCorrectionModel: (model: string) => void;

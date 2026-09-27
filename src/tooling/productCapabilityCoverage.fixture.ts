@@ -50,6 +50,7 @@ export const SETTINGS_DATA_COVERAGE = {
   memoryDistillEnabled: excluded('Memory auto-distillation preference; not an Enso capability.'),
   memoryKgEnabled: excluded('Memory entity-graph extraction preference; not an Enso capability.'),
   voiceInputEnabled: excluded('Voice input is a device-local composer preference.'),
+  voiceInputDevice: excluded('Voice input is a device-local composer preference.'),
   voiceModel: excluded('Voice input is a device-local composer preference.'),
   voiceCorrectionEnabled: excluded('Voice input is a device-local composer preference.'),
   voiceCorrectionModel: excluded('Voice input is a device-local composer preference.'),
@@ -172,6 +173,7 @@ export const SETTINGS_ACTION_COVERAGE = {
     'Memory entity-graph extraction preference; not an Enso capability.'
   ),
   setVoiceInputEnabled: excluded('Voice input is a device-local composer preference.'),
+  setVoiceInputDevice: excluded('Voice input is a device-local composer preference.'),
   setVoiceModel: excluded('Voice input is a device-local composer preference.'),
   setVoiceCorrectionEnabled: excluded('Voice input is a device-local composer preference.'),
   setVoiceCorrectionModel: excluded('Voice input is a device-local composer preference.'),
