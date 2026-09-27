@@ -88,6 +88,8 @@ import { ReadFileView } from './ReadFileView';
 import { RtkToolStatsBar } from './RtkToolStatsBar';
 import { SlashChip, slashChipClass, splitSlashCommand } from './SlashChip';
 import { StepNode, type StepNodeState } from './StepNode';
+import { SubagentResult } from './SubagentResult';
+import { parseSubagentReceipt } from './subagentReceipt';
 import { TerminalOutput } from './TerminalOutput';
 import { TodoList } from './TodoBar';
 import { ZoomableImage } from './ZoomableImage';
@@ -171,7 +173,8 @@ function itemEqual(prev: TimelineRowProps, next: TimelineRowProps): boolean {
         a.ask?.options.join('\n') === b.ask?.options.join('\n') &&
         a.ask?.answer === b.ask?.answer &&
         a.ask?.autoSelected === b.ask?.autoSelected &&
-        a.subagentOp === b.subagentOp
+        a.subagentOp === b.subagentOp &&
+        JSON.stringify(a.subagentTitles) === JSON.stringify(b.subagentTitles)
       );
     case 'tool-group':
       return (
@@ -1609,6 +1612,12 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
     expanded && item.name === 'memory_capture'
       ? parseMemoryCapture(item.output, item.memoryContent)
       : null;
+  const subagentReceipt =
+    expanded &&
+    item.state !== 'error' &&
+    (item.subagentOp === 'report' || item.subagentOp === 'wait')
+      ? parseSubagentReceipt(item.subagentOp, item.output)
+      : null;
   const previouslyHadFileChanges = useRef(hasFileChanges);
   // apply_patch 只在终态结果中拿到真实 diff：必须按「本行从无到有」识别直播，历史首次挂载不展开。
   useEffect(() => {
@@ -1752,6 +1761,8 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                 <TerminalOutput command={item.summary} output={item.output ?? ''} />
               ) : item.name === 'read' ? (
                 <ReadFileView path={item.summary} contents={item.output ?? ''} />
+              ) : subagentReceipt ? (
+                <SubagentResult view={subagentReceipt} titles={item.subagentTitles} />
               ) : item.name === 'subagent' && item.state !== 'error' && !sentMessage ? (
                 <div className="px-3 py-2 text-sm">
                   <Markdown text={item.output ?? ''} />

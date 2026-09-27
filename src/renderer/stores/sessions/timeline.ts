@@ -89,6 +89,8 @@ export type TimelineItem =
       ask?: AskUserView;
       /** 子代理按 runId / agentId 指代目标的操作（summary 为 spawn 时起的标题）；其它缺省 */
       subagentOp?: SubagentOp;
+      /** wait 行：agentId → spawn 时起的名字，展开后逐个 run 标注；其它缺省 */
+      subagentTitles?: Record<string, string>;
     }
   | {
       kind: 'tool-group';
@@ -421,7 +423,7 @@ function extractSentMessage(
 }
 
 /** 子代理结果是末尾一段 JSON，前面可能被捎带的系统提醒顶开 */
-function splitTrailingJson(
+export function splitTrailingJson(
   output: string | null | undefined
 ): { head: string; value: Record<string, unknown> } | null {
   if (!output) return null;
@@ -477,7 +479,7 @@ function extractSubagentHeader(
   args: unknown,
   agents: ReadonlyMap<string, string>,
   runs: ReadonlyMap<string, string>
-): { op?: SubagentOp; title: string } | null {
+): { op?: SubagentOp; title: string; titles?: Record<string, string> } | null {
   if (!args || typeof args !== 'object') return null;
   const { operation, name, description, agentId, runId, runIds } = args as Record<string, unknown>;
   if (operation === 'spawn') {
@@ -494,12 +496,17 @@ function extractSubagentHeader(
       : [runId, ...(Array.isArray(runIds) ? runIds : [])].map((id) =>
           typeof id === 'string' ? runs.get(id) : undefined
         );
-  const titles = new Set<string>();
+  const titles: Record<string, string> = {};
   for (const id of ids) {
-    const title = typeof id === 'string' ? agents.get(id) : undefined;
-    if (title) titles.add(title);
+    if (typeof id !== 'string') continue;
+    const title = agents.get(id);
+    if (title) titles[id] = title;
   }
-  return { op: operation as SubagentOp, title: [...titles].join(', ') };
+  const title = [...new Set(Object.values(titles))].join(', ');
+  // wait 可能等多个 run，展开后要逐个标注是哪个子代理
+  return operation === 'wait' && title
+    ? { op: 'wait', title, titles }
+    : { op: operation as SubagentOp, title };
 }
 
 /** memory_capture 的标题（缺省取正文首行）与正文 */
@@ -1048,6 +1055,7 @@ function buildMessageTimeline(
             ...(captured ? { memoryContent: captured.content } : {}),
             ...(asked ? { ask: asked.ask } : {}),
             ...(subagent?.op ? { subagentOp: subagent.op } : {}),
+            ...(subagent?.titles ? { subagentTitles: subagent.titles } : {}),
             ...(result || !toolStartedAt ? {} : { startedAt: toolStartedAt[part.id] ?? null }),
           });
           return;

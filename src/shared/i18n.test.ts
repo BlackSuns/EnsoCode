@@ -94,6 +94,15 @@ const MAPPED_I18N_KEYS = [
   'Background task started',
   'Bypassed',
   'Unavailable',
+  // SubagentResult.RUN_STATUS
+  'Queued',
+  'running',
+  'awaiting input',
+  'validating',
+  'succeeded',
+  'failed',
+  'cancelled',
+  'interrupted',
 ] as const;
 
 const MODEL_CENTER_ENSO_I18N_KEYS = [

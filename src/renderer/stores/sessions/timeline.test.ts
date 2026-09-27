@@ -3102,6 +3102,22 @@ describe('子代理按 runId / agentId 指代的操作行', () => {
     expect(tools[3]).toMatchObject({ summary: 'reviewer', subagentOp: 'dismiss' });
   });
 
+  it('wait 行按 agentId 带上各目标的标题，供展开后逐个标注；其它操作不带', () => {
+    const tools = rows(
+      [
+        call('w1', { operation: 'wait', runIds: ['r1', 'r3', 'c39dfb22-dead'] }),
+        call('q1', { operation: 'report', runId: 'r1' }),
+      ],
+      true
+    );
+    expect(tools[3]).toMatchObject({
+      subagentTitles: { [a]: '子代理连通性测试', [b]: 'reviewer' },
+    });
+    for (const tool of [tools[0], tools[2], tools[4]]) {
+      expect(tool).not.toHaveProperty('subagentTitles');
+    }
+  });
+
   it('列表与查不到的目标只标操作，不回退参数 JSON', () => {
     const tools = rows([
       call('l1', { operation: 'list' }),
