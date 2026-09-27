@@ -22,7 +22,11 @@ import {
 import { addToast } from '@/components/ui/toast';
 import { useCodeHighlightOptions } from '@/hooks/useColorScheme';
 import { useI18n } from '@/i18n';
-import { addSidePanelBrowser, registerFilesTabCloser } from '@/lib/sidePanelDock';
+import {
+  addSidePanelBrowser,
+  registerFilesOpener,
+  registerFilesTabCloser,
+} from '@/lib/sidePanelDock';
 import { cn } from '@/lib/utils';
 import { useSessionsStore } from '@/stores/sessions';
 import { hasAuthoritativeMessages } from '@/stores/sessions/messageCache';
@@ -278,6 +282,11 @@ export function FilesView({ conversationId, projectId }: FilesViewProps) {
       return true;
     });
   }, [conversationId, requestCloseFile]);
+
+  useEffect(
+    () => registerFilesOpener(conversationId, (rel) => void openFile(rel)),
+    [conversationId, openFile]
+  );
 
   useEffect(() => {
     return () => {
