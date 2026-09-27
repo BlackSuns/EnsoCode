@@ -7,6 +7,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/i18n';
 import {
+  createSpeechEndDetector,
   SilentRecordingError,
   startVoiceRecording,
   type VoiceCaptureOptions,
@@ -14,6 +15,11 @@ import {
 } from '@/lib/voiceCapture';
 
 export type VoicePhase = 'idle' | 'starting' | 'recording' | 'transcribing';
+
+export interface VoiceStartOptions extends VoiceCaptureOptions {
+  /** 开口后停顿即自动结束；按住说话由松手决定，不开 */
+  autoStop?: boolean;
+}
 
 const MIC_DENIED = 'Microphone access denied. Allow it in system settings.';
 
@@ -49,6 +55,7 @@ export function useVoiceInput({
   const [correcting, setCorrecting] = useState(false);
   const recordingRef = useRef<VoiceRecording | null>(null);
   const sessionRef = useRef<VoiceSession | null>(null);
+  const finishRef = useRef<() => Promise<void>>(async () => {});
   /** 每次 start / cancel 自增：启动途中被取消，等到的录音要丢掉 */
   const attemptRef = useRef(0);
 
@@ -100,6 +107,7 @@ export function useVoiceInput({
       setPhase('idle');
     }
   }, [onText, t]);
+  finishRef.current = finish;
 
   useEffect(() => {
     if (phase !== 'recording') return;
@@ -111,7 +119,7 @@ export function useVoiceInput({
     if (phase === 'recording' && elapsed >= SPEECH_MAX_SECONDS) void finish();
   }, [elapsed, finish, phase]);
 
-  const start = async (options?: VoiceCaptureOptions) => {
+  const start = async ({ autoStop = false, ...options }: VoiceStartOptions = {}) => {
     setError(null);
     if (!navigator.mediaDevices?.getUserMedia) {
       setError(t('Voice input needs a secure (HTTPS) connection.'));
@@ -135,7 +143,11 @@ export function useVoiceInput({
       });
       session = opened;
       sessionRef.current = opened;
-      const recording = await startVoiceRecording((samples) => opened.push(samples), options);
+      const speechEnded = autoStop ? createSpeechEndDetector() : null;
+      const recording = await startVoiceRecording((samples) => {
+        opened.push(samples);
+        if (speechEnded?.(samples) && sessionRef.current === opened) void finishRef.current();
+      }, options);
       if (attempt !== attemptRef.current) {
         recording.cancel();
         return;

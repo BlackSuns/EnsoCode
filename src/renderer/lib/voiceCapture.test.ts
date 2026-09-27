@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createDownsampler,
+  createSpeechEndDetector,
   ensureMicPermission,
   LIVE_TIMEOUT_MS,
   levelFromSamples,
+  SPEECH_END_SILENCE_MS,
   startVoiceRecording,
 } from './voiceCapture';
 
@@ -65,6 +67,56 @@ describe('levelFromSamples', () => {
     const levels = [0.005, 0.02, 0.1].map((v) => levelFromSamples(new Float32Array(512).fill(v)));
     expect(levels).toEqual([...levels].sort((a, b) => a - b));
     expect(new Set(levels).size).toBe(3);
+  });
+});
+
+/** 100ms 一块的 16kHz 音频，恒定幅度即恒定响度 */
+function chunks(ms: number, amplitude: number): Float32Array[] {
+  return Array.from({ length: ms / 100 }, () => new Float32Array(1_600).fill(amplitude));
+}
+
+/** 喂完返回第几毫秒判定说完，没判定为 null */
+function endAt(detect: (samples: Float32Array) => boolean, audio: Float32Array[]): number | null {
+  for (const [i, chunk] of audio.entries()) if (detect(chunk)) return (i + 1) * 100;
+  return null;
+}
+
+describe('createSpeechEndDetector', () => {
+  const SPEECH = 0.08;
+  const NOISE = 0.002;
+
+  it('never ends before anything was said', () => {
+    expect(endAt(createSpeechEndDetector(), chunks(10_000, 0))).toBeNull();
+    expect(endAt(createSpeechEndDetector(), chunks(10_000, NOISE))).toBeNull();
+  });
+
+  it('ends once the pause after speech reaches the silence window', () => {
+    const audio = [...chunks(500, NOISE), ...chunks(1_500, SPEECH), ...chunks(5_000, NOISE)];
+    expect(endAt(createSpeechEndDetector(), audio)).toBe(2_000 + SPEECH_END_SILENCE_MS);
+  });
+
+  it('keeps listening through shorter pauses between phrases', () => {
+    const audio = [
+      ...chunks(1_000, SPEECH),
+      ...chunks(SPEECH_END_SILENCE_MS - 300, 0),
+      ...chunks(1_000, SPEECH),
+      ...chunks(5_000, 0),
+    ];
+    expect(endAt(createSpeechEndDetector(), audio)).toBe(
+      2_000 + SPEECH_END_SILENCE_MS - 300 + SPEECH_END_SILENCE_MS
+    );
+  });
+
+  it('ignores a brief click', () => {
+    expect(
+      endAt(createSpeechEndDetector(), [...chunks(100, SPEECH), ...chunks(5_000, 0)])
+    ).toBeNull();
+  });
+
+  it('treats steady background noise as silence and speech above it as speech', () => {
+    const LOUD_ROOM = 0.02;
+    const audio = [...chunks(1_000, LOUD_ROOM), ...chunks(1_000, 0.2), ...chunks(5_000, LOUD_ROOM)];
+    expect(endAt(createSpeechEndDetector(), audio)).toBe(2_000 + SPEECH_END_SILENCE_MS);
   });
 });
 

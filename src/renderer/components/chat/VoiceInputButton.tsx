@@ -88,9 +88,9 @@ export function VoiceInputButton({
     useVoiceInput({ startSession, requestMicAccess, onText });
   const anchorRef = useRef<HTMLDivElement>(null);
   const [levels, setLevels] = useState(SILENT);
-  const begin = () => {
+  const begin = (autoStop = false) => {
     setLevels(SILENT);
-    return start({ onLevel: (level) => setLevels((prev) => pushLevel(prev, level)) });
+    return start({ autoStop, onLevel: (level) => setLevels((prev) => pushLevel(prev, level)) });
   };
   const latest = useRef({ phase, start: begin, finish, cancel });
   latest.current = { phase, start: begin, finish, cancel };
@@ -191,7 +191,7 @@ export function VoiceInputButton({
         <button
           type="button"
           disabled={disabled || phase !== 'idle'}
-          onClick={() => void begin()}
+          onClick={() => void begin(true)}
           aria-label={busyLabel ?? t('Voice input')}
           title={
             busyLabel ??
