@@ -168,7 +168,7 @@ import {
   validateAgainstSchema,
   withAgentRead,
 } from './structuredYield';
-import { createUnifiedSubagentTool, lastAssistantText } from './subagent';
+import { CoworkerIdleReminder, createUnifiedSubagentTool, lastAssistantText } from './subagent';
 import { SystemReminderRegistry } from './systemReminder';
 import {
   buildInitialTitleUserText,
@@ -1949,10 +1949,31 @@ export class SessionSupervisor {
         return ++managed.seq;
       }
     );
+    const coworkerIdle = new CoworkerIdleReminder();
+    reminders.register(
+      'coworker-idle',
+      () =>
+        coworkerIdle.take((runIds) => {
+          // worker 不知道 agentId：按 Main 下发给子会话的 runId（prompt-child 的 requestId）对上队员
+          const parent = managedRef ?? this.sessions.get(sessionId);
+          for (const info of parent?.coworkers.values() ?? []) {
+            const child = this.sessions.get(info.id);
+            if (child && [...runIds].some((runId) => child.promptedRequestIds.has(runId))) {
+              return { name: info.name, running: child.status === 'running' };
+            }
+          }
+          return null;
+        }),
+      -1
+    );
     const unifiedSubagentTool = createUnifiedSubagentTool({
       agentTypes,
       models: subagentModels,
-      invoke: (request, signal) => agentControl.invoke(request, signal),
+      invoke: async (request, signal) => {
+        const response = await agentControl.invoke(request, signal);
+        coworkerIdle.observe(request, response);
+        return response;
+      },
     });
     const askManager = this.createAskManager(identity);
     // 内嵌浏览器：页面活在 Main，worker 只发 browser-invoke 事件。每个父会话一张挂起表。
