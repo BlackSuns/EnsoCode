@@ -445,6 +445,9 @@ function stripDeliveryReceipt(output: string | null): string | null {
   return rest?.trimEnd() || null;
 }
 
+/** 回执顶层带 agentId / runId 的操作；report / wait 的大段结果不在建时间线时解析 */
+const RECEIPT_OPS = new Set<unknown>(['spawn', 'send', 'message']);
+
 /** spawn 回执里的 agentId → 派活时起的名字；回执里的 runId → agentId，供后续按 id 指代的行显示标题 */
 function recordSubagent(
   agents: Map<string, string>,
@@ -454,6 +457,7 @@ function recordSubagent(
 ): void {
   if (!args || typeof args !== 'object') return;
   const { operation, name, description } = args as Record<string, unknown>;
+  if (!RECEIPT_OPS.has(operation)) return;
   const { agentId, runId } = splitTrailingJson(output)?.value ?? {};
   if (typeof agentId !== 'string') return;
   if (typeof runId === 'string') runs.set(runId, agentId);
