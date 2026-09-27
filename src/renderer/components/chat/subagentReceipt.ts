@@ -8,10 +8,11 @@ export interface SubagentRunLine {
   durationMs: number | null;
 }
 
-/** 子代理 report / wait 回执拆成回答、各 run 状态，与收起显示的运行信息原文 */
+/** 子代理 report / wait / list 回执拆成回答、各 run 状态，与收起显示的运行信息原文 */
 export type SubagentReceiptView = {
   /** 回执前捎带的系统提醒等 */
   head: string;
+  /** list 时每个子代理一行：已关闭 / 没有 run 的 status 是子代理状态，runId 为空 */
   runs: SubagentRunLine[];
   /** 运行信息原文，不含单独显示的回答 */
   info: string;
@@ -19,6 +20,7 @@ export type SubagentReceiptView = {
   | { kind: 'report'; text: string | null; value: string | null; error: string | null }
   | { kind: 'wait'; timedOut: boolean; interrupted: boolean }
   | { kind: 'receipt' }
+  | { kind: 'list' }
 );
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -45,8 +47,19 @@ function toRunLine(value: unknown): SubagentRunLine | null {
   };
 }
 
+/** 这些子代理状态比最近一次 run 的结果更要紧 */
+const AGENT_STATUS_FIRST = new Set<unknown>(['closed', 'parked', 'creating']);
+
+function toAgentLine(value: unknown): SubagentRunLine | null {
+  if (!isRecord(value)) return null;
+  const { agentId, status, latestRun } = value;
+  if (typeof agentId !== 'string' || typeof status !== 'string') return null;
+  const run = AGENT_STATUS_FIRST.has(status) ? null : toRunLine(latestRun);
+  return run ?? { agentId, runId: '', status, durationMs: null };
+}
+
 /**
- * report / wait 回执，及 spawn / send 带 wait:true 时回执附带的等待结果（op 缺省即 spawn / send）；
+ * report / wait / list 回执，及 spawn / send 带 wait:true 时回执附带的等待结果（op 缺省即 spawn / send）；
  * 对不上形状时返回 null，由调用方回退原文
  */
 export function parseSubagentReceipt(
@@ -69,6 +82,13 @@ export function parseSubagentReceipt(
       error: nonBlank(error),
       info: JSON.stringify(rest, null, 2),
     };
+  }
+  if (op === 'list') {
+    if (!Array.isArray(json.agents)) return null;
+    const runs = json.agents.flatMap((entry) => toAgentLine(entry) ?? []);
+    return runs.length === json.agents.length
+      ? { kind: 'list', head, runs, info: JSON.stringify(json, null, 2) }
+      : null;
   }
   const waited = op === 'wait' ? json : op === undefined ? json.report : null;
   if (!isRecord(waited) || !Array.isArray(waited.runs)) {

@@ -3127,6 +3127,16 @@ describe('子代理按 runId / agentId 指代的操作行', () => {
     expect(tools[4]).toMatchObject({ summary: '', subagentOp: 'report' });
   });
 
+  it('list 行带上此前 spawn 过的全部标题，供展开后逐个标注', () => {
+    const tools = rows([call('l1', { operation: 'list' })], true);
+    expect(tools[3]).toMatchObject({
+      subagentOp: 'list',
+      subagentTitles: { [a]: '子代理连通性测试', [b]: 'reviewer' },
+    });
+    const bare = buildTimeline([user('列一下'), call('l0', { operation: 'list' })], true);
+    expect(bare.find((item) => item.kind === 'tool')).not.toHaveProperty('subagentTitles');
+  });
+
   it('spawn / send 与不带 operation 的旧调用不受影响', () => {
     const tools = rows([call('x1', { description: '旧式派活', prompt: 'p' })]);
     expect(tools[0]).toMatchObject({ summary: '子代理连通性测试' });

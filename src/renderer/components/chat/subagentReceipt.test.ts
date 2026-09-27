@@ -105,7 +105,48 @@ describe('parseSubagentReceipt', () => {
     });
   });
 
-  it('等待结果不在回执上、以及停止 / 解雇 / 列出的结果都不认', () => {
+  it('list：每个子代理一行，有 run 的给最近一次 run 的状态与用时，已关闭 / 没有 run 的给子代理状态', () => {
+    const view = parseSubagentReceipt(
+      'list',
+      json({
+        agents: [
+          { agentId: 'agent-a', mode: 'coworker', status: 'ready', latestRun: run() },
+          {
+            agentId: 'agent-b',
+            mode: 'coworker',
+            status: 'active',
+            activeRunId: 'run-b',
+            latestRun: run({ agentId: 'agent-b', runId: 'run-b', status: 'running' }),
+          },
+          { agentId: 'agent-c', mode: 'coworker', status: 'ready' },
+          {
+            agentId: 'agent-d',
+            mode: 'task',
+            status: 'closed',
+            latestRun: run({ agentId: 'agent-d', runId: 'run-d' }),
+          },
+        ],
+        nextCursor: 'agent-d',
+      })
+    );
+    expect(view).toMatchObject({
+      kind: 'list',
+      head: '',
+      runs: [
+        { agentId: 'agent-a', runId: 'run-a', status: 'succeeded', durationMs: 12000 },
+        { agentId: 'agent-b', runId: 'run-b', status: 'running' },
+        { agentId: 'agent-c', runId: '', status: 'ready', durationMs: null },
+        { agentId: 'agent-d', runId: '', status: 'closed', durationMs: null },
+      ],
+    });
+    expect(view?.info).toContain('"nextCursor"');
+    expect(parseSubagentReceipt('list', json({ agents: [] }))).toMatchObject({
+      kind: 'list',
+      runs: [],
+    });
+  });
+
+  it('等待结果不在回执上、以及停止 / 解雇的结果都不认', () => {
     expect(
       parseSubagentReceipt(undefined, json({ runs: [run()], timedOut: false, interrupted: false }))
     ).toBeNull();
@@ -114,7 +155,6 @@ describe('parseSubagentReceipt', () => {
     ).toBeNull();
     expect(parseSubagentReceipt('stop', json(run()))).toBeNull();
     expect(parseSubagentReceipt('dismiss', json({ agentId: 'agent-a' }))).toBeNull();
-    expect(parseSubagentReceipt('list', json({ agents: [] }))).toBeNull();
   });
 
   it('对不上形状时返回 null，由调用方回退原文', () => {
@@ -131,5 +171,7 @@ describe('parseSubagentReceipt', () => {
         json({ runs: [{ runId: 'x' }], timedOut: false, interrupted: false })
       )
     ).toBeNull();
+    expect(parseSubagentReceipt('list', json({ agents: [{ mode: 'task' }] }))).toBeNull();
+    expect(parseSubagentReceipt('list', json({ agentId: 'agent-a' }))).toBeNull();
   });
 });

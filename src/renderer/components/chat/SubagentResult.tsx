@@ -4,8 +4,8 @@ import { formatDuration } from '@/stores/sessions/stats';
 import { Markdown } from './Markdown';
 import type { SubagentReceiptView, SubagentRunLine } from './subagentReceipt';
 
-/** run 状态 → [i18n key, 状态点颜色]；未知状态原样显示 */
-const RUN_STATUS: Record<string, [label: string, dot: string]> = {
+/** run / 子代理状态 → [i18n key, 状态点颜色]；未知状态原样显示 */
+const STATUS: Record<string, [label: string, dot: string]> = {
   queued: ['Queued', 'bg-muted-foreground'],
   running: ['running', 'bg-amber-500'],
   awaiting_input: ['awaiting input', 'bg-amber-500'],
@@ -14,9 +14,14 @@ const RUN_STATUS: Record<string, [label: string, dot: string]> = {
   failed: ['failed', 'bg-destructive'],
   cancelled: ['cancelled', 'bg-muted-foreground'],
   interrupted: ['interrupted', 'bg-muted-foreground'],
+  creating: ['creating', 'bg-amber-500'],
+  ready: ['idle', 'bg-muted-foreground'],
+  active: ['running', 'bg-amber-500'],
+  parked: ['parked', 'bg-muted-foreground'],
+  closed: ['closed', 'bg-muted-foreground'],
 };
 
-/** 子代理 report / wait 结果：回答在前，各 run 状态一行一个，运行信息原文收起 */
+/** 子代理 report / wait / list 结果：回答在前，各 run / 子代理状态一行一个，运行信息原文收起 */
 export function SubagentResult({
   view,
   titles,
@@ -38,9 +43,12 @@ export function SubagentResult({
       {view.runs.length > 0 && (
         <ul className="space-y-0.5 text-xs text-muted-foreground">
           {view.runs.map((run) => (
-            <RunLine key={run.runId} run={run} title={titles?.[run.agentId]} />
+            <RunLine key={run.runId || run.agentId} run={run} title={titles?.[run.agentId]} />
           ))}
         </ul>
+      )}
+      {view.kind === 'list' && view.runs.length === 0 && (
+        <p className="text-xs text-muted-foreground">{t('No agents')}</p>
       )}
       {view.kind === 'wait' && view.timedOut && (
         <p className="text-xs text-muted-foreground">
@@ -65,7 +73,7 @@ export function SubagentResult({
 
 function RunLine({ run, title }: { run: SubagentRunLine; title?: string }) {
   const { t } = useI18n();
-  const [label, dot] = RUN_STATUS[run.status] ?? [null, 'bg-muted-foreground'];
+  const [label, dot] = STATUS[run.status] ?? [null, 'bg-muted-foreground'];
   const took =
     run.durationMs === null
       ? ''

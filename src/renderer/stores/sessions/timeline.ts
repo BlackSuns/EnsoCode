@@ -89,7 +89,7 @@ export type TimelineItem =
       ask?: AskUserView;
       /** 子代理按 runId / agentId 指代目标的操作（summary 为 spawn 时起的标题）；其它缺省 */
       subagentOp?: SubagentOp;
-      /** wait 行：agentId → spawn 时起的名字，展开后逐个 run 标注；其它缺省 */
+      /** wait / list 行：agentId → spawn 时起的名字，展开后逐个标注；其它缺省 */
       subagentTitles?: Record<string, string>;
     }
   | {
@@ -499,6 +499,12 @@ function extractSubagentHeader(
     return { title: [...new Set(parts)].join(' · ') };
   }
   if (!SUBAGENT_OPS.has(operation)) return null;
+  // list 结果只有 agentId，展开后按此前 spawn 过的名字逐个标注
+  if (operation === 'list') {
+    return agents.size > 0
+      ? { op: 'list', title: '', titles: Object.fromEntries(agents) }
+      : { op: 'list', title: '' };
+  }
   const ids =
     operation === 'dismiss'
       ? [agentId]

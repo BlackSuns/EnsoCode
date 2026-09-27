@@ -101,4 +101,33 @@ describe('SubagentResult', () => {
     expect(html).toContain('[Run info]');
     expect(html.indexOf('runId')).toBeGreaterThan(html.indexOf('<details'));
   });
+
+  it('列出全部：每个子代理一行带名字，子代理状态照样翻译；一个都没有时直接说明', () => {
+    const html = render(
+      {
+        kind: 'list',
+        head: '',
+        runs: [
+          { agentId: 'a', runId: 'r1', status: 'succeeded', durationMs: 3000 },
+          { agentId: 'b', runId: '', status: 'ready', durationMs: null },
+          { agentId: 'c', runId: '', status: 'closed', durationMs: null },
+          { agentId: 'd', runId: '', status: 'parked', durationMs: null },
+          { agentId: 'e', runId: '', status: 'creating', durationMs: null },
+        ],
+        info: '{}',
+      },
+      { a: 'reviewer', b: '无名协作者' }
+    );
+    expect(html.match(/<li/g)).toHaveLength(5);
+    expect(html).toContain('reviewer');
+    expect(html).toContain('无名协作者');
+    for (const label of ['[succeeded]', '[idle]', '[closed]', '[parked]', '[creating]']) {
+      expect(html).toContain(label);
+    }
+    expect(html).not.toContain('[No agents]');
+
+    const empty = render({ kind: 'list', head: '', runs: [], info: '{"agents": []}' });
+    expect(empty).not.toContain('<ul');
+    expect(empty).toContain('[No agents]');
+  });
 });
