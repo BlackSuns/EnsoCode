@@ -78,7 +78,9 @@ import { EditDiff } from './EditDiff';
 import { EnsoMark } from './EnsoMark';
 import { renderHighlighted, useChatSearchHighlight } from './highlightQuery';
 import { Markdown } from './Markdown';
+import { MemorySearchResults } from './MemorySearchResults';
 import { mentionChipClass } from './MentionChip';
+import { parseMemorySearchHits } from './memorySearchHits';
 import { splitInlineMentions, splitMentionRefs } from './mentionComposer';
 import { ReadFileView } from './ReadFileView';
 import { RtkToolStatsBar } from './RtkToolStatsBar';
@@ -1549,6 +1551,8 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
   // 主线程阻塞几秒白屏
   const autoExpand = expandLiveEdits && (hasDiff || hasWrite) && item.state === 'running';
   const [expanded, setExpanded] = useState(autoExpand);
+  const memoryHits =
+    expanded && item.name === 'memory_search' ? parseMemorySearchHits(item.output) : null;
   const previouslyHadFileChanges = useRef(hasFileChanges);
   // apply_patch 只在终态结果中拿到真实 diff：必须按「本行从无到有」识别直播，历史首次挂载不展开。
   useEffect(() => {
@@ -1696,6 +1700,8 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                 <div className="px-3 py-2 text-sm">
                   <Markdown text={item.output ?? ''} />
                 </div>
+              ) : memoryHits ? (
+                <MemorySearchResults hits={memoryHits} />
               ) : (
                 <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
                   {stripAnsi(item.output ?? '')}
