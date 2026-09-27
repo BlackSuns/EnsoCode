@@ -16,9 +16,9 @@
 
 ## 修法
 
-- `AgentService.spawn` 落库前删掉同一子会话（`identity.sessionId`）的已有记录。
-- `adoptCoworker` 先按 instanceId、再按同一子会话认领已有记录，只更新身份与状态，不重复登记。
-- 不改 instanceId 的生成方式：重启恢复仍以 instanceId 作为 agentId。
+- `AgentService.spawn` 以 runtime 返回的子会话 `instanceId` 作 agentId：child-ready 抢先 adopt 的记录与 spawn 写同一个键，落库时被覆盖，不会留下第二条。
+- 这也让 Main 重启后按 instanceId 认领的 coworker 沿用原 agentId，见 [coworker-restart-adopt.md](coworker-restart-adopt.md)。
+- 最初的修法是按 `identity.sessionId` 去重，键统一后已删除。
 
 ## 回归防线
 
