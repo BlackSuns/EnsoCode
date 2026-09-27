@@ -1041,7 +1041,8 @@ export const zhTranslations: Record<string, string> = {
   'Getting the microphone ready…': '麦克风准备中…',
   'Speak now': '请说话',
   'Voice input (hold to talk)': '语音输入（按住说话）',
-  'Hold to record, release to put the text in the chat input': '按住录音，松开后识别并填入输入框',
+  'Hold while the chat input is focused, release to put the text in it':
+    '输入框聚焦时按住录音，松开后识别并填入输入框',
   'Hold {{key}} to talk': '按住 {{key}} 说话',
   'Microphone access denied. Allow it in system settings.':
     '无法使用麦克风，请在系统设置中允许访问。',
