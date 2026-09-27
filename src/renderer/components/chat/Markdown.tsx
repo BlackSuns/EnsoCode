@@ -11,7 +11,7 @@ import { CodeBlock } from './CodeBlock';
 import { CopyButton } from './CopyButton';
 import { highlightNode } from './highlightQuery';
 import { MermaidRenderer } from './MermaidRenderer';
-import { classifyMarkdownLink, toWorkspaceRelativePath } from './markdownLinks';
+import { classifyMarkdownLink, splitFileLineRef, toWorkspaceRelativePath } from './markdownLinks';
 
 /**
  * 解析代码围栏的 info 串。除了纯语言名（```ts），agent 常输出
@@ -226,7 +226,7 @@ export const markdownComponents: Components = {
     const linkContext = useContext(MarkdownLinkContext);
     const value = typeof children === 'string' ? children : '';
     if (value && FILE_PATH_RE.test(value)) {
-      const path = value.split(':')[0];
+      const { path, line } = splitFileLineRef(value);
       const onClick = () => {
         if (!linkContext) {
           void navigator.clipboard.writeText(path);
@@ -241,7 +241,7 @@ export const markdownComponents: Components = {
           });
           return;
         }
-        openSidePanelFile(linkContext.conversationId, rel);
+        openSidePanelFile(linkContext.conversationId, rel, line);
       };
       return (
         <button

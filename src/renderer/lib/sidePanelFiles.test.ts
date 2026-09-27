@@ -96,6 +96,18 @@ describe('openSidePanelFile', () => {
     expect(harness.ensureOpen).toHaveBeenCalledWith('parent');
   });
 
+  it('带行号：已挂载时直接带行号打开，未挂载时补开也带行号', () => {
+    const { api } = fakeDock();
+    bindSidePanelDock('parent', api);
+    openSidePanelFile('parent', 'src/a.ts', 107);
+    const open = vi.fn();
+    registerFilesOpener('parent', open);
+    expect(open).toHaveBeenLastCalledWith('src/a.ts', 107);
+
+    openSidePanelFile('parent', 'src/b.ts', 3);
+    expect(open).toHaveBeenLastCalledWith('src/b.ts', 3);
+  });
+
   it('dock 尚未挂载：挂载后补建 Files 面板', async () => {
     openSidePanelFile('late', 'README.md');
     const { api, panels } = fakeDock();
