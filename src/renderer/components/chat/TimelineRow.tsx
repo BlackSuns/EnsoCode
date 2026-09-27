@@ -1699,7 +1699,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                 <TerminalOutput command={item.summary} output={item.output ?? ''} />
               ) : item.name === 'read' ? (
                 <ReadFileView path={item.summary} contents={item.output ?? ''} />
-              ) : item.name === 'subagent' && item.state !== 'error' ? (
+              ) : item.name === 'subagent' && item.state !== 'error' && !sentMessage ? (
                 <div className="px-3 py-2 text-sm">
                   <Markdown text={item.output ?? ''} />
                 </div>

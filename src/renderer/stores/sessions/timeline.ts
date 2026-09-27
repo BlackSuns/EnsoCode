@@ -81,8 +81,8 @@ export type TimelineItem =
       rtk?: RtkToolStats;
       /** submit_plan 提交的计划；其它工具缺省 */
       plan?: { title: string; text: string } | null;
-      /** 联系主 agent / 队员发出的正文；其它工具缺省 */
-      sentMessage?: string | null;
+      /** 联系主 agent / 队员、子代理 send 发出的正文；其它工具缺省 */
+      sentMessage?: string;
     }
   | {
       kind: 'tool-group';
@@ -378,22 +378,79 @@ export function extractWriteContent(name: string, args: unknown): string | null 
   return typeof content === 'string' && content ? content : null;
 }
 
-const MESSAGE_BODY_KEYS = new Map([
-  ['message_main_agent', 'message'],
-  ['message_coworker', 'text'],
+/** 消息类工具的 [正文, 收件人]；子代理收件人只认本时间线 spawn 过的名字，查不到不显示 UUID */
+const MESSAGE_PARTS = new Map<
+  string,
+  (args: Record<string, unknown>, agents: ReadonlyMap<string, string>) => unknown[]
+>([
+  ['message_main_agent', (args) => [args.message]],
+  ['message_coworker', (args) => [args.text, args.to]],
+  [
+    'subagent',
+    (args, agents) =>
+      args.operation === 'send'
+        ? [args.message, agents.get(String(args.agentId))]
+        : args.operation === 'message'
+          ? [args.text, agents.get(String(args.to))]
+          : [],
+  ],
 ]);
 /** 投递成功回执只给模型看；失败回执与前面捎带的系统提醒不匹配，照常显示 */
 const DELIVERY_RECEIPT =
   /(?:^|\n)\((?:delivered to |the main agent is blocked waiting )[^\n]*\)\s*$/;
+/** 子代理 send 的纯投递回执；带 report（wait）等其它内容时整段保留 */
+const SEND_RECEIPT_KEYS = new Set(['agentId', 'runId', 'delivery', 'status']);
 
-/** 消息类工具的正文；联系队员的摘要带上收件人 */
-function extractSentMessage(name: string, args: unknown): { text: string; summary: string } | null {
-  const key = MESSAGE_BODY_KEYS.get(name);
-  if (!key || !args || typeof args !== 'object') return null;
-  const { [key]: body, to } = args as Record<string, unknown>;
+function extractSentMessage(
+  name: string,
+  args: unknown,
+  agents: ReadonlyMap<string, string>
+): { text: string; summary: string } | null {
+  const parts = MESSAGE_PARTS.get(name);
+  if (!parts || !args || typeof args !== 'object') return null;
+  const [body, to] = parts(args as Record<string, unknown>, agents);
   if (typeof body !== 'string' || !body.trim()) return null;
   const text = body.trim();
   return { text, summary: typeof to === 'string' && to.trim() ? `${to.trim()} · ${text}` : text };
+}
+
+/** 子代理结果是末尾一段 JSON，前面可能被捎带的系统提醒顶开 */
+function splitTrailingJson(
+  output: string | null | undefined
+): { head: string; value: Record<string, unknown> } | null {
+  if (!output) return null;
+  const start = output.startsWith('{') ? 0 : output.lastIndexOf('\n{') + 1;
+  try {
+    const value: unknown = JSON.parse(output.slice(start));
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? { head: output.slice(0, start).trimEnd(), value: value as Record<string, unknown> }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function stripDeliveryReceipt(output: string | null): string | null {
+  const json = splitTrailingJson(output);
+  const rest =
+    json && Object.keys(json.value).every((key) => SEND_RECEIPT_KEYS.has(key))
+      ? json.head
+      : output?.replace(DELIVERY_RECEIPT, '');
+  return rest?.trimEnd() || null;
+}
+
+/** spawn 回执里的 agentId → 派活时起的名字，供后续发消息行显示收件人 */
+function recordSpawnedAgent(
+  agents: Map<string, string>,
+  args: unknown,
+  output: string | undefined
+): void {
+  if (!args || typeof args !== 'object') return;
+  const { operation, name, description } = args as Record<string, unknown>;
+  if (operation !== 'spawn') return;
+  const label = [name, description].find((value) => typeof value === 'string' && value.trim());
+  const agentId = splitTrailingJson(output)?.value.agentId;
+  if (typeof label === 'string' && typeof agentId === 'string') agents.set(agentId, label.trim());
 }
 
 /** edit 工具参数里取出替换块（保持同一数组引用，供 memo 做引用比较） */
@@ -604,6 +661,7 @@ function buildMessageTimeline(
     }
   }
   const items: TimelineItem[] = [];
+  const spawnedAgents = new Map<string, string>();
   // 每条消息之后的首个非 toolResult 角色（反向一次扫完）：用于判定「本轮末 step」
   const nextTurnRole: (string | undefined)[] = new Array(messages.length);
   for (let i = messages.length - 1, seen: string | undefined; i >= 0; i--) {
@@ -813,7 +871,10 @@ function buildMessageTimeline(
             : (partial ?? null) || null;
           const sandboxView = part.name === 'exec' ? parseSandboxOutput(output) : null;
           const call = unwrapMcpProxyCall(part.name, part.arguments);
-          const sent = extractSentMessage(part.name, part.arguments);
+          if (part.name === 'subagent') {
+            recordSpawnedAgent(spawnedAgents, part.arguments, result?.output);
+          }
+          const sent = extractSentMessage(part.name, part.arguments, spawnedAgents);
           const patchPaths =
             part.name !== 'apply_patch'
               ? null
@@ -832,7 +893,7 @@ function buildMessageTimeline(
                   : toProjectRelativePath(patchPaths[0] ?? '', cwd)
                 : (sent?.summary ?? call.summary ?? summarizeArgs(call.args, cwd)),
             source: execSource,
-            output: sent ? output?.replace(DELIVERY_RECEIPT, '').trimEnd() || null : output,
+            output: sent ? stripDeliveryReceipt(output) : output,
             nestedPending: nestedPendingCount(part.id, pendingApprovals) || undefined,
             state: result
               ? result.isError || sandboxView?.status === 'failed'
@@ -859,7 +920,7 @@ function buildMessageTimeline(
             ...(part.name === 'submit_plan'
               ? { plan: extractSubmittedPlan(part.name, part.arguments) }
               : {}),
-            ...(MESSAGE_BODY_KEYS.has(part.name) ? { sentMessage: sent?.text ?? null } : {}),
+            ...(sent ? { sentMessage: sent.text } : {}),
             ...(result || !toolStartedAt ? {} : { startedAt: toolStartedAt[part.id] ?? null }),
           });
           return;

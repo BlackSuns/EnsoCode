@@ -2753,7 +2753,7 @@ describe('submit_plan 计划卡片', () => {
   });
 });
 
-describe('消息类工具行（联系主 agent / 联系队员）', () => {
+describe('消息类工具行（联系主 agent / 联系队员 / 子代理发消息）', () => {
   const resultOf = (name: string, text: string): ProjectedMessage => ({
     role: 'toolResult',
     toolCallId: 'm1',
@@ -2818,13 +2818,54 @@ describe('消息类工具行（联系主 agent / 联系队员）', () => {
     ).toMatchObject({ state: 'ok', output: failed });
   });
 
+  it('子代理 send / message：摘要带上 spawn 时起的名字，展开内容取正文，只剥纯投递回执', () => {
+    const agentId = '043a1933-8c77-49da-af93-b770b72f438d';
+    const json = (value: object) => JSON.stringify(value, null, 2);
+    const call = (id: string, args: Record<string, unknown>): ProjectedMessage => ({
+      role: 'assistant',
+      stopReason: 'toolUse',
+      content: [{ type: 'toolCall', id, name: 'subagent', arguments: args }],
+    });
+    const result = (id: string, text: string): ProjectedMessage => ({
+      ...resultOf('subagent', text),
+      toolCallId: id,
+    });
+    const reminder = '<system-reminder>\nx\n</system-reminder>';
+    const withReport = json({
+      agentId,
+      runId: 'r3',
+      delivery: 'next',
+      status: 'queued',
+      report: { runs: [], timedOut: false, interrupted: false },
+    });
+    const tools = buildTimeline(
+      [
+        user('派活'),
+        call('s1', { operation: 'spawn', mode: 'coworker', description: '核对 ASR', prompt: 'p' }),
+        result('s1', json({ agentId, runId: 'r1', mode: 'coworker', status: 'running' })),
+        call('m1', { operation: 'send', agentId, message: ' 先别改 **接口**\n' }),
+        result(
+          'm1',
+          `${reminder}\n\n${json({ agentId, runId: 'r2', delivery: 'steer', status: 'running' })}`
+        ),
+        call('m2', { operation: 'message', to: 'unknown', text: '收尾', wait: true }),
+        result('m2', withReport),
+      ],
+      false
+    ).filter((item) => item.kind === 'tool');
+    expect(tools[1]).toMatchObject({
+      summary: '核对 ASR · 先别改 **接口**',
+      sentMessage: '先别改 **接口**',
+      output: reminder,
+    });
+    expect(tools[2]).toMatchObject({ summary: '收尾', sentMessage: '收尾', output: withReport });
+  });
+
   it('空正文不产出消息内容；其它带 message 参数的工具不受影响', () => {
-    expect(toolFor('message_main_agent', { message: '  ' })).toMatchObject({ sentMessage: null });
+    expect(toolFor('message_main_agent', { message: '  ' })).not.toHaveProperty('sentMessage');
     const receipt = '(delivered to coworker "B" — async)';
-    const other = toolFor('subagent', { operation: 'send', message: 'hi' }, [
-      resultOf('subagent', receipt),
-    ]);
+    const other = toolFor('notify', { message: 'hi' }, [resultOf('notify', receipt)]);
     expect(other).toMatchObject({ output: receipt });
-    expect(other && 'sentMessage' in other).toBe(false);
+    expect(other).not.toHaveProperty('sentMessage');
   });
 });
