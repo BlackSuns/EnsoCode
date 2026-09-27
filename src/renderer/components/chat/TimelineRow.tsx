@@ -1613,9 +1613,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
       ? parseMemoryCapture(item.output, item.memoryContent)
       : null;
   const subagentReceipt =
-    expanded &&
-    item.state !== 'error' &&
-    (item.subagentOp === 'report' || item.subagentOp === 'wait')
+    expanded && item.name === 'subagent' && item.state !== 'error'
       ? parseSubagentReceipt(item.subagentOp, item.output)
       : null;
   const previouslyHadFileChanges = useRef(hasFileChanges);
@@ -1761,9 +1759,10 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                 <TerminalOutput command={item.summary} output={item.output ?? ''} />
               ) : item.name === 'read' ? (
                 <ReadFileView path={item.summary} contents={item.output ?? ''} />
-              ) : subagentReceipt ? (
-                <SubagentResult view={subagentReceipt} titles={item.subagentTitles} />
-              ) : item.name === 'subagent' && item.state !== 'error' && !sentMessage ? (
+              ) : item.name === 'subagent' &&
+                item.state !== 'error' &&
+                !sentMessage &&
+                !subagentReceipt ? (
                 <div className="px-3 py-2 text-sm">
                   <Markdown text={item.output ?? ''} />
                 </div>
@@ -1779,10 +1778,14 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                       <Markdown text={sentMessage} />
                     </div>
                   )}
-                  {item.output && (
-                    <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
-                      {stripAnsi(item.output)}
-                    </pre>
+                  {subagentReceipt ? (
+                    <SubagentResult view={subagentReceipt} titles={item.subagentTitles} />
+                  ) : (
+                    item.output && (
+                      <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+                        {stripAnsi(item.output)}
+                      </pre>
+                    )
                   )}
                 </>
               )}

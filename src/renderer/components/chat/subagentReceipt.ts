@@ -1,4 +1,4 @@
-import { splitTrailingJson } from '@/stores/sessions/timeline';
+import { type SubagentOp, splitTrailingJson } from '@/stores/sessions/timeline';
 
 export interface SubagentRunLine {
   agentId: string;
@@ -44,9 +44,12 @@ function toRunLine(value: unknown): SubagentRunLine | null {
   };
 }
 
-/** 对不上 AgentRunReport / AgentWaitReceipt 形状时返回 null，由调用方回退原文 */
+/**
+ * report / wait 回执，及 spawn / send 带 wait:true 时回执附带的等待结果（op 缺省即 spawn / send）；
+ * 对不上形状时返回 null，由调用方回退原文
+ */
 export function parseSubagentReceipt(
-  op: 'report' | 'wait',
+  op: SubagentOp | undefined,
   output: string | null | undefined
 ): SubagentReceiptView | null {
   const receipt = splitTrailingJson(output);
@@ -66,15 +69,16 @@ export function parseSubagentReceipt(
       info: JSON.stringify(rest, null, 2),
     };
   }
-  if (!Array.isArray(json.runs)) return null;
-  const runs = json.runs.flatMap((entry) => toRunLine(entry) ?? []);
-  if (runs.length !== json.runs.length) return null;
+  const waited = op === 'wait' ? json : op === undefined ? json.report : null;
+  if (!isRecord(waited) || !Array.isArray(waited.runs)) return null;
+  const runs = waited.runs.flatMap((entry) => toRunLine(entry) ?? []);
+  if (runs.length !== waited.runs.length) return null;
   return {
     kind: 'wait',
     head,
     runs,
-    timedOut: json.timedOut === true,
-    interrupted: json.interrupted === true,
+    timedOut: waited.timedOut === true,
+    interrupted: waited.interrupted === true,
     info: JSON.stringify(json, null, 2),
   };
 }

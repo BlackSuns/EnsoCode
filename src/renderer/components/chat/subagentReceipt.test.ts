@@ -72,6 +72,38 @@ describe('parseSubagentReceipt', () => {
     expect(view).toMatchObject({ head: reminder, text: 'ok' });
   });
 
+  it('spawn / send 带 wait:true：取回执附带的等待结果，运行信息保留整段回执', () => {
+    const report = { runs: [run()], timedOut: true, interrupted: false };
+    const spawned = parseSubagentReceipt(
+      undefined,
+      json({ agentId: 'agent-a', runId: 'run-a', mode: 'task', status: 'running', report })
+    );
+    expect(spawned).toMatchObject({
+      kind: 'wait',
+      head: '',
+      timedOut: true,
+      interrupted: false,
+      runs: [{ agentId: 'agent-a', runId: 'run-a', status: 'succeeded', durationMs: 12000 }],
+    });
+    expect(spawned?.info).toContain('"mode": "task"');
+    const sent = parseSubagentReceipt(
+      undefined,
+      json({ agentId: 'agent-a', runId: 'run-a', delivery: 'next', status: 'queued', report })
+    );
+    expect(sent?.info).toContain('"delivery": "next"');
+  });
+
+  it('不带 wait 的 spawn / send 回执，以及停止 / 解雇 / 列出的结果都不认', () => {
+    const receipt = json({ agentId: 'agent-a', runId: 'run-a', mode: 'task', status: 'running' });
+    expect(parseSubagentReceipt(undefined, receipt)).toBeNull();
+    expect(
+      parseSubagentReceipt(undefined, json({ runs: [run()], timedOut: false, interrupted: false }))
+    ).toBeNull();
+    expect(parseSubagentReceipt('stop', json(run()))).toBeNull();
+    expect(parseSubagentReceipt('dismiss', json({ agentId: 'agent-a' }))).toBeNull();
+    expect(parseSubagentReceipt('list', json({ agents: [] }))).toBeNull();
+  });
+
   it('对不上形状时返回 null，由调用方回退原文', () => {
     const waited = json({ runs: [run()], timedOut: false, interrupted: false });
     expect(parseSubagentReceipt('report', null)).toBeNull();
