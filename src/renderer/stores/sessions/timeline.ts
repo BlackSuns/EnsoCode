@@ -195,6 +195,7 @@ const SUMMARY_KEYS = [
 
 const PATH_SUMMARY_KEYS = new Set(['path', 'file_path']);
 const HASHLINE_HEADER = /^\[(.+)#([0-9A-Fa-f]{4})\]$/;
+const PATCH_FILE_HEADER = /^\*\*\* (?:(?:Add|Delete|Update) File|Move to): (.+)$/;
 
 /** Windows 盘符根路径还原成 POSIX，便于远程 SSH 工具路径和项目 cwd 对齐 */
 function posixifyPath(value: string): string {
@@ -224,6 +225,19 @@ function hashlinePathFromInput(input: unknown): string | undefined {
     return HASHLINE_HEADER.exec(trimmed)?.[1];
   }
   return undefined;
+}
+
+/** apply_patch 尚无落盘结果时从补丁头取目标文件（move 计入新路径，与落盘结果口径一致） */
+function patchPathsFromArgs(args: unknown): string[] | null {
+  if (!args || typeof args !== 'object') return null;
+  const input = (args as Record<string, unknown>).input;
+  if (typeof input !== 'string') return null;
+  const paths = new Set<string>();
+  for (const line of input.split('\n')) {
+    const path = PATCH_FILE_HEADER.exec(line.trim())?.[1];
+    if (path) paths.add(path);
+  }
+  return [...paths];
 }
 
 function summarizeArgs(args: unknown, cwd?: string): string {
@@ -788,16 +802,22 @@ function buildMessageTimeline(
           const sandboxView = part.name === 'exec' ? parseSandboxOutput(output) : null;
           const call = unwrapMcpProxyCall(part.name, part.arguments);
           const sentMessage = extractSentMessage(part.name, part.arguments);
+          const patchPaths =
+            part.name !== 'apply_patch'
+              ? null
+              : result?.fileChanges?.length
+                ? result.fileChanges.map((change) => change.path)
+                : patchPathsFromArgs(part.arguments);
           items.push({
             kind: 'tool',
             key,
             name: call.name,
             summary: execSource
               ? summarizeExecSource(execSource)
-              : part.name === 'apply_patch' && result?.fileChanges?.length
-                ? result.fileChanges.length === 1
-                  ? toProjectRelativePath(result.fileChanges[0].path, cwd)
-                  : `${result.fileChanges.length} files`
+              : patchPaths
+                ? patchPaths.length > 1
+                  ? `${patchPaths.length} files`
+                  : toProjectRelativePath(patchPaths[0] ?? '', cwd)
                 : (sentMessage ?? call.summary ?? summarizeArgs(call.args, cwd)),
             source: execSource,
             output,

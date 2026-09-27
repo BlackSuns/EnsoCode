@@ -2395,6 +2395,38 @@ describe('apply_patch timeline', () => {
     expect(timeline[0]).toMatchObject({ fileChanges: [], edits: null, writeContent: null });
   });
 
+  it('没有落盘结果时摘要取补丁头里的目标文件，不显示参数 JSON', () => {
+    const patchCall = (input: string): ProjectedMessage => ({
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: 'patch-2', name: 'apply_patch', arguments: { input } }],
+    });
+    const summaryOf = (...messages: ProjectedMessage[]) => {
+      const [item] = buildTimeline(messages, true, [], '/repo');
+      return item?.kind === 'tool' ? item.summary : null;
+    };
+    expect(summaryOf(patchCall('*** Begin Patch\n*** Add File: /repo/tests/a.test.js\n+imp'))).toBe(
+      'tests/a.test.js'
+    );
+    expect(
+      summaryOf(
+        patchCall(
+          '*** Begin Patch\n*** Update File: a.ts\n*** Move to: b.ts\n@@\n-x\n+y\n*** Delete File: c.ts\n*** End Patch'
+        )
+      )
+    ).toBe('3 files');
+    expect(summaryOf(patchCall('*** Begin Patch\n*** Add Fi'))).toBe('');
+    expect(
+      summaryOf(patchCall('*** Begin Patch\n*** Update File: a.ts\n@@\n-x\n+y\n*** End Patch'), {
+        role: 'toolResult',
+        toolCallId: 'patch-2',
+        toolName: 'apply_patch',
+        isError: true,
+        content: [{ type: 'text', text: 'preflight failed' }],
+        fileChanges: [],
+      })
+    ).toBe('a.ts');
+  });
+
   it('有实际修改的 partial result 会改变 Changes 指纹', () => {
     const withResult: ProjectedMessage[] = [
       call,
