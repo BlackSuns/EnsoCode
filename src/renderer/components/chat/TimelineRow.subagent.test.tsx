@@ -54,4 +54,13 @@ describe('子代理操作行头', () => {
     expect(html).toContain('>Run was not found</span>');
     expect(html).not.toContain('[Wait]');
   });
+
+  it('参数校验失败（没有摘要）时也显示错误首行', () => {
+    const html = row({
+      state: 'error',
+      output:
+        'Validation failed for tool "subagent":\n  - operation: must have required properties operation\n\nReceived arguments:\n{}',
+    });
+    expect(html).toContain('>Validation failed for tool &quot;subagent&quot;:</span>');
+  });
 });

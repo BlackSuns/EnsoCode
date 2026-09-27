@@ -1655,13 +1655,13 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
               item.state === 'error' ? 'text-destructive' : 'text-muted-foreground'
             )}
           >
-            {!summary
-              ? null
-              : item.state === 'error' && item.output
-                ? item.name === 'apply_patch' && hasFileChanges
-                  ? `${headerSummary} · ${firstLine(item.output)}`
-                  : firstLine(item.output)
-                : headerSummary}
+            {item.state === 'error' && item.output
+              ? summary && item.name === 'apply_patch' && hasFileChanges
+                ? `${headerSummary} · ${firstLine(item.output)}`
+                : firstLine(item.output)
+              : summary
+                ? headerSummary
+                : null}
           </span>
           {item.state === 'reviewing' ? (
             <span className="t-shimmer shrink-0 text-[11px]" data-text={t('Assistant reviewing…')}>
