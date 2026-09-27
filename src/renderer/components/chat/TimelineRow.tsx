@@ -78,9 +78,9 @@ import { EditDiff } from './EditDiff';
 import { EnsoMark } from './EnsoMark';
 import { renderHighlighted, useChatSearchHighlight } from './highlightQuery';
 import { Markdown } from './Markdown';
-import { MemorySearchResults } from './MemorySearchResults';
+import { MemoryCaptureResult, MemorySearchResults } from './MemorySearchResults';
 import { mentionChipClass } from './MentionChip';
-import { parseMemorySearchHits } from './memorySearchHits';
+import { parseMemoryCapture, parseMemorySearchHits } from './memorySearchHits';
 import { splitInlineMentions, splitMentionRefs } from './mentionComposer';
 import { ReadFileView } from './ReadFileView';
 import { RtkToolStatsBar } from './RtkToolStatsBar';
@@ -163,7 +163,8 @@ function itemEqual(prev: TimelineRowProps, next: TimelineRowProps): boolean {
         a.rtk === b.rtk &&
         a.plan?.title === b.plan?.title &&
         a.plan?.text === b.plan?.text &&
-        a.sentMessage === b.sentMessage
+        a.sentMessage === b.sentMessage &&
+        a.memoryContent === b.memoryContent
       );
     case 'tool-group':
       return (
@@ -1556,6 +1557,10 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
   const [expanded, setExpanded] = useState(autoExpand);
   const memoryHits =
     expanded && item.name === 'memory_search' ? parseMemorySearchHits(item.output) : null;
+  const memoryCapture =
+    expanded && item.name === 'memory_capture'
+      ? parseMemoryCapture(item.output, item.memoryContent)
+      : null;
   const previouslyHadFileChanges = useRef(hasFileChanges);
   // apply_patch 只在终态结果中拿到真实 diff：必须按「本行从无到有」识别直播，历史首次挂载不展开。
   useEffect(() => {
@@ -1705,6 +1710,8 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                 </div>
               ) : memoryHits ? (
                 <MemorySearchResults hits={memoryHits} />
+              ) : memoryCapture ? (
+                <MemoryCaptureResult view={memoryCapture} />
               ) : (
                 <>
                   {sentMessage && (

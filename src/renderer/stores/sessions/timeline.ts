@@ -83,6 +83,8 @@ export type TimelineItem =
       plan?: { title: string; text: string } | null;
       /** 联系主 agent / 队员、子代理 send 发出的正文；其它工具缺省 */
       sentMessage?: string;
+      /** memory_capture 记下的正文（写入回执不带正文）；其它工具缺省 */
+      memoryContent?: string;
     }
   | {
       kind: 'tool-group';
@@ -451,6 +453,19 @@ function recordSpawnedAgent(
   const label = [name, description].find((value) => typeof value === 'string' && value.trim());
   const agentId = splitTrailingJson(output)?.value.agentId;
   if (typeof label === 'string' && typeof agentId === 'string') agents.set(agentId, label.trim());
+}
+
+/** memory_capture 的标题（缺省取正文首行）与正文 */
+function extractCapturedMemory(
+  name: string,
+  args: unknown
+): { title: string; content: string } | null {
+  if (name !== 'memory_capture' || !args || typeof args !== 'object') return null;
+  const { title, content } = args as Record<string, unknown>;
+  if (typeof content !== 'string' || !content.trim()) return null;
+  const text = content.trim();
+  const heading = typeof title === 'string' ? title.trim() : '';
+  return { title: heading || text.split('\n', 1)[0].trim(), content: text };
 }
 
 /** edit 工具参数里取出替换块（保持同一数组引用，供 memo 做引用比较） */
@@ -875,6 +890,7 @@ function buildMessageTimeline(
             recordSpawnedAgent(spawnedAgents, part.arguments, result?.output);
           }
           const sent = extractSentMessage(part.name, part.arguments, spawnedAgents);
+          const captured = extractCapturedMemory(part.name, part.arguments);
           const patchPaths =
             part.name !== 'apply_patch'
               ? null
@@ -891,7 +907,10 @@ function buildMessageTimeline(
                 ? patchPaths.length > 1
                   ? `${patchPaths.length} files`
                   : toProjectRelativePath(patchPaths[0] ?? '', cwd)
-                : (sent?.summary ?? call.summary ?? summarizeArgs(call.args, cwd)),
+                : (sent?.summary ??
+                  captured?.title ??
+                  call.summary ??
+                  summarizeArgs(call.args, cwd)),
             source: execSource,
             output: sent ? stripDeliveryReceipt(output) : output,
             nestedPending: nestedPendingCount(part.id, pendingApprovals) || undefined,
@@ -921,6 +940,7 @@ function buildMessageTimeline(
               ? { plan: extractSubmittedPlan(part.name, part.arguments) }
               : {}),
             ...(sent ? { sentMessage: sent.text } : {}),
+            ...(captured ? { memoryContent: captured.content } : {}),
             ...(result || !toolStartedAt ? {} : { startedAt: toolStartedAt[part.id] ?? null }),
           });
           return;

@@ -1163,6 +1163,8 @@ export const zhTranslations: Record<string, string> = {
   'Synthesizing…': '合成中…',
   'Crystal created': '已生成结晶',
   'Nothing was written': '没有写入任何内容',
+  'Similar memories already exist, nothing was written': '已有相似记忆，没有写入',
+  'Identical memory already exists, nothing new was written': '已有完全相同的记忆，没有重复写入',
   'Showing {{shown}} of {{total}}': '显示 {{shown}} / {{total}}',
   'No memories yet.': '还没有记忆。',
   'Stored memories': '已存记忆',

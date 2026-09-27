@@ -2,9 +2,15 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
-import type { MemorySearchHit } from './memorySearchHits';
+import type { MemoryCaptureView, MemorySearchHit } from './memorySearchHits';
 
-export function MemorySearchResults({ hits }: { hits: MemorySearchHit[] }) {
+export function MemorySearchResults({
+  hits,
+  defaultOpen = false,
+}: {
+  hits: MemorySearchHit[];
+  defaultOpen?: boolean;
+}) {
   const { t } = useI18n();
   if (hits.length === 0) {
     return <p className="px-3 py-2 text-xs text-muted-foreground">{t('No results')}</p>;
@@ -12,15 +18,33 @@ export function MemorySearchResults({ hits }: { hits: MemorySearchHit[] }) {
   return (
     <ul className="divide-y divide-border/60">
       {hits.map((hit) => (
-        <MemoryHitRow key={hit.id} hit={hit} />
+        <MemoryHitRow key={hit.id} hit={hit} defaultOpen={defaultOpen} />
       ))}
     </ul>
   );
 }
 
-function MemoryHitRow({ hit }: { hit: MemorySearchHit }) {
+/** memory_capture：写入的那条直接展开；未写入时说明原因并列出挡住它的相似记忆 */
+export function MemoryCaptureResult({ view }: { view: MemoryCaptureView }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
+  const note = view.written
+    ? view.deduplicated && t('Identical memory already exists, nothing new was written')
+    : t('Similar memories already exist, nothing was written');
+  return (
+    <>
+      {note && <p className="px-3 pt-2 text-xs text-muted-foreground">{note}</p>}
+      {view.written ? (
+        <MemorySearchResults hits={[view.memory]} defaultOpen />
+      ) : (
+        <MemorySearchResults hits={view.candidates} />
+      )}
+    </>
+  );
+}
+
+function MemoryHitRow({ hit, defaultOpen }: { hit: MemorySearchHit; defaultOpen: boolean }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <li>
       <button

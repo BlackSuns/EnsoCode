@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseMemorySearchHits } from './memorySearchHits';
+import { parseMemoryCapture, parseMemorySearchHits } from './memorySearchHits';
 
 const hit = (over: Record<string, unknown> = {}) => ({
   id: 'm1',
@@ -73,5 +73,73 @@ describe('parseMemorySearchHits', () => {
     ['条目非对象', '{"results":[null]}'],
   ])('形状不符（%s）返回 null，交给调用方回退原文', (_label, output) => {
     expect(parseMemorySearchHits(output)).toBeNull();
+  });
+});
+
+describe('parseMemoryCapture', () => {
+  const inserted = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      status: 'inserted',
+      memory: {
+        id: 'm9',
+        title: '工具行不能整段隐藏输出',
+        unitType: 'learning',
+        spaceId: 'proj:3e8d',
+        importance: 0.75,
+      },
+      ...over,
+    });
+
+  it('写入成功：回执不带正文，正文取自调用参数', () => {
+    expect(parseMemoryCapture(inserted(), '捎带提醒会被一起藏掉')).toEqual({
+      written: true,
+      deduplicated: false,
+      memory: {
+        id: 'm9',
+        title: '工具行不能整段隐藏输出',
+        content: '捎带提醒会被一起藏掉',
+        unitType: 'learning',
+        space: 'project',
+        score: null,
+      },
+    });
+    expect(parseMemoryCapture(inserted({ deduplicated: true }), 'x')).toMatchObject({
+      written: true,
+      deduplicated: true,
+    });
+  });
+
+  it('发现相似记忆时未写入：列出候选，以相似度作分数', () => {
+    const output = JSON.stringify({
+      status: 'candidates_found',
+      written: false,
+      message: 'Nothing was written: similar memories already exist.',
+      candidates: [
+        hit({ id: 'c1', spaceId: undefined, score: undefined, similarity: 0.9312, bm25Top1: true }),
+      ],
+    });
+    expect(parseMemoryCapture(output, '新正文')).toEqual({
+      written: false,
+      candidates: [
+        {
+          id: 'c1',
+          title: 'RTK 采用官方 prebuilt',
+          content: '随应用分发，默认开启',
+          unitType: 'decision',
+          space: null,
+          score: 0.9312,
+        },
+      ],
+    });
+  });
+
+  it.each([
+    ['错误文本', 'Memory is disabled', 'x'],
+    ['写入成功但缺正文参数', inserted(), undefined],
+    ['memory 非对象', inserted({ memory: null }), 'x'],
+    ['候选非数组', '{"status":"candidates_found","candidates":null}', 'x'],
+    ['未知状态', '{"status":"skipped"}', 'x'],
+  ])('形状不符（%s）返回 null，交给调用方回退原文', (_label, output, content) => {
+    expect(parseMemoryCapture(output, content)).toBeNull();
   });
 });
