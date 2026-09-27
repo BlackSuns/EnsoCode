@@ -2720,3 +2720,39 @@ describe('submit_plan 计划卡片', () => {
     expect(folded.at(-1)).toBe(plan);
   });
 });
+
+describe('message_main_agent 消息行', () => {
+  const toolFor = (name: string, args: Record<string, unknown>, extra: ProjectedMessage[] = []) =>
+    buildTimeline(
+      [
+        user('去核对'),
+        {
+          role: 'assistant',
+          stopReason: 'toolUse',
+          content: [{ type: 'toolCall', id: 'm1', name, arguments: args }],
+        },
+        ...extra,
+      ],
+      false
+    ).find((item) => item.kind === 'tool');
+
+  it('摘要与展开内容取发给主 agent 的正文，而不是参数 JSON 或投递回执', () => {
+    const message = '已核对并按补充约定：\n- 保留导出 AsrSession';
+    const tool = toolFor('message_main_agent', { message: ` ${message}\n`, urgent: false }, [
+      {
+        role: 'toolResult',
+        toolCallId: 'm1',
+        toolName: 'message_main_agent',
+        isError: false,
+        content: [{ type: 'text', text: '(delivered to the main agent — async)' }],
+      },
+    ]);
+    expect(tool).toMatchObject({ state: 'ok', summary: message, sentMessage: message });
+  });
+
+  it('空正文不产出消息内容；其它带 message 参数的工具不受影响', () => {
+    expect(toolFor('message_main_agent', { message: '  ' })).toMatchObject({ sentMessage: null });
+    const other = toolFor('subagent', { operation: 'send', message: 'hi' });
+    expect(other && 'sentMessage' in other).toBe(false);
+  });
+});

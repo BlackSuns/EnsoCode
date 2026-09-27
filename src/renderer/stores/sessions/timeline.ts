@@ -81,6 +81,8 @@ export type TimelineItem =
       rtk?: RtkToolStats;
       /** submit_plan 提交的计划；其它工具缺省 */
       plan?: { title: string; text: string } | null;
+      /** message_main_agent 发给主 agent 的正文；其它工具缺省 */
+      sentMessage?: string | null;
     }
   | {
       kind: 'tool-group';
@@ -360,6 +362,12 @@ export function extractWriteContent(name: string, args: unknown): string | null 
   if (name !== 'write' || !args || typeof args !== 'object') return null;
   const content = (args as Record<string, unknown>).content;
   return typeof content === 'string' && content ? content : null;
+}
+
+function extractSentMessage(name: string, args: unknown): string | null {
+  if (name !== 'message_main_agent' || !args || typeof args !== 'object') return null;
+  const message = (args as Record<string, unknown>).message;
+  return typeof message === 'string' && message.trim() ? message.trim() : null;
 }
 
 /** edit 工具参数里取出替换块（保持同一数组引用，供 memo 做引用比较） */
@@ -779,6 +787,7 @@ function buildMessageTimeline(
             : (partial ?? null) || null;
           const sandboxView = part.name === 'exec' ? parseSandboxOutput(output) : null;
           const call = unwrapMcpProxyCall(part.name, part.arguments);
+          const sentMessage = extractSentMessage(part.name, part.arguments);
           items.push({
             kind: 'tool',
             key,
@@ -789,7 +798,7 @@ function buildMessageTimeline(
                 ? result.fileChanges.length === 1
                   ? toProjectRelativePath(result.fileChanges[0].path, cwd)
                   : `${result.fileChanges.length} files`
-                : (call.summary ?? summarizeArgs(call.args, cwd)),
+                : (sentMessage ?? call.summary ?? summarizeArgs(call.args, cwd)),
             source: execSource,
             output,
             nestedPending: nestedPendingCount(part.id, pendingApprovals) || undefined,
@@ -818,6 +827,7 @@ function buildMessageTimeline(
             ...(part.name === 'submit_plan'
               ? { plan: extractSubmittedPlan(part.name, part.arguments) }
               : {}),
+            ...(part.name === 'message_main_agent' ? { sentMessage } : {}),
             ...(result || !toolStartedAt ? {} : { startedAt: toolStartedAt[part.id] ?? null }),
           });
           return;

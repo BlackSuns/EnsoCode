@@ -162,7 +162,8 @@ function itemEqual(prev: TimelineRowProps, next: TimelineRowProps): boolean {
         a.nestedPending === b.nestedPending &&
         a.rtk === b.rtk &&
         a.plan?.title === b.plan?.title &&
-        a.plan?.text === b.plan?.text
+        a.plan?.text === b.plan?.text &&
+        a.sentMessage === b.sentMessage
       );
     case 'tool-group':
       return (
@@ -1536,6 +1537,8 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
   const hasWrite = Boolean(item.writeContent);
   const hasFileChanges = Boolean(item.fileChanges && item.fileChanges.length > 0);
   const sandbox = item.name === 'exec' ? parseSandboxOutput(item.output) : null;
+  // 发给主 agent 的正文替代给模型看的投递回执；失败时仍显示错误输出
+  const sentMessage = item.state === 'error' ? null : item.sentMessage;
   const labelKey = TOOL_LABEL_KEYS[item.name];
   const mcp = parseMcpToolName(item.name);
   const headerSummary =
@@ -1544,8 +1547,8 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
       : sandbox?.calls.length && item.state !== 'error'
         ? summarizeSandboxCalls(sandbox.calls)
         : item.summary;
-  const expandable =
-    hasDiff || hasWrite || hasFileChanges || Boolean(item.output) || Boolean(item.source);
+  const hasBody = Boolean(item.output || item.source || sentMessage);
+  const expandable = hasDiff || hasWrite || hasFileChanges || hasBody;
   // edit 的 diff 与 write 的内容只在本轮直播（running）且开启 expandLiveEdits 时默认展开；
   // 历史会话挂载时全部折叠——否则切会话时视口内成排 FileDiff 同步解析+高亮，
   // 主线程阻塞几秒白屏
@@ -1688,7 +1691,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
               <ReadFileView path={item.summary} contents={item.writeContent} />
             </ToolContentScroller>
           )}
-          {!hasDiff && !hasWrite && !hasFileChanges && (item.output || item.source) && (
+          {!hasDiff && !hasWrite && !hasFileChanges && hasBody && (
             <ToolContentScroller follow={item.state === 'running'}>
               {item.name === 'exec' ? (
                 <SandboxOutput source={item.source} output={item.output} view={sandbox} />
@@ -1702,6 +1705,10 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                 </div>
               ) : memoryHits ? (
                 <MemorySearchResults hits={memoryHits} />
+              ) : sentMessage ? (
+                <div className="px-3 py-2 text-sm">
+                  <Markdown text={sentMessage} />
+                </div>
               ) : (
                 <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
                   {stripAnsi(item.output ?? '')}
