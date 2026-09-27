@@ -2753,7 +2753,14 @@ describe('submit_plan 计划卡片', () => {
   });
 });
 
-describe('message_main_agent 消息行', () => {
+describe('消息类工具行（联系主 agent / 联系队员）', () => {
+  const resultOf = (name: string, text: string): ProjectedMessage => ({
+    role: 'toolResult',
+    toolCallId: 'm1',
+    toolName: name,
+    isError: false,
+    content: [{ type: 'text', text }],
+  });
   const toolFor = (name: string, args: Record<string, unknown>, extra: ProjectedMessage[] = []) =>
     buildTimeline(
       [
@@ -2768,23 +2775,56 @@ describe('message_main_agent 消息行', () => {
       false
     ).find((item) => item.kind === 'tool');
 
-  it('摘要与展开内容取发给主 agent 的正文，而不是参数 JSON 或投递回执', () => {
+  it('联系主 agent：摘要与展开内容取正文，而不是参数 JSON 或投递回执', () => {
     const message = '已核对并按补充约定：\n- 保留导出 AsrSession';
     const tool = toolFor('message_main_agent', { message: ` ${message}\n`, urgent: false }, [
-      {
-        role: 'toolResult',
-        toolCallId: 'm1',
-        toolName: 'message_main_agent',
-        isError: false,
-        content: [{ type: 'text', text: '(delivered to the main agent — async)' }],
-      },
+      resultOf('message_main_agent', '(delivered to the main agent — async)'),
     ]);
-    expect(tool).toMatchObject({ state: 'ok', summary: message, sentMessage: message });
+    expect(tool).toMatchObject({
+      state: 'ok',
+      summary: message,
+      sentMessage: message,
+      output: null,
+    });
+  });
+
+  it('联系队员：摘要带上收件人，展开内容取正文', () => {
+    const text = '接口改好了，**可以联调**';
+    const tool = toolFor('message_coworker', { to: ' 核对 ASR ', text }, [
+      resultOf(
+        'message_coworker',
+        '(delivered to coworker "核对 ASR" — async; any reply arrives later via message_coworker)'
+      ),
+    ]);
+    expect(tool).toMatchObject({
+      state: 'ok',
+      summary: `核对 ASR · ${text}`,
+      sentMessage: text,
+      output: null,
+    });
+  });
+
+  it('只剥投递回执：捎带的系统提醒与发送失败回执照常显示', () => {
+    const notice =
+      '<background-task-update>\nMessage from coworker "B":\nhi\n</background-task-update>';
+    expect(
+      toolFor('message_coworker', { to: 'B', text: 'x' }, [
+        resultOf('message_coworker', `${notice}\n\n(delivered to coworker "B" — async)`),
+      ])
+    ).toMatchObject({ output: notice });
+    const failed = '(unknown coworker "C" — peers: B)';
+    expect(
+      toolFor('message_coworker', { to: 'C', text: 'x' }, [resultOf('message_coworker', failed)])
+    ).toMatchObject({ state: 'ok', output: failed });
   });
 
   it('空正文不产出消息内容；其它带 message 参数的工具不受影响', () => {
     expect(toolFor('message_main_agent', { message: '  ' })).toMatchObject({ sentMessage: null });
-    const other = toolFor('subagent', { operation: 'send', message: 'hi' });
+    const receipt = '(delivered to coworker "B" — async)';
+    const other = toolFor('subagent', { operation: 'send', message: 'hi' }, [
+      resultOf('subagent', receipt),
+    ]);
+    expect(other).toMatchObject({ output: receipt });
     expect(other && 'sentMessage' in other).toBe(false);
   });
 });

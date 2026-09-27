@@ -81,7 +81,7 @@ export type TimelineItem =
       rtk?: RtkToolStats;
       /** submit_plan 提交的计划；其它工具缺省 */
       plan?: { title: string; text: string } | null;
-      /** message_main_agent 发给主 agent 的正文；其它工具缺省 */
+      /** 联系主 agent / 队员发出的正文；其它工具缺省 */
       sentMessage?: string | null;
     }
   | {
@@ -378,10 +378,22 @@ export function extractWriteContent(name: string, args: unknown): string | null 
   return typeof content === 'string' && content ? content : null;
 }
 
-function extractSentMessage(name: string, args: unknown): string | null {
-  if (name !== 'message_main_agent' || !args || typeof args !== 'object') return null;
-  const message = (args as Record<string, unknown>).message;
-  return typeof message === 'string' && message.trim() ? message.trim() : null;
+const MESSAGE_BODY_KEYS = new Map([
+  ['message_main_agent', 'message'],
+  ['message_coworker', 'text'],
+]);
+/** 投递成功回执只给模型看；失败回执与前面捎带的系统提醒不匹配，照常显示 */
+const DELIVERY_RECEIPT =
+  /(?:^|\n)\((?:delivered to |the main agent is blocked waiting )[^\n]*\)\s*$/;
+
+/** 消息类工具的正文；联系队员的摘要带上收件人 */
+function extractSentMessage(name: string, args: unknown): { text: string; summary: string } | null {
+  const key = MESSAGE_BODY_KEYS.get(name);
+  if (!key || !args || typeof args !== 'object') return null;
+  const { [key]: body, to } = args as Record<string, unknown>;
+  if (typeof body !== 'string' || !body.trim()) return null;
+  const text = body.trim();
+  return { text, summary: typeof to === 'string' && to.trim() ? `${to.trim()} · ${text}` : text };
 }
 
 /** edit 工具参数里取出替换块（保持同一数组引用，供 memo 做引用比较） */
@@ -801,7 +813,7 @@ function buildMessageTimeline(
             : (partial ?? null) || null;
           const sandboxView = part.name === 'exec' ? parseSandboxOutput(output) : null;
           const call = unwrapMcpProxyCall(part.name, part.arguments);
-          const sentMessage = extractSentMessage(part.name, part.arguments);
+          const sent = extractSentMessage(part.name, part.arguments);
           const patchPaths =
             part.name !== 'apply_patch'
               ? null
@@ -818,9 +830,9 @@ function buildMessageTimeline(
                 ? patchPaths.length > 1
                   ? `${patchPaths.length} files`
                   : toProjectRelativePath(patchPaths[0] ?? '', cwd)
-                : (sentMessage ?? call.summary ?? summarizeArgs(call.args, cwd)),
+                : (sent?.summary ?? call.summary ?? summarizeArgs(call.args, cwd)),
             source: execSource,
-            output,
+            output: sent ? output?.replace(DELIVERY_RECEIPT, '').trimEnd() || null : output,
             nestedPending: nestedPendingCount(part.id, pendingApprovals) || undefined,
             state: result
               ? result.isError || sandboxView?.status === 'failed'
@@ -847,7 +859,7 @@ function buildMessageTimeline(
             ...(part.name === 'submit_plan'
               ? { plan: extractSubmittedPlan(part.name, part.arguments) }
               : {}),
-            ...(part.name === 'message_main_agent' ? { sentMessage } : {}),
+            ...(MESSAGE_BODY_KEYS.has(part.name) ? { sentMessage: sent?.text ?? null } : {}),
             ...(result || !toolStartedAt ? {} : { startedAt: toolStartedAt[part.id] ?? null }),
           });
           return;

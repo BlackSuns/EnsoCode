@@ -1537,7 +1537,7 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
   const hasWrite = Boolean(item.writeContent);
   const hasFileChanges = Boolean(item.fileChanges && item.fileChanges.length > 0);
   const sandbox = item.name === 'exec' ? parseSandboxOutput(item.output) : null;
-  // 发给主 agent 的正文替代给模型看的投递回执；失败时仍显示错误输出
+  // 消息类工具展开显示发出的正文（投递回执已在 timeline 剥掉）；出错时只显示错误输出
   const sentMessage = item.state === 'error' ? null : item.sentMessage;
   const labelKey = TOOL_LABEL_KEYS[item.name];
   const mcp = parseMcpToolName(item.name);
@@ -1705,14 +1705,19 @@ function ToolRow({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                 </div>
               ) : memoryHits ? (
                 <MemorySearchResults hits={memoryHits} />
-              ) : sentMessage ? (
-                <div className="px-3 py-2 text-sm">
-                  <Markdown text={sentMessage} />
-                </div>
               ) : (
-                <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
-                  {stripAnsi(item.output ?? '')}
-                </pre>
+                <>
+                  {sentMessage && (
+                    <div className="px-3 py-2 text-sm">
+                      <Markdown text={sentMessage} />
+                    </div>
+                  )}
+                  {item.output && (
+                    <pre className="px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+                      {stripAnsi(item.output)}
+                    </pre>
+                  )}
+                </>
               )}
               <RtkToolStatsBar value={item.rtk} />
             </ToolContentScroller>
