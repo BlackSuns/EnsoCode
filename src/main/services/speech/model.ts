@@ -24,6 +24,8 @@ export interface SpeechModelSpec extends DownloadableModel {
   /** 实测（M4，2026-09）加载后进程 RSS 增量的量级 */
   memoryBytes: number;
   archive?: SpeechModelArchive;
+  /** 云端识别，凭证来自已配置的服务商 */
+  remote?: true;
 }
 
 const X_ASR_STREAMING_ROOT =
@@ -149,6 +151,15 @@ export const SPEECH_MODELS: Record<SpeechModelId, SpeechModelSpec> = {
       modelscope: 'pengzhendong/sherpa-onnx-sense-voice-zh-en-ja-ko-yue',
     },
   },
+  'gemini-live': {
+    id: 'gemini-live',
+    streaming: true,
+    approxBytes: 0,
+    memoryBytes: 0,
+    files: [],
+    sources: null,
+    remote: true,
+  },
 };
 
 /** 旧版 SenseVoice 目录名沿用，已下载的用户不必重下 */
@@ -248,5 +259,7 @@ export function recognizerConfig(spec: SpeechModelSpec, dir: string): Recognizer
           },
         },
       };
+    case 'gemini-live':
+      throw new Error('cloud speech model has no local recognizer');
   }
 }

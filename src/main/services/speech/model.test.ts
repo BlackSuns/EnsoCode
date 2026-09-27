@@ -14,11 +14,13 @@ describe('speech model registry', () => {
     expect(speechModelIdFromSettings({ voiceModel: 'x-asr' })).toBe('x-asr');
   });
 
-  it('marks only the streaming transducer as streaming and gives every model a download path', () => {
+  it('marks the streaming models and gives every local model a download path', () => {
     expect(SPEECH_MODEL_IDS.filter((id) => SPEECH_MODELS[id].streaming)).toEqual([
       'x-asr-streaming',
+      'gemini-live',
     ]);
-    for (const id of SPEECH_MODEL_IDS) {
+    expect(SPEECH_MODEL_IDS.filter((id) => SPEECH_MODELS[id].remote)).toEqual(['gemini-live']);
+    for (const id of SPEECH_MODEL_IDS.filter((id) => !SPEECH_MODELS[id].remote)) {
       const spec = SPEECH_MODELS[id];
       expect(spec.id).toBe(id);
       expect(Boolean(spec.sources) !== Boolean(spec.archive)).toBe(true);

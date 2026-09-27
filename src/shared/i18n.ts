@@ -1001,8 +1001,8 @@ export const zhTranslations: Record<string, string> = {
   'Downloading…': '下载中…',
   'Semantic search stays off until the model is on disk.': '模型落盘前语义检索不会生效。',
   'Voice input': '语音输入',
-  'Adds a microphone to the composer on this computer and on paired phones. Speech is transcribed locally on this computer.':
-    '在本机和已配对手机的输入框中显示麦克风按钮，语音在这台电脑上本地识别。',
+  'Adds a microphone to the composer on this computer and on paired phones. Local models transcribe speech on this computer.':
+    '在本机和已配对手机的输入框中显示麦克风按钮，本地模型在这台电脑上识别语音。',
   'Speech model': '识别模型',
   Microphone: '麦克风',
   'Microphone {{n}}': '麦克风 {{n}}',
@@ -1018,6 +1018,17 @@ export const zhTranslations: Record<string, string> = {
   'Best with mixed Chinese-English and code terms. Slower and uses more memory.':
     '中英混说和代码术语识别最好，但较慢且更占内存。',
   'Chinese, English, Japanese, Korean and Cantonese.': '支持中文、英文、日语、韩语和粤语。',
+  'Google cloud recognition, most accurate with mixed Chinese-English and code terms. Needs a Gemini API key.':
+    'Google 云端识别，中英混说和代码术语最准；需要 Gemini API Key。',
+  'Audio is uploaded to Google. On the free tier Google may use it to improve its products.':
+    '音频会上传到 Google；免费层级下 Google 可能用它改进产品。',
+  'Enter a Gemini API key below first.': '需先在下方填写 Gemini API Key。',
+  'Gemini API key': 'Gemini API Key',
+  'Create one for free in Google AI Studio.': '可在 Google AI Studio 免费创建。',
+  Cloud: '云端',
+  'Custom vocabulary': '自定义词表',
+  'One term per line, up to 100. Helps with names and code terms such as useEffect or pnpm.':
+    '每行一个，最多 100 个。可提升人名和 useEffect、pnpm 这类代码术语的识别率。',
   'Correct with a language model': '用大模型纠错',
   'Fixes homophones, code terms and number formats after recognition. Adds about 1-3 seconds; the raw text is kept if it fails.':
     '识别后纠正同音错字、代码术语和数字写法，约多 1–3 秒；纠错失败时保留原文。',

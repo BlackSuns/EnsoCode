@@ -19,6 +19,7 @@ import {
   setSpeechCorrector,
   setSpeechProgressSink,
   speechAvailable,
+  startSpeechDownload,
   syncSpeechFromSettings,
 } from './service';
 
@@ -310,7 +311,48 @@ describe('speech status', () => {
       ['x-asr', false, 'ready'],
       ['qwen3-asr', false, 'missing'],
       ['sense-voice', false, 'missing'],
+      ['gemini-live', true, 'missing'],
     ]);
+  });
+
+  describe('Gemini cloud model', () => {
+    const gemini = {
+      voiceInputEnabled: true,
+      voiceModel: 'gemini-live',
+      voiceGeminiApiKey: 'AIza',
+    };
+
+    it('is ready once the voice settings hold a Gemini key, with no download or local engine runtime', async () => {
+      syncSpeechFromSettings(gemini);
+      expect(getSpeechStatus().state).toBe('ready');
+      expect(getSpeechStatus().models.find((m) => m.id === 'gemini-live')?.remote).toBe(true);
+      expect(speechAvailable()).toBe(true);
+      await expect(startSpeechDownload('gemini-live')).resolves.toBe(false);
+      const session = openSpeechSession(() => {});
+      session.push(second());
+      await expect(session.finish()).resolves.toEqual({ ok: true, text: '字。' });
+    });
+
+    it('stays usable on platforms without the local engine', () => {
+      __setSpeechTestHooks({
+        root,
+        platform: 'freebsd',
+        arch: 'riscv',
+        createEngine: async () => fakeEngine('gemini-live'),
+      });
+      syncSpeechFromSettings(gemini);
+      expect(getSpeechStatus().state).toBe('ready');
+    });
+
+    it('is not ready without a Gemini key', async () => {
+      syncSpeechFromSettings({ ...gemini, voiceGeminiApiKey: '' });
+      expect(getSpeechStatus().state).toBe('missing');
+      expect(speechAvailable()).toBe(false);
+      await expect(openSpeechSession(() => {}).finish()).resolves.toEqual({
+        ok: false,
+        error: 'not-ready',
+      });
+    });
   });
 
   it('tells listeners when voice input becomes usable or stops being usable', async () => {

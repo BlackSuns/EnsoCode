@@ -17,6 +17,7 @@ import { app } from 'electron';
 import { downloadedBytes, downloadModel, isModelReady } from '../memory/embedding/downloader';
 import { downloadArchiveModel } from './archive';
 import type { SpeechEngine, SpeechEngineStream } from './engine';
+import { geminiApiKeyFromSettings, openGeminiLiveStream, parseVocabulary } from './gemini';
 import {
   recognizerConfig,
   SPEECH_MODELS,
@@ -58,6 +59,8 @@ let hooks: SpeechTestHooks | null = null;
 let enabled = false;
 let selected: SpeechModelId = DEFAULT_SPEECH_MODEL_ID;
 let correctionEnabled = false;
+let geminiApiKey: string | null = null;
+let vocabulary: string[] = [];
 let corrector: SpeechCorrector | null = null;
 const downloads = new Map<SpeechModelId, DownloadTask>();
 let runtimeInstall: Promise<void> | null = null;
@@ -74,6 +77,8 @@ export function __setSpeechTestHooks(next: SpeechTestHooks | null): void {
   enabled = false;
   selected = DEFAULT_SPEECH_MODEL_ID;
   correctionEnabled = false;
+  geminiApiKey = null;
+  vocabulary = [];
   corrector = null;
   lastAvailable = false;
   downloads.clear();
@@ -122,7 +127,9 @@ function runtimeReady(): boolean {
 }
 
 function modelReady(id: SpeechModelId): boolean {
-  return runtimeReady() && isModelReady(modelDir(id), SPEECH_MODELS[id]);
+  const spec = SPEECH_MODELS[id];
+  if (spec.remote) return geminiApiKey !== null;
+  return runtimeReady() && isModelReady(modelDir(id), spec);
 }
 
 export function speechAvailable(): boolean {
@@ -144,6 +151,8 @@ function notifyAvailability(): void {
 export function syncSpeechFromSettings(state: Record<string, unknown>): void {
   enabled = state.voiceInputEnabled === true;
   correctionEnabled = state.voiceCorrectionEnabled === true;
+  geminiApiKey = geminiApiKeyFromSettings(state);
+  vocabulary = parseVocabulary(state.voiceVocabulary);
   const next = speechModelIdFromSettings(state);
   if (!enabled || next !== selected) unloadEngine();
   selected = next;
@@ -164,6 +173,7 @@ function modelDto(id: SpeechModelId): SpeechModelDto {
   return {
     id,
     streaming: spec.streaming,
+    remote: spec.remote === true,
     approxBytes: spec.approxBytes,
     memoryBytes: spec.memoryBytes,
     downloadedBytes:
@@ -176,7 +186,7 @@ export function getSpeechStatus(): SpeechStatusDto {
   const models = SPEECH_MODEL_IDS.map(modelDto);
   const current = models.find((model) => model.id === selected) as SpeechModelDto;
   return {
-    state: platformPackage() ? current.state : 'unsupported',
+    state: current.remote || platformPackage() ? current.state : 'unsupported',
     selected,
     models,
   };
@@ -199,7 +209,7 @@ async function ensureRuntime(pkg: string, signal: AbortSignal): Promise<void> {
 export async function startSpeechDownload(id: SpeechModelId): Promise<boolean> {
   const pkg = platformPackage();
   const spec = SPEECH_MODELS[id];
-  if (!pkg || downloads.has(id)) return false;
+  if (!pkg || spec.remote || downloads.has(id)) return false;
   const controller = new AbortController();
   let settle!: () => void;
   const task = { controller, settled: new Promise<void>((resolve) => (settle = resolve)) };
@@ -248,6 +258,7 @@ export function cancelSpeechDownload(id: SpeechModelId): boolean {
 
 /** 删模型必删；最后一个模型删掉时顺带删引擎（Windows 上已加载的原生插件删不掉，留着约 30MB） */
 export async function deleteSpeechModel(id: SpeechModelId): Promise<boolean> {
+  if (SPEECH_MODELS[id].remote) return false;
   const task = downloads.get(id);
   cancelSpeechDownload(id);
   await task?.settled;
@@ -311,6 +322,17 @@ function loadEngine(): Promise<SpeechEngine> {
 }
 
 async function createEngine(spec: SpeechModelSpec, dir: string): Promise<SpeechEngine> {
+  if (spec.remote) {
+    // 凭证与词表在开录时读取：改设置不必重建引擎
+    return {
+      transcribe: () => Promise.reject(new Error('cloud speech model only streams')),
+      openStream: () => {
+        if (!geminiApiKey) throw new Error('no Gemini API key');
+        return openGeminiLiveStream({ apiKey: geminiApiKey, vocabulary });
+      },
+      dispose: () => {},
+    };
+  }
   const { createWorkerEngine } = await import('./engine');
   const { kind, config } = recognizerConfig(spec, dir);
   return createWorkerEngine({ wrapperDir: speechRuntimeWrapperDir(runtimeDir()), kind, config });
