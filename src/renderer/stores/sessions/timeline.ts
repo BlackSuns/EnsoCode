@@ -87,6 +87,8 @@ export type TimelineItem =
       memoryContent?: string;
       /** ask_user 当时的问题、选项与用户的回答；其它工具缺省 */
       ask?: AskUserView;
+      /** 子代理按 runId / agentId 指代目标的操作（summary 为 spawn 时起的标题）；其它缺省 */
+      subagentOp?: SubagentOp;
     }
   | {
       kind: 'tool-group';
@@ -443,18 +445,57 @@ function stripDeliveryReceipt(output: string | null): string | null {
   return rest?.trimEnd() || null;
 }
 
-/** spawn 回执里的 agentId → 派活时起的名字，供后续发消息行显示收件人 */
-function recordSpawnedAgent(
+/** spawn 回执里的 agentId → 派活时起的名字；回执里的 runId → agentId，供后续按 id 指代的行显示标题 */
+function recordSubagent(
   agents: Map<string, string>,
+  runs: Map<string, string>,
   args: unknown,
   output: string | undefined
 ): void {
   if (!args || typeof args !== 'object') return;
   const { operation, name, description } = args as Record<string, unknown>;
+  const { agentId, runId } = splitTrailingJson(output)?.value ?? {};
+  if (typeof agentId !== 'string') return;
+  if (typeof runId === 'string') runs.set(runId, agentId);
   if (operation !== 'spawn') return;
   const label = [name, description].find((value) => typeof value === 'string' && value.trim());
-  const agentId = splitTrailingJson(output)?.value.agentId;
-  if (typeof label === 'string' && typeof agentId === 'string') agents.set(agentId, label.trim());
+  if (typeof label === 'string') agents.set(agentId, label.trim());
+}
+
+export type SubagentOp = 'report' | 'wait' | 'stop' | 'dismiss' | 'list';
+const SUBAGENT_OPS = new Set<unknown>(['report', 'wait', 'stop', 'dismiss', 'list']);
+
+/**
+ * 子代理行头：spawn 起了名字时带上名字（后续行的标题就是它）；
+ * 按 runId / agentId 指代的操作带上动作，标题只认本时间线 spawn 过的名字，查不到留空也不显示 id
+ */
+function extractSubagentHeader(
+  args: unknown,
+  agents: ReadonlyMap<string, string>,
+  runs: ReadonlyMap<string, string>
+): { op?: SubagentOp; title: string } | null {
+  if (!args || typeof args !== 'object') return null;
+  const { operation, name, description, agentId, runId, runIds } = args as Record<string, unknown>;
+  if (operation === 'spawn') {
+    if (typeof name !== 'string' || !name.trim()) return null;
+    const parts = [name, description].flatMap((part) =>
+      typeof part === 'string' && part.trim() ? [part.trim()] : []
+    );
+    return { title: [...new Set(parts)].join(' · ') };
+  }
+  if (!SUBAGENT_OPS.has(operation)) return null;
+  const ids =
+    operation === 'dismiss'
+      ? [agentId]
+      : [runId, ...(Array.isArray(runIds) ? runIds : [])].map((id) =>
+          typeof id === 'string' ? runs.get(id) : undefined
+        );
+  const titles = new Set<string>();
+  for (const id of ids) {
+    const title = typeof id === 'string' ? agents.get(id) : undefined;
+    if (title) titles.add(title);
+  }
+  return { op: operation as SubagentOp, title: [...titles].join(', ') };
 }
 
 /** memory_capture 的标题（缺省取正文首行）与正文 */
@@ -724,6 +765,7 @@ function buildMessageTimeline(
   }
   const items: TimelineItem[] = [];
   const spawnedAgents = new Map<string, string>();
+  const subagentRuns = new Map<string, string>();
   // 每条消息之后的首个非 toolResult 角色（反向一次扫完）：用于判定「本轮末 step」
   const nextTurnRole: (string | undefined)[] = new Array(messages.length);
   for (let i = messages.length - 1, seen: string | undefined; i >= 0; i--) {
@@ -934,8 +976,12 @@ function buildMessageTimeline(
           const sandboxView = part.name === 'exec' ? parseSandboxOutput(output) : null;
           const call = unwrapMcpProxyCall(part.name, part.arguments);
           if (part.name === 'subagent') {
-            recordSpawnedAgent(spawnedAgents, part.arguments, result?.output);
+            recordSubagent(spawnedAgents, subagentRuns, part.arguments, result?.output);
           }
+          const subagent =
+            part.name === 'subagent'
+              ? extractSubagentHeader(part.arguments, spawnedAgents, subagentRuns)
+              : null;
           const sent = extractSentMessage(part.name, part.arguments, spawnedAgents);
           const captured = extractCapturedMemory(part.name, part.arguments);
           const asked = extractAsk(
@@ -963,6 +1009,7 @@ function buildMessageTimeline(
                 : (sent?.summary ??
                   captured?.title ??
                   asked?.ask.question ??
+                  subagent?.title ??
                   call.summary ??
                   summarizeArgs(call.args, cwd)),
             source: execSource,
@@ -996,6 +1043,7 @@ function buildMessageTimeline(
             ...(sent ? { sentMessage: sent.text } : {}),
             ...(captured ? { memoryContent: captured.content } : {}),
             ...(asked ? { ask: asked.ask } : {}),
+            ...(subagent?.op ? { subagentOp: subagent.op } : {}),
             ...(result || !toolStartedAt ? {} : { startedAt: toolStartedAt[part.id] ?? null }),
           });
           return;
