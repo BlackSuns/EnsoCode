@@ -18,6 +18,7 @@ export type SubagentReceiptView = {
 } & (
   | { kind: 'report'; text: string | null; value: string | null; error: string | null }
   | { kind: 'wait'; timedOut: boolean; interrupted: boolean }
+  | { kind: 'receipt' }
 );
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -70,7 +71,15 @@ export function parseSubagentReceipt(
     };
   }
   const waited = op === 'wait' ? json : op === undefined ? json.report : null;
-  if (!isRecord(waited) || !Array.isArray(waited.runs)) return null;
+  if (!isRecord(waited) || !Array.isArray(waited.runs)) {
+    // 不带 wait 的 spawn 回执：状态是创建那一刻的，不单列，原文收进运行信息
+    return op === undefined &&
+      json.report === undefined &&
+      typeof json.agentId === 'string' &&
+      typeof json.runId === 'string'
+      ? { kind: 'receipt', head, runs: [], info: JSON.stringify(json, null, 2) }
+      : null;
+  }
   const runs = waited.runs.flatMap((entry) => toRunLine(entry) ?? []);
   if (runs.length !== waited.runs.length) return null;
   return {

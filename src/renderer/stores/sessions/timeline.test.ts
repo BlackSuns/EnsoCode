@@ -3132,9 +3132,27 @@ describe('子代理按 runId / agentId 指代的操作行', () => {
     expect(tools[0]).toMatchObject({ summary: '子代理连通性测试' });
     expect(tools[2]).toMatchObject({ summary: 'reviewer · 再看一遍' });
     expect(tools[3]).toMatchObject({ summary: '旧式派活' });
+    expect(tools[3]).not.toHaveProperty('sentMessage');
     for (const tool of tools) {
       expect(tool).not.toHaveProperty('subagentOp');
     }
+  });
+
+  it('spawn 展开显示交代的任务（去掉首尾空白），行头与回执原文不变', () => {
+    const receipt = json({ agentId: a, runId: 'r1', mode: 'task', status: 'running' });
+    const spawned = buildTimeline(
+      [
+        user('派活'),
+        call('s9', { operation: 'spawn', description: '核对 ASR', prompt: '\n 看看 **ASR**\n' }),
+        result('s9', receipt),
+      ],
+      false
+    ).find((item) => item.kind === 'tool');
+    expect(spawned).toMatchObject({
+      summary: '核对 ASR',
+      sentMessage: '看看 **ASR**',
+      output: receipt,
+    });
   });
 
   it('spawn 起了名字时行头带上名字，与后续按 id 指代的行对得上', () => {

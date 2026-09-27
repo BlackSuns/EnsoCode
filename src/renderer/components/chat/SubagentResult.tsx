@@ -35,11 +35,13 @@ export function SubagentResult({
       {view.kind === 'report' && view.error && (
         <p className="whitespace-pre-wrap text-destructive">{view.error}</p>
       )}
-      <ul className="space-y-0.5 text-xs text-muted-foreground">
-        {view.runs.map((run) => (
-          <RunLine key={run.runId} run={run} title={titles?.[run.agentId]} />
-        ))}
-      </ul>
+      {view.runs.length > 0 && (
+        <ul className="space-y-0.5 text-xs text-muted-foreground">
+          {view.runs.map((run) => (
+            <RunLine key={run.runId} run={run} title={titles?.[run.agentId]} />
+          ))}
+        </ul>
+      )}
       {view.kind === 'wait' && view.timedOut && (
         <p className="text-xs text-muted-foreground">
           {t('Timed out; unfinished agents keep running')}

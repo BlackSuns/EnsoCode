@@ -81,7 +81,7 @@ export type TimelineItem =
       rtk?: RtkToolStats;
       /** submit_plan 提交的计划；其它工具缺省 */
       plan?: { title: string; text: string } | null;
-      /** 联系主 agent / 队员、子代理 send 发出的正文；其它工具缺省 */
+      /** 联系主 agent / 队员、子代理 send 发出的正文，或子代理 spawn 交代的任务；其它工具缺省 */
       sentMessage?: string;
       /** memory_capture 记下的正文（写入回执不带正文）；其它工具缺省 */
       memoryContent?: string;
@@ -420,6 +420,15 @@ function extractSentMessage(
   if (typeof body !== 'string' || !body.trim()) return null;
   const text = body.trim();
   return { text, summary: typeof to === 'string' && to.trim() ? `${to.trim()} · ${text}` : text };
+}
+
+/** 子代理 spawn 交代的任务；行头仍是 spawn 起的标题 */
+function extractSpawnTask(name: string, args: unknown): string | null {
+  if (name !== 'subagent' || !args || typeof args !== 'object') return null;
+  const { operation, prompt } = args as Record<string, unknown>;
+  return operation === 'spawn' && typeof prompt === 'string' && prompt.trim()
+    ? prompt.trim()
+    : null;
 }
 
 /** 子代理结果是末尾一段 JSON，前面可能被捎带的系统提醒顶开 */
@@ -994,6 +1003,7 @@ function buildMessageTimeline(
               ? extractSubagentHeader(part.arguments, spawnedAgents, subagentRuns)
               : null;
           const sent = extractSentMessage(part.name, part.arguments, spawnedAgents);
+          const sentMessage = sent?.text ?? extractSpawnTask(part.name, part.arguments);
           const captured = extractCapturedMemory(part.name, part.arguments);
           const asked = extractAsk(
             part.name,
@@ -1051,7 +1061,7 @@ function buildMessageTimeline(
             ...(part.name === 'submit_plan'
               ? { plan: extractSubmittedPlan(part.name, part.arguments) }
               : {}),
-            ...(sent ? { sentMessage: sent.text } : {}),
+            ...(sentMessage ? { sentMessage } : {}),
             ...(captured ? { memoryContent: captured.content } : {}),
             ...(asked ? { ask: asked.ask } : {}),
             ...(subagent?.op ? { subagentOp: subagent.op } : {}),

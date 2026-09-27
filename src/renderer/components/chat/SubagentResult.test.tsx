@@ -94,4 +94,11 @@ describe('SubagentResult', () => {
     expect(html).toContain('&lt;system-reminder&gt;后台任务已结束');
     expect(html.indexOf('system-reminder')).toBeGreaterThan(html.indexOf('</details>'));
   });
+
+  it('spawn 回执没有要单列的内容，只有收起的运行信息', () => {
+    const html = render({ kind: 'receipt', head: '', runs: [], info: '{"runId": "r1"}' });
+    expect(html).not.toContain('<ul');
+    expect(html).toContain('[Run info]');
+    expect(html.indexOf('runId')).toBeGreaterThan(html.indexOf('<details'));
+  });
 });

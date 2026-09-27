@@ -93,11 +93,24 @@ describe('parseSubagentReceipt', () => {
     expect(sent?.info).toContain('"delivery": "next"');
   });
 
-  it('不带 wait 的 spawn / send 回执，以及停止 / 解雇 / 列出的结果都不认', () => {
+  it('不带 wait 的 spawn 回执只收进运行信息，不列当时的状态', () => {
     const receipt = json({ agentId: 'agent-a', runId: 'run-a', mode: 'task', status: 'running' });
-    expect(parseSubagentReceipt(undefined, receipt)).toBeNull();
+    expect(
+      parseSubagentReceipt(undefined, `<system-reminder>x</system-reminder>\n${receipt}`)
+    ).toEqual({
+      kind: 'receipt',
+      head: '<system-reminder>x</system-reminder>',
+      runs: [],
+      info: receipt,
+    });
+  });
+
+  it('等待结果不在回执上、以及停止 / 解雇 / 列出的结果都不认', () => {
     expect(
       parseSubagentReceipt(undefined, json({ runs: [run()], timedOut: false, interrupted: false }))
+    ).toBeNull();
+    expect(
+      parseSubagentReceipt(undefined, json({ agentId: 'agent-a', runId: 'run-a', report: {} }))
     ).toBeNull();
     expect(parseSubagentReceipt('stop', json(run()))).toBeNull();
     expect(parseSubagentReceipt('dismiss', json({ agentId: 'agent-a' }))).toBeNull();
