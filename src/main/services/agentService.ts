@@ -179,7 +179,10 @@ export class AgentService implements AgentServiceContract {
   /** Main 从权威 child metadata 恢复持久 coworker；task 与非 agent-tool child 不得调用。 */
   adoptCoworker(context: AgentControlContext, identity: ChildSessionIdentity): boolean {
     if (context.owner.kind !== 'chatSession' || identity.instanceId.length === 0) return false;
-    const existing = this.agents.get(identity.instanceId);
+    // 本进程 spawn 的 coworker 以 agentId 为键（≠ instanceId），按同一子会话认领，不重复登记
+    const existing =
+      this.agents.get(identity.instanceId) ??
+      [...this.agents.values()].find((agent) => agent.identity.sessionId === identity.sessionId);
     if (existing) {
       if (!this.sameOwner(existing.context, context) || existing.mode !== 'coworker') return false;
       existing.identity = identity;
@@ -237,6 +240,11 @@ export class AgentService implements AgentServiceContract {
         queuedRunIds: [],
       };
       const run = this.createRun(agent, runId, request.prompt, request.schema, request.gate);
+      // child-ready 先于 runtime.spawn 返回到达时，Main 已按 instanceId 把同一子会话 adopt 成另一条记录；
+      // 不删掉它会抢走该子会话的事件，首个 Run 永远停在 running
+      for (const [key, existing] of this.agents) {
+        if (existing.identity.sessionId === identity.sessionId) this.agents.delete(key);
+      }
       this.agents.set(agentId, agent);
       this.runs.set(runId, run);
       const started = await this.startRun(agent, run);
