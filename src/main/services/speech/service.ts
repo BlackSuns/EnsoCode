@@ -24,7 +24,6 @@ import {
   speechModelDirName,
   speechModelIdFromSettings,
 } from './model';
-import { createRemoteSpeechEngine } from './remote';
 import {
   installSpeechRuntime,
   isSpeechRuntimeReady,
@@ -33,7 +32,7 @@ import {
   speechRuntimeDir,
   speechRuntimeWrapperDir,
 } from './runtime';
-import { createPauseSegmenter, joinSamples } from './segment';
+import { createPauseSegmenter } from './segment';
 import { acceptCorrection, joinSegments, normalizeTranscript } from './text';
 
 const IDLE_UNLOAD_MS = 10 * 60_000;
@@ -123,8 +122,7 @@ function runtimeReady(): boolean {
 }
 
 function modelReady(id: SpeechModelId): boolean {
-  const spec = SPEECH_MODELS[id];
-  return spec.remoteUrl !== undefined || (runtimeReady() && isModelReady(modelDir(id), spec));
+  return runtimeReady() && isModelReady(modelDir(id), SPEECH_MODELS[id]);
 }
 
 export function speechAvailable(): boolean {
@@ -166,7 +164,6 @@ function modelDto(id: SpeechModelId): SpeechModelDto {
   return {
     id,
     streaming: spec.streaming,
-    remote: spec.remoteUrl !== undefined,
     approxBytes: spec.approxBytes,
     memoryBytes: spec.memoryBytes,
     downloadedBytes:
@@ -179,7 +176,7 @@ export function getSpeechStatus(): SpeechStatusDto {
   const models = SPEECH_MODEL_IDS.map(modelDto);
   const current = models.find((model) => model.id === selected) as SpeechModelDto;
   return {
-    state: current.remote || platformPackage() ? current.state : 'unsupported',
+    state: platformPackage() ? current.state : 'unsupported',
     selected,
     models,
   };
@@ -202,7 +199,7 @@ async function ensureRuntime(pkg: string, signal: AbortSignal): Promise<void> {
 export async function startSpeechDownload(id: SpeechModelId): Promise<boolean> {
   const pkg = platformPackage();
   const spec = SPEECH_MODELS[id];
-  if (!pkg || spec.remoteUrl || downloads.has(id)) return false;
+  if (!pkg || downloads.has(id)) return false;
   const controller = new AbortController();
   let settle!: () => void;
   const task = { controller, settled: new Promise<void>((resolve) => (settle = resolve)) };
@@ -251,7 +248,6 @@ export function cancelSpeechDownload(id: SpeechModelId): boolean {
 
 /** 删模型必删；最后一个模型删掉时顺带删引擎（Windows 上已加载的原生插件删不掉，留着约 30MB） */
 export async function deleteSpeechModel(id: SpeechModelId): Promise<boolean> {
-  if (SPEECH_MODELS[id].remoteUrl) return false;
   const task = downloads.get(id);
   cancelSpeechDownload(id);
   await task?.settled;
@@ -315,7 +311,6 @@ function loadEngine(): Promise<SpeechEngine> {
 }
 
 async function createEngine(spec: SpeechModelSpec, dir: string): Promise<SpeechEngine> {
-  if (spec.remoteUrl) return createRemoteSpeechEngine(spec.remoteUrl);
   const { createWorkerEngine } = await import('./engine');
   const { kind, config } = recognizerConfig(spec, dir);
   return createWorkerEngine({ wrapperDir: speechRuntimeWrapperDir(runtimeDir()), kind, config });
@@ -351,7 +346,7 @@ function rejectedSession(error: SpeechErrorCode): VoiceSession {
 
 /**
  * 录音会话：边录边推 16kHz PCM。流式模型逐块解码并经 onPartial 给中间结果；
- * 本地整段模型按停顿逐句识别并给中间结果；第三方整段模型攒到 finish 再上传。
+ * 整段模型按停顿逐句识别并给中间结果。
  * 开启纠错时先把原文标记为纠错中给出，再返回纠错后的定稿。
  */
 export function openSpeechSession(
@@ -369,14 +364,13 @@ export function openSpeechSession(
   let overflow = false;
   let failed = false;
   let lastPartial = '';
-  const buffered: Float32Array[] = [];
   const stream: Promise<SpeechEngineStream> | null = spec.streaming
     ? loaded.then((ready) => ready.openStream())
     : null;
   stream?.catch(() => {
     failed = true;
   });
-  const segmenter = spec.streaming || spec.remoteUrl ? null : createPauseSegmenter();
+  const segmenter = spec.streaming ? null : createPauseSegmenter();
   const sentences: string[] = [];
   let chain: Promise<void> = Promise.resolve();
   const recognize = async (samples: Float32Array) =>
@@ -416,12 +410,8 @@ export function openSpeechSession(
         }
         return;
       }
-      if (!stream) {
-        buffered.push(samples);
-        return;
-      }
       chain = chain
-        .then(async () => partial(normalizeTranscript(await (await stream).accept(samples))))
+        .then(async () => partial(normalizeTranscript(await (await stream!).accept(samples))))
         .catch(() => {
           failed = true;
         });
@@ -442,14 +432,12 @@ export function openSpeechSession(
           await chain;
           if (failed) throw new Error('streaming decode failed');
           text = await (await stream).finish();
-        } else if (segmenter) {
-          const tail = segmenter.flush();
+        } else {
+          const tail = segmenter!.flush();
           await chain;
           if (failed) throw new Error('sentence decode failed');
           if (tail.speech || sentences.length === 0) sentences.push(await recognize(tail.samples));
           text = joinSegments(sentences);
-        } else {
-          text = await (await loaded).transcribe(joinSamples(buffered));
         }
         text = normalizeTranscript(text);
         if (text && correctionEnabled && corrector) {
@@ -467,7 +455,6 @@ export function openSpeechSession(
     cancel: () => {
       if (phase !== 'open') return;
       close();
-      buffered.length = 0;
       segmenter?.flush();
       void stream?.then(
         (s) => s.cancel(),

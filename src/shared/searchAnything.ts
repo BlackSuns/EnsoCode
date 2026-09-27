@@ -223,7 +223,7 @@ const STATIC_CATALOG: SettingsSearchEntry[] = [
     category: 'voice',
     title: 'Voice input',
     description:
-      'Adds a microphone to the composer on this computer and on paired phones. Local models transcribe speech on this computer.',
+      'Adds a microphone to the composer on this computer and on paired phones. Speech is transcribed locally on this computer.',
   },
   {
     id: 'tools.editMode',

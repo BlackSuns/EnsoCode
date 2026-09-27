@@ -39,15 +39,6 @@ const MODEL_TEXT: Record<SpeechModelId, { name: string; description: string }> =
     name: 'SenseVoice',
     description: 'Chinese, English, Japanese, Korean and Cantonese.',
   },
-  'enso-asr-streaming': {
-    name: 'enso-asr Streaming',
-    description: 'Text appears while you speak. No download; needs a network connection.',
-  },
-  'enso-asr': {
-    name: 'enso-asr',
-    description:
-      'Uploads after you stop; nothing is sent if you cancel. No download; needs a network connection.',
-  },
 };
 
 function DownloadActions({
@@ -107,11 +98,6 @@ export function VoiceModelList() {
       } (${current.fileIndex + 1}/${current.fileCount})`;
     }
     if (error?.modelId === model.id) return `${t('Download failed')}: ${error.message}`;
-    if (model.remote) {
-      return t(
-        'What you say is uploaded to a third-party service for recognition. Avoid it for sensitive content.'
-      );
-    }
     return t('Download {{size}} · Memory about {{memory}}', {
       size: formatBytes(model.approxBytes),
       memory: formatBytes(model.memoryBytes),
@@ -146,17 +132,10 @@ export function VoiceModelList() {
                 <span className="min-w-0">
                   <span className="flex flex-wrap items-center gap-1.5 text-sm">
                     {t(MODEL_TEXT[model.id].name)}
-                    <Badge variant={model.remote ? 'warning' : 'outline'} size="sm">
-                      {model.remote ? t('Third-party service') : t('Local')}
-                    </Badge>
                     <Badge variant={model.streaming ? 'info' : 'secondary'} size="sm">
-                      {model.streaming
-                        ? t('Streaming')
-                        : model.remote
-                          ? t('After you stop')
-                          : t('Sentence by sentence')}
+                      {model.streaming ? t('Streaming') : t('Sentence by sentence')}
                     </Badge>
-                    {model.state === 'ready' && !model.remote ? (
+                    {model.state === 'ready' ? (
                       <Badge variant="success" size="sm">
                         {t('Downloaded')}
                       </Badge>
@@ -168,11 +147,7 @@ export function VoiceModelList() {
                   <span
                     className={cn(
                       'block text-xs',
-                      error?.modelId === model.id
-                        ? 'text-destructive'
-                        : model.remote
-                          ? 'text-warning'
-                          : 'text-muted-foreground'
+                      error?.modelId === model.id ? 'text-destructive' : 'text-muted-foreground'
                     )}
                   >
                     {detail(model)}
@@ -180,7 +155,7 @@ export function VoiceModelList() {
                 </span>
               </button>
               <DownloadActions
-                state={model.remote ? 'unavailable' : model.state}
+                state={model.state}
                 onDownload={() => {
                   setSelected(model.id);
                   void api.download(model.id).then(refresh);
@@ -350,7 +325,7 @@ export function VoiceInputSettings() {
           <h3 className="font-medium text-lg">{t('Voice input')}</h3>
           <p className="text-muted-foreground text-sm">
             {t(
-              'Adds a microphone to the composer on this computer and on paired phones. Local models transcribe speech on this computer.'
+              'Adds a microphone to the composer on this computer and on paired phones. Speech is transcribed locally on this computer.'
             )}
           </p>
         </div>
