@@ -97,8 +97,8 @@ export type TimelineItem =
       exploring: boolean;
       /** 回答完成后的过程折叠组（任意成功工具 + 思考）；普通工具组缺省 */
       activity?: { thinking: number; workedMs: number };
-      /** 成对的 explore_mark → explore_fold 探索组；其它组缺省 */
-      explore?: { goal: string };
+      /** 成对的 explore_mark → explore_fold 探索组：组头展开只给目标与结果，steps 时才平铺过程；其它组缺省 */
+      explore?: { goal: string; report: string; steps: boolean };
       /** 组内原始行（tool + 夹在其间的 thinking），展开时平铺为顶层行 */
       children: TimelineItem[];
     }
@@ -1259,6 +1259,10 @@ function mergeAdjacentThinking(items: TimelineItem[]): TimelineItem[] {
 }
 
 const EXPLORE_TOOLS = new Set(['explore_mark', 'explore_fold']);
+const EXPLORE_FOLD_HEAD = /^Explore folded\.[^\n]*\n*/;
+
+/** 探索组「过程」展开态的 key：须与组头同时展开才平铺原始行 */
+export const exploreStepsKey = (key: string): string => `${key}:steps`;
 
 /** 成功的 explore_mark 到 explore_fold（含两端与其间正文/思考）收成探索组；其它行断开配对 */
 function pairExploreFolds(
@@ -1282,14 +1286,19 @@ function pairExploreFolds(
           count += 1;
         }
         const key = `explore-${mark.key}`;
+        const expanded = expandedKeys.has(key);
         result.push({
           kind: 'tool-group',
           key,
-          expanded: expandedKeys.has(key),
+          expanded,
           count,
           stats,
           exploring: false,
-          explore: { goal: mark.summary },
+          explore: {
+            goal: mark.summary,
+            report: (item.output ?? '').replace(EXPLORE_FOLD_HEAD, '').trim(),
+            steps: expanded && expandedKeys.has(exploreStepsKey(key)),
+          },
           children,
         });
         start = -1;
@@ -1302,9 +1311,9 @@ function pairExploreFolds(
   return result;
 }
 
-/** 探索组展开时其原始行紧随组头 */
+/** 探索组展开过程时其原始行紧随组头 */
 function withExploreChildren(item: TimelineItem): TimelineItem[] {
-  return item.kind === 'tool-group' && item.expanded ? [item, ...item.children] : [item];
+  return item.kind === 'tool-group' && item.explore?.steps ? [item, ...item.children] : [item];
 }
 
 function activitySegment(

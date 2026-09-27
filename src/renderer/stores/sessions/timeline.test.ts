@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildTimeline,
   completedEditWriteFingerprint,
+  exploreStepsKey,
   foldTimeline,
   historyPageChrome,
   parseSandboxOutput,
@@ -2669,9 +2670,13 @@ describe('foldTimeline 探索配对折叠（explore_mark → explore_fold）', (
   const mark = (key: string): TimelineItem =>
     ({ ...toolItem(key, 'explore_mark'), summary: 'find auth' }) as TimelineItem;
   const fold = (key: string, state = 'ok'): TimelineItem =>
-    ({ ...toolItem(key, 'explore_fold'), state }) as TimelineItem;
+    ({
+      ...toolItem(key, 'explore_fold'),
+      state,
+      output: 'Explore folded. Subsequent turns see only this report.\n\nauth in src/auth.ts',
+    }) as TimelineItem;
 
-  it('成对后 mark 到 fold（含中间正文、思考）收成一个探索组，展开平铺原始行', () => {
+  it('成对后 mark 到 fold（含中间正文、思考）收成一个探索组；展开先只给目标与结果，再展开过程才平铺原始行', () => {
     const items = [
       userItem('u'),
       mark('m'),
@@ -2685,20 +2690,21 @@ describe('foldTimeline 探索配对折叠（explore_mark → explore_fold）', (
     const folded = foldTimeline(items, true, new Set());
     expect(folded.map((item) => item.kind)).toEqual(['user', 'tool-group', 'text']);
     const group = folded[1] as Group;
-    expect(group.explore).toEqual({ goal: 'find auth' });
+    expect(group.explore).toEqual({
+      goal: 'find auth',
+      report: 'auth in src/auth.ts',
+      steps: false,
+    });
     expect(group.count).toBe(2);
     expect(keys(group.children)).toEqual(['m', 'r', 'mid', 'th', 'b', 'f']);
-    expect(keys(foldTimeline(items, true, new Set([group.key])))).toEqual([
-      'u',
-      group.key,
-      'm',
-      'r',
-      'mid',
-      'th',
-      'b',
-      'f',
-      'answer',
-    ]);
+    const opened = foldTimeline(items, true, new Set([group.key]));
+    expect(keys(opened)).toEqual(['u', group.key, 'answer']);
+    expect((opened[1] as Group).explore?.steps).toBe(false);
+    const steps = exploreStepsKey(group.key);
+    expect(keys(foldTimeline(items, true, new Set([steps])))).toEqual(['u', group.key, 'answer']);
+    const detailed = foldTimeline(items, true, new Set([group.key, steps]));
+    expect((detailed[1] as Group).explore?.steps).toBe(true);
+    expect(keys(detailed)).toEqual(['u', group.key, 'm', 'r', 'mid', 'th', 'b', 'f', 'answer']);
   });
 
   it('fold 未完成、失败或被用户消息隔开时不配对；失败后重试成功仍配对', () => {
@@ -2742,11 +2748,18 @@ describe('foldTimeline 探索配对折叠（explore_mark → explore_fold）', (
       activity.key,
       'a',
       exploreKey,
-      'm',
-      'r',
-      'f',
       'answer',
     ]);
+    expect(
+      keys(
+        foldTimeline(
+          items,
+          false,
+          new Set([activity.key, exploreKey, exploreStepsKey(exploreKey)]),
+          on
+        )
+      )
+    ).toEqual(['u', activity.key, 'a', exploreKey, 'm', 'r', 'f', 'answer']);
   });
 });
 

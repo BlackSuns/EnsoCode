@@ -62,6 +62,7 @@ import {
 } from '@/stores/sessions/conversationRewind';
 import { formatDuration, formatTokens } from '@/stores/sessions/stats';
 import {
+  exploreStepsKey,
   isReadOnlyTool,
   parseSandboxOutput,
   shouldAutoExpandAppliedFileChanges,
@@ -178,7 +179,9 @@ function itemEqual(prev: TimelineRowProps, next: TimelineRowProps): boolean {
         a.exploring === b.exploring &&
         a.activity?.thinking === b.activity?.thinking &&
         a.activity?.workedMs === b.activity?.workedMs &&
-        a.explore?.goal === b.explore?.goal
+        a.explore?.goal === b.explore?.goal &&
+        a.explore?.report === b.explore?.report &&
+        a.explore?.steps === b.explore?.steps
       );
     case 'error':
       return b.kind === 'error' && a.text === b.text;
@@ -1342,10 +1345,13 @@ function ToolGroupRow({
       : compact
         ? explored
         : parts;
-  return (
+  const head = (
     <button
       type="button"
-      onClick={() => onToggle?.(item.key)}
+      onClick={() => {
+        if (explore?.steps) onToggle?.(exploreStepsKey(item.key));
+        onToggle?.(item.key);
+      }}
       title={explore?.goal}
       data-explore-head={explore ? '' : undefined}
       className="group/step flex min-h-[30px] w-full items-center gap-2 rounded-lg pr-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
@@ -1363,6 +1369,38 @@ function ToolGroupRow({
         className={cn('h-3 w-3 shrink-0 transition-transform', item.expanded && 'rotate-90')}
       />
     </button>
+  );
+  if (!explore || !item.expanded) return head;
+  // 探索组首层展开只给目标与结果，过程另开一层才平铺原始行
+  return (
+    <>
+      {head}
+      <div className="t-acc-reveal mt-1 mb-1.5 ml-[30px] overflow-hidden rounded-lg border border-border/70 bg-card text-sm shadow-xs">
+        {explore.goal && (
+          <div className="border-b border-border/60 px-3 py-2">
+            <div className="mb-0.5 text-[11px] text-muted-foreground">{t('Goal')}</div>
+            <p className="whitespace-pre-wrap">{explore.goal}</p>
+          </div>
+        )}
+        {explore.report && (
+          <div className="border-b border-border/60 px-3 py-2">
+            <div className="mb-0.5 text-[11px] text-muted-foreground">{t('Result')}</div>
+            <Markdown text={explore.report} />
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => onToggle?.(exploreStepsKey(item.key))}
+          className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+        >
+          <ChevronRight
+            className={cn('h-3 w-3 shrink-0 transition-transform', explore.steps && 'rotate-90')}
+          />
+          <span>{explore.steps ? t('Hide process') : t('Show process')}</span>
+          <span>· {t('{{count}} tool calls', { count: item.count })}</span>
+        </button>
+      </div>
+    </>
   );
 }
 
