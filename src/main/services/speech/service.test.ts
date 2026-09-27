@@ -80,7 +80,7 @@ const tone = (seconds: number) =>
 const quiet = (seconds: number) => new Float32Array(seconds * 16_000);
 const concat = (...parts: Float32Array[]) => joinSamples(parts);
 const enable = (extra: Record<string, unknown> = {}) =>
-  syncSpeechFromSettings({ voiceInputEnabled: true, ...extra });
+  syncSpeechFromSettings({ voiceInputEnabled: true, voiceModel: 'x-asr-streaming', ...extra });
 
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), 'enso-speech-'));

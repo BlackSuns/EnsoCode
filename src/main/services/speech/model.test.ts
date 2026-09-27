@@ -6,10 +6,10 @@ import { recognizerConfig, SPEECH_MODELS, speechModelIdFromSettings } from './mo
 const dir = path.resolve('/models/x');
 
 describe('speech model registry', () => {
-  it('falls back to the streaming default for missing or unknown selections', () => {
-    expect(speechModelIdFromSettings({})).toBe('x-asr-streaming');
-    expect(speechModelIdFromSettings({ voiceModel: 'whisper' })).toBe('x-asr-streaming');
-    expect(speechModelIdFromSettings({ voiceModel: 'qwen3-asr' })).toBe('qwen3-asr');
+  it('falls back to Qwen3-ASR for missing or unknown selections', () => {
+    expect(speechModelIdFromSettings({})).toBe('qwen3-asr');
+    expect(speechModelIdFromSettings({ voiceModel: 'whisper' })).toBe('qwen3-asr');
+    expect(speechModelIdFromSettings({ voiceModel: 'x-asr' })).toBe('x-asr');
   });
 
   it('marks the streaming models and gives every local model a download path', () => {

@@ -11,7 +11,7 @@ export const SPEECH_MODEL_IDS = [
   'enso-asr',
 ] as const;
 export type SpeechModelId = (typeof SPEECH_MODEL_IDS)[number];
-export const DEFAULT_SPEECH_MODEL_ID: SpeechModelId = 'x-asr-streaming';
+export const DEFAULT_SPEECH_MODEL_ID: SpeechModelId = 'qwen3-asr';
 
 export function isSpeechModelId(value: unknown): value is SpeechModelId {
   return typeof value === 'string' && (SPEECH_MODEL_IDS as readonly string[]).includes(value);
