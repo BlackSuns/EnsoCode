@@ -431,6 +431,26 @@ describe('AgentService lifecycle', () => {
     expect(await agentIds(service)).toEqual([spawned.value.agentId]);
   });
 
+  it('agentId 取子会话 instanceId：Main 重启后按 instanceId 认领，模型手里的 id 照样能用', async () => {
+    const { service, runtime } = setup();
+    vi.mocked(runtime.spawn).mockResolvedValueOnce(liveChild);
+    const spawned = await service.spawn(spawnRequest({ mode: 'coworker' }));
+    if (!spawned.ok) throw new Error(spawned.error);
+    expect(spawned.value.agentId).toBe(instanceId);
+
+    const restarted = setup().service;
+    const resumed = { ...liveChild, generation: '99999999-9999-4999-8999-999999999999' };
+    expect(restarted.adoptCoworker(context, resumed)).toBe(true);
+    await expect(
+      restarted.message({
+        context,
+        requestId: 'after-restart',
+        to: spawned.value.agentId,
+        text: 'continue',
+      })
+    ).resolves.toMatchObject({ ok: true, value: { agentId: instanceId } });
+  });
+
   it('stop 只终止 Run 并保留 coworker；dismiss 关闭实例且幂等', async () => {
     const { service, runtime } = setup();
     const spawned = await service.spawn(spawnRequest({ mode: 'coworker' }));
