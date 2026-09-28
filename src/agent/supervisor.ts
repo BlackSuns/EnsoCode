@@ -1931,7 +1931,8 @@ export class SessionSupervisor {
           ...(safeJournal ? { safeJournal } : {}),
           modelRef: settingsModelRef(selectedModel),
           toolIds: subTools.map((tool) => tool.name),
-          proofToolIds: subTools
+          // Decorators clone tools; exclude MCP by identity before decoration.
+          proofToolIds: rawSubTools
             .filter((tool) => !typeMcpTools.includes(tool))
             .map((tool) => tool.name),
           ...(ensoApp ? { ensoApp } : {}),
