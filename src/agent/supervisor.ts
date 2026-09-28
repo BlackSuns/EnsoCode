@@ -1321,26 +1321,28 @@ export class SessionSupervisor {
       case 'rewind': {
         const managed = this.must(command.identity);
         if (managed.status === 'running') {
-          this.options.emit({
-            type: 'rewind-done',
-            identity: managed.identity,
-            seq: ++managed.seq,
-          });
+          this.rejectRewind(managed, command.restoreFiles);
           return;
         }
         const userEntries = managed.session.sessionManager
           .getBranch()
           .filter((entry) => entry.type === 'message' && entry.message.role === 'user');
-        const target = userEntries[userEntries.length - 1 - command.userIndexFromEnd];
+        const targetIndex =
+          command.entryId !== undefined
+            ? userEntries.findIndex((entry) => entry.id === command.entryId)
+            : userEntries.length - 1 - (command.userIndexFromEnd ?? -1);
+        const target = userEntries[targetIndex];
         if (target?.type !== 'message' || target.message.role !== 'user') {
-          this.options.emit({
-            type: 'rewind-done',
-            identity: managed.identity,
-            seq: ++managed.seq,
-          });
+          this.rejectRewind(managed, command.restoreFiles);
           return;
         }
-        this.truncateProjectionForRewind(managed, command.userIndexFromEnd);
+        if (command.entryId && !managed.messages.some((message) => message.entryId === target.id)) {
+          this.reconcileMessages(managed, this.transcript(managed));
+        }
+        this.truncateProjectionForRewind(
+          managed,
+          command.entryId ?? userEntries.length - 1 - targetIndex
+        );
         const restorePromise =
           command.restoreFiles && managed.checkpoints
             ? managed.checkpoints
@@ -3158,15 +3160,36 @@ export class SessionSupervisor {
     }
   }
 
+  private rejectRewind(managed: ManagedSession, restoreFiles?: boolean): void {
+    this.options.emit({
+      type: 'rewind-done',
+      identity: managed.identity,
+      seq: ++managed.seq,
+      ...(restoreFiles ? { filesRestored: false } : {}),
+    });
+    // Clear the optimistic rewind before restoring the authoritative projection.
+    this.options.emit({
+      type: 'snapshot',
+      partial: true,
+      sessionId: managed.identity.sessionId,
+      sessions: this.snapshotSessions().filter((session) => session.identity === managed.identity),
+    });
+  }
+
   /** 纯回退是严格前缀：先裁投影，UI 不必等 navigateTree / 文件还原。 */
-  private truncateProjectionForRewind(managed: ManagedSession, userIndexFromEnd: number): void {
-    if (!Number.isInteger(userIndexFromEnd) || userIndexFromEnd < 0) return;
+  private truncateProjectionForRewind(managed: ManagedSession, anchor: string | number): void {
+    if (typeof anchor === 'number' && (!Number.isInteger(anchor) || anchor < 0)) return;
     const users: number[] = [];
     for (let i = 0; i < managed.messages.length; i++) {
       if (managed.messages[i]?.role === 'user') users.push(i);
     }
-    const keep = users[users.length - 1 - userIndexFromEnd];
-    if (keep === undefined || keep >= managed.messages.length) return;
+    const keep =
+      typeof anchor === 'string'
+        ? managed.messages.findIndex(
+            (message) => message.role === 'user' && message.entryId === anchor
+          )
+        : users[users.length - 1 - anchor];
+    if (keep === undefined || keep < 0 || keep >= managed.messages.length) return;
     managed.messages.length = keep;
     managed.timings.length = keep;
     this.options.emit({

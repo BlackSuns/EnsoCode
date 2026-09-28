@@ -76,6 +76,7 @@ import { shouldFocusChildReservation } from './childReservationFocus';
 import {
   canWakeConversationForRewind,
   extractRewindDraft,
+  resolveRewindTarget,
   rewindKeepCount,
   rewindWorkerPhase,
   shouldSendRewindCommand,
@@ -452,9 +453,9 @@ interface SessionsState {
   steerQueued(conversationId: string): void;
   /** 打断当前轮并立即发送队列中某条(中断收束后以新一轮 prompt 投递) */
   interruptAndSendQueued(conversationId: string, messageId: string): Promise<void>;
-  /** 回退到倒数第 N+1 条 user 消息(0 = 最后一条)。冷会话先 resume 并等到 worker 会话可用（snapshot / ready）。
+  /** 回退到已确认 user；本地序号先解析为 entryId。冷会话先 resume 并等待 worker 可用。
    *  restoreFiles 同时还原工作树文件 */
-  rewind(conversationId: string, userIndexFromEnd: number, restoreFiles?: boolean): void;
+  rewind(conversationId: string, anchor: string | number, restoreFiles?: boolean): void;
   /** 手动压缩上下文（/compact 与上下文面板按钮共用）。忙碌时 worker 排队，本轮结束后执行 */
   compact(conversationId: string, instructions?: string): void;
   /** UI 提示过压缩失败后清掉错误，避免重复弹提示 */
@@ -631,6 +632,43 @@ export const useSessionsStore = create<SessionsState>()(
             })
           );
         });
+      }
+
+      async function dispatchRewind(
+        conversationId: string,
+        target: { entryId: string; userIndexFromEnd: number },
+        restoreFiles?: boolean
+      ): Promise<void> {
+        const before = get().conversations[conversationId];
+        if (!before) return;
+        applyOptimisticRewind(conversationId, target.userIndexFromEnd, restoreFiles);
+        try {
+          const result = await window.electronAPI.agent.rewind(
+            conversationId,
+            target.entryId,
+            restoreFiles
+          );
+          if (result.ok) return;
+          throw new Error(result.error ?? 'Unable to rewind this conversation.');
+        } catch (error) {
+          set((state) => {
+            const current = state.conversations[conversationId];
+            if (!current?.rewinding || current.generation !== before.generation) return state;
+            const draftUnchanged = current.draftText === rewindDraftGuard.get(conversationId);
+            rewindDraftGuard.delete(conversationId);
+            rewindKeepAbsolute.delete(conversationId);
+            return patch(state, conversationId, {
+              messages: before.messages,
+              historyBaseIndex: before.historyBaseIndex,
+              rewinding: undefined,
+              restoringFiles: undefined,
+              error: error instanceof Error ? error.message : String(error),
+              ...(draftUnchanged
+                ? { draftText: before.draftText, draftImages: before.draftImages }
+                : {}),
+            });
+          });
+        }
       }
 
       /**
@@ -3599,7 +3637,7 @@ export const useSessionsStore = create<SessionsState>()(
           set((state) => patch(state, conversationId, { compactionError: undefined }));
         },
 
-        rewind(conversationId, userIndexFromEnd, restoreFiles) {
+        rewind(conversationId, anchor, restoreFiles) {
           const conversation = get().conversations[conversationId];
           if (
             !conversation ||
@@ -3611,9 +3649,10 @@ export const useSessionsStore = create<SessionsState>()(
           }
           if (conversation.rewinding || conversation.restoringFiles) return;
           if (rewindInFlight.has(conversationId)) return;
+          const target = resolveRewindTarget(conversation, anchor);
+          if (!target) return;
           if (shouldSendRewindCommand(conversation)) {
-            applyOptimisticRewind(conversationId, userIndexFromEnd, restoreFiles);
-            void window.electronAPI.agent.rewind(conversationId, userIndexFromEnd, restoreFiles);
+            void dispatchRewind(conversationId, target, restoreFiles);
             return;
           }
           if (!conversation.started && !canWakeConversationForRewind(conversation)) return;
@@ -3632,12 +3671,9 @@ export const useSessionsStore = create<SessionsState>()(
                 shouldSendRewindCommand(after) &&
                 after.sessionFile === sessionFile
               ) {
-                applyOptimisticRewind(conversationId, userIndexFromEnd, restoreFiles);
-                void window.electronAPI.agent.rewind(
-                  conversationId,
-                  userIndexFromEnd,
-                  restoreFiles
-                );
+                const refreshedTarget = resolveRewindTarget(after, target.entryId);
+                if (!refreshedTarget) return;
+                await dispatchRewind(conversationId, refreshedTarget, restoreFiles);
                 return;
               }
               if (after && !after.error && !after.worktreeMissing && phase === 'failed') {

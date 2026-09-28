@@ -494,6 +494,19 @@ describe('Main-owned source authority contracts', () => {
 });
 
 describe('parent/child commands', () => {
+  it('rewind accepts an exclusive persisted entry anchor and rejects ambiguous or dirty anchors', () => {
+    const command = { type: 'rewind', identity: parent, entryId: 'user-entry', restoreFiles: true };
+    expect(parseAgentCommand(command)).toEqual(command);
+    for (const entryId of ['', ' ', 1, null]) {
+      expect(parseAgentCommand({ ...command, entryId })).toBeNull();
+    }
+    expect(parseAgentCommand({ ...command, userIndexFromEnd: 0 })).toBeNull();
+    expect(parseAgentCommand({ ...command, userIndexFromEnd: '0' })).toBeNull();
+    expect(parseAgentCommand({ type: 'rewind', identity: parent })).toBeNull();
+    expect(
+      parseAgentCommand({ type: 'rewind', identity: parent, userIndexFromEnd: 0 })
+    ).not.toBeNull();
+  });
   it('spawn-parent 必须 exact generation；旧 spawn/sessionId shape 拒绝', () => {
     const command = { type: 'spawn-parent', identity: parent, cwd: '/repo', model };
     expect(parseAgentCommand(command)).toEqual(command);

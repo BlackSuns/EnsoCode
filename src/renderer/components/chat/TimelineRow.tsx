@@ -891,29 +891,48 @@ function ForkButton({ messageIndex }: { messageIndex: number }) {
 function RewindButton({ messageIndex }: { messageIndex: number }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  /** 待确认的回退；绑打开时的会话，confirm 当时重算锚点 */
-  const [pending, setPending] = useState<{ restoreFiles: boolean; conversationId: string } | null>(
-    null
-  );
+  /** 确认框绑定打开时的会话与持久化消息，不能随时间线位置漂移。 */
+  const [pending, setPending] = useState<{
+    restoreFiles: boolean;
+    conversationId: string;
+    entryId: string;
+  } | null>(null);
   const host = useChatHost();
-  const canRewind = useSessionsStore((state) => canRewindDisplayedSession(state, host));
+  const canRewind = useSessionsStore((state) => {
+    const conversation = displayedConversation(state);
+    return (
+      canRewindDisplayedSession(state, host) &&
+      Boolean(
+        conversation &&
+          resolveRewindConfirm(conversation.id, conversation.id, conversation, messageIndex)
+      )
+    );
+  });
   if (!canRewind) return null;
   const queueRewind = (restoreFiles: boolean) => {
     const conversation = displayedConversation(useSessionsStore.getState());
     if (!conversation) return;
-    setPending({ restoreFiles, conversationId: conversation.id });
+    const target = resolveRewindConfirm(
+      conversation.id,
+      conversation.id,
+      conversation,
+      messageIndex
+    );
+    if (target)
+      setPending({ restoreFiles, conversationId: conversation.id, entryId: target.entryId });
   };
-  const rewind = (restoreFiles: boolean, originId: string) => {
+  const rewind = (restoreFiles: boolean, originId: string, entryId: string) => {
     const state = useSessionsStore.getState();
     const displayed = displayedConversation(state);
     const target = resolveRewindConfirm(
       originId,
       displayed?.id,
       state.conversations[originId],
-      messageIndex
+      messageIndex,
+      entryId
     );
     if (!target) return;
-    state.rewind(target.conversationId, target.userIndexFromEnd, restoreFiles);
+    state.rewind(target.conversationId, target.entryId, restoreFiles);
   };
   const options = [
     {
@@ -971,7 +990,7 @@ function RewindButton({ messageIndex }: { messageIndex: number }) {
         }
         confirmLabel={t('Rewind')}
         onConfirm={() => {
-          if (pending) rewind(pending.restoreFiles, pending.conversationId);
+          if (pending) rewind(pending.restoreFiles, pending.conversationId, pending.entryId);
         }}
       />
     </Popover>

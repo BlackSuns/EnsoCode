@@ -1077,7 +1077,9 @@ export type AgentCommand =
   | {
       type: 'rewind';
       identity: SessionIdentity;
-      userIndexFromEnd: number;
+      entryId?: string;
+      /** Legacy phone clients only; desktop rewind uses a persisted entryId. */
+      userIndexFromEnd?: number;
       restoreFiles?: boolean;
     }
   | {
@@ -1192,6 +1194,8 @@ export interface TodoItem {
 
 /** 渲染层可见的消息投影：pi AgentMessage 的白名单克隆 */
 export interface ProjectedMessage {
+  /** Persisted user entry identity, absent on unconfirmed messages. */
+  entryId?: string;
   rtk?: RtkToolStats;
   role: string;
   content: ProjectedPart[];
@@ -2818,9 +2822,19 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
         ? (value as unknown as AgentCommand)
         : null;
     case 'rewind':
-      return hasOnlyKeys(value, ['type', 'identity', 'userIndexFromEnd', 'restoreFiles']) &&
+      return hasOnlyKeys(value, [
+        'type',
+        'identity',
+        'entryId',
+        'userIndexFromEnd',
+        'restoreFiles',
+      ]) &&
         parseAnySessionIdentity(value.identity) &&
-        isSequence(value.userIndexFromEnd) &&
+        (value.entryId !== undefined
+          ? isNonEmptyString(value.entryId) &&
+            value.entryId.trim().length > 0 &&
+            value.userIndexFromEnd === undefined
+          : isSequence(value.userIndexFromEnd)) &&
         (value.restoreFiles === undefined || typeof value.restoreFiles === 'boolean')
         ? (value as unknown as AgentCommand)
         : null;
