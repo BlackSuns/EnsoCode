@@ -105,6 +105,7 @@ import {
   applyAgentEvent,
   applyDispatchEvent,
   applyHistoryPage,
+  canWithdrawMessage,
   emptyProjection,
   isVisibleGenerationOutput,
   rewindTruncatedNeedsSnapshotResync,
@@ -286,6 +287,7 @@ export interface Conversation extends SessionProjection {
   /** 回退后待预填输入框的内容(rewind-done 回流,Composer 消费一次) */
   draftText?: string;
   draftImages?: AttachedImage[];
+  draftAppend?: boolean;
   /** 回退在飞：会话树尚未 navigateTree 完成。不持久化 */
   rewinding?: boolean;
   /** 工作树文件还原在飞。不持久化 */
@@ -446,6 +448,7 @@ interface SessionsState {
   /** 指定会话入队（不依赖 activeId）：手机端在轮次进行中发消息走这里 */
   enqueueMessage(conversationId: string, text: string, images?: AttachedImage[]): void;
   removeQueuedMessage(conversationId: string, messageId: string): void;
+  withdrawMessage(conversationId: string, target: { kind: 'queue' | 'delivery'; id: string }): void;
   updateQueuedMessage(conversationId: string, messageId: string, text: string): void;
   /** 立即发送队列中某条(running 时 steer 插入,否则直接 prompt) */
   sendQueuedNow(conversationId: string, messageId: string): void;
@@ -627,6 +630,7 @@ export const useSessionsStore = create<SessionsState>()(
                 ? {
                     draftText: draft.text,
                     draftImages: draft.images?.length ? draft.images : undefined,
+                    draftAppend: undefined,
                   }
                 : {}),
             })
@@ -664,7 +668,11 @@ export const useSessionsStore = create<SessionsState>()(
               restoringFiles: undefined,
               error: error instanceof Error ? error.message : String(error),
               ...(draftUnchanged
-                ? { draftText: before.draftText, draftImages: before.draftImages }
+                ? {
+                    draftText: before.draftText,
+                    draftImages: before.draftImages,
+                    draftAppend: before.draftAppend,
+                  }
                 : {}),
             });
           });
@@ -1497,6 +1505,7 @@ export const useSessionsStore = create<SessionsState>()(
                 ? {
                     draftText: event.editorText,
                     draftImages: event.editorImages?.length ? event.editorImages : undefined,
+                    draftAppend: undefined,
                   }
                 : {}),
             });
@@ -1634,7 +1643,9 @@ export const useSessionsStore = create<SessionsState>()(
                   // 追加到队尾：连续多条失败按 FIFO 回流，保持原发送顺序（A,B → [A,B]）
                   queuedMessages: [
                     ...(conversation.queuedMessages ?? []),
-                    toQueuedMessage(conversation.messages.find((m) => m.optimistic)!),
+                    toQueuedMessage(
+                      conversation.messages.find((m) => m.optimistic && !m.deliveryRejected)!
+                    ),
                   ],
                 }
               : {}),
@@ -3719,8 +3730,49 @@ export const useSessionsStore = create<SessionsState>()(
           if (conversation?.draftText === undefined && conversation?.draftImages === undefined)
             return;
           set((state) =>
-            patch(state, conversationId, { draftText: undefined, draftImages: undefined })
+            patch(state, conversationId, {
+              draftText: undefined,
+              draftImages: undefined,
+              draftAppend: undefined,
+            })
           );
+        },
+
+        withdrawMessage(conversationId, target) {
+          set((state) => {
+            const conversation = state.conversations[conversationId];
+            if (
+              !conversation ||
+              conversation.historyOnly ||
+              conversation.rewinding ||
+              conversation.restoringFiles ||
+              conversation.workspaceMigrating
+            )
+              return state;
+            const queued =
+              target.kind === 'queue'
+                ? conversation.queuedMessages?.find((item) => item.id === target.id)
+                : undefined;
+            const message =
+              target.kind === 'delivery'
+                ? conversation.messages.find((item) => item.deliveryId === target.id)
+                : undefined;
+            if (!queued && !canWithdrawMessage(message)) return state;
+            const draft = queued ?? (message && extractRewindDraft([message], 0));
+            if (!draft) return state;
+            return patch(state, conversationId, {
+              ...(queued
+                ? {
+                    queuedMessages: conversation.queuedMessages?.filter(
+                      (item) => item.id !== target.id
+                    ),
+                  }
+                : { messages: conversation.messages.filter((item) => item !== message) }),
+              draftText: [conversation.draftText, draft.text].filter(Boolean).join('\n\n'),
+              draftImages: [...(conversation.draftImages ?? []), ...(draft.images ?? [])],
+              draftAppend: true,
+            });
+          });
         },
 
         sendQueuedNow(conversationId, messageId) {
@@ -3792,7 +3844,10 @@ export const useSessionsStore = create<SessionsState>()(
           });
           if (
             !get().conversations[conversationId]?.started ||
-            get().conversations[conversationId]?.workspaceMigrating
+            get().conversations[conversationId]?.workspaceMigrating ||
+            !get().conversations[conversationId]?.queuedMessages?.some(
+              (message) => message.id === messageId
+            )
           )
             return;
           const deliveryId = crypto.randomUUID();

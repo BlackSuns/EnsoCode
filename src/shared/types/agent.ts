@@ -1389,6 +1389,7 @@ export type AgentWorkerEvent =
       requestId: string;
     }
   | { type: 'delivery-settled'; identity: SessionIdentity; seq: number; deliveryId: string }
+  | { type: 'delivery-rejected'; identity: SessionIdentity; seq: number; deliveryId: string }
   | { type: 'status'; identity: SessionIdentity; seq: number; status: NodeStatus; error?: string }
   | {
       type: 'message-upsert';
@@ -3089,6 +3090,7 @@ export function parseAgentWorkerEvent(value: unknown): AgentWorkerEvent | null {
         ? (value as unknown as AgentWorkerEvent)
         : null;
     case 'delivery-settled':
+    case 'delivery-rejected':
       return hasExactKeys(value, ['type', 'identity', 'seq', 'deliveryId']) &&
         isDeliveryId(value.deliveryId)
         ? (value as unknown as AgentWorkerEvent)

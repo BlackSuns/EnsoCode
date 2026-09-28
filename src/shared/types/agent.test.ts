@@ -212,19 +212,22 @@ describe('agent control tool protocol', () => {
     }
   });
 
-  it('delivery-settled 只接受精确 identity、seq 与 deliveryId', () => {
-    const event = { type: 'delivery-settled', identity: parent, seq: 3, deliveryId: 'delivery-1' };
-    expect(parseAgentWorkerEvent(event)).toEqual(event);
-    for (const patch of [
-      { identity: { sessionId: parent.sessionId } },
-      { seq: -1 },
-      { deliveryId: '' },
-      { deliveryId: 'x'.repeat(129) },
-      { extra: true },
-    ]) {
-      expect(parseAgentWorkerEvent({ ...event, ...patch })).toBeNull();
+  it.each(['delivery-settled', 'delivery-rejected'])(
+    '%s 只接受精确 identity、seq 与 deliveryId',
+    (type) => {
+      const event = { type, identity: parent, seq: 3, deliveryId: 'delivery-1' };
+      expect(parseAgentWorkerEvent(event)).toEqual(event);
+      for (const patch of [
+        { identity: { sessionId: parent.sessionId } },
+        { seq: -1 },
+        { deliveryId: '' },
+        { deliveryId: 'x'.repeat(129) },
+        { extra: true },
+      ]) {
+        expect(parseAgentWorkerEvent({ ...event, ...patch })).toBeNull();
+      }
     }
-  });
+  );
 
   it('formats branch background as quoted data, not a new task', () => {
     const note = workspaceBranchChangedNote('feature/branch');

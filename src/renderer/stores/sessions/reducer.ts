@@ -24,10 +24,22 @@ export type TimelineMessage = ProjectedMessage & {
   optimistic?: boolean;
   /** 本地投递标识：投递失败时按它精确收回，不误删并发的另一条乐观消息 */
   deliveryId?: string;
+  /** worker 明确拒收；只有这种乐观回显可以本地撤回。 */
+  deliveryRejected?: boolean;
 };
 
+export function canWithdrawMessage(message: TimelineMessage | undefined): boolean {
+  return Boolean(
+    message?.role === 'user' &&
+      message.optimistic &&
+      message.deliveryRejected &&
+      message.deliveryId &&
+      !message.entryId
+  );
+}
+
 function dropOldestOptimistic(messages: readonly TimelineMessage[]): TimelineMessage[] {
-  const index = messages.findIndex((message) => message.optimistic);
+  const index = messages.findIndex((message) => message.optimistic && !message.deliveryRejected);
   return index < 0 ? [...messages] : messages.filter((_, position) => position !== index);
 }
 
@@ -99,6 +111,7 @@ export function retainedOptimisticTail(
   const leftover = leftoverSnapshotUserTexts(local, authoritative);
   return local.filter((message) => {
     if (!message.optimistic || message.role !== 'user') return false;
+    if (message.deliveryRejected) return true;
     const text = textOf(message);
     const matched = leftover.findIndex(
       (delivered) => sameUserText(text, delivered) || sameUserText(delivered, text)
@@ -439,6 +452,19 @@ export function applyAgentEvent(
       };
     case 'workspace-branch-context-consumed':
       return { ...state, generation: state.generation ?? identity.generation, lastSeq: event.seq };
+    case 'delivery-rejected':
+      return {
+        ...current,
+        messages: current.messages.map((message) =>
+          message.role === 'user' &&
+          message.optimistic &&
+          !message.entryId &&
+          message.deliveryId === event.deliveryId
+            ? { ...message, deliveryRejected: true }
+            : message
+        ),
+        lastSeq: event.seq,
+      };
     case 'delivery-settled': {
       // worker 回执：该投递的 user 消息已上屏；文本匹配没消费掉的回显在此按 id 收回
       const index = current.messages.findIndex(
@@ -495,7 +521,10 @@ export function applyAgentEvent(
       if (event.message.role === 'user' && tail.length > 0) {
         const deliveredText = textOf(event.message);
         const matched = tail.findIndex(
-          (message) => message.role === 'user' && sameUserText(textOf(message), deliveredText)
+          (message) =>
+            message.role === 'user' &&
+            !message.deliveryRejected &&
+            sameUserText(textOf(message), deliveredText)
         );
         if (matched !== -1) tail = tail.toSpliced(matched, 1);
       }

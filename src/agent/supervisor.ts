@@ -3259,9 +3259,27 @@ export class SessionSupervisor {
   ): Promise<void> {
     const slot = { id: deliveryId ?? null };
     managed.promptDelivery = slot;
-    return managed.session.prompt(withPendingPlanNote(managed, text), options).finally(() => {
-      if (managed.promptDelivery === slot) managed.promptDelivery = undefined;
-    });
+    const trackedOptions = deliveryId
+      ? {
+          ...options,
+          preflightResult: (accepted: boolean) => {
+            if (!accepted && managed.promptDelivery === slot) {
+              this.options.emit({
+                type: 'delivery-rejected',
+                identity: managed.identity,
+                seq: ++managed.seq,
+                deliveryId,
+              });
+            }
+            options?.preflightResult?.(accepted);
+          },
+        }
+      : options;
+    return managed.session
+      .prompt(withPendingPlanNote(managed, text), trackedOptions)
+      .finally(() => {
+        if (managed.promptDelivery === slot) managed.promptDelivery = undefined;
+      });
   }
 
   private steerTracked(

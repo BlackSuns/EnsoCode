@@ -3723,6 +3723,129 @@ describe('manual conversation reload', () => {
   });
 });
 
+describe('withdraw undelivered messages', () => {
+  beforeEach(async () => {
+    await seedParent();
+    agentRewind.mockClear();
+    agentPrompt.mockClear();
+  });
+
+  it('等待中断期间撤回的队列项不能再被后台发送', async () => {
+    const store = sessionsModule.useSessionsStore;
+    store.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: true,
+          status: 'running',
+          queuedMessages: [{ id: 'q1', text: 'cancel me' }],
+        },
+      },
+    }));
+    const pending = store.getState().interruptAndSendQueued('parent', 'q1');
+    store.getState().withdrawMessage('parent', { kind: 'queue', id: 'q1' });
+    store.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          status: 'idle',
+        },
+      },
+    }));
+    await pending;
+    expect(agentPrompt).not.toHaveBeenCalled();
+    expect(store.getState().conversations.parent.messages).toEqual([]);
+    expect(store.getState().conversations.parent.draftText).toBe('cancel me');
+  });
+
+  it('撤回本地队列并恢复附件，保留已有草稿、历史和计划', () => {
+    const store = sessionsModule.useSessionsStore;
+    const image = { data: 'aW1hZ2U=', mimeType: 'image/png' };
+    store.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          draftText: 'existing',
+          draftImages: [image],
+          planState: {
+            active: false,
+            executing: { planId: 'plan', title: 'Plan', text: 'steps' },
+            resolutions: { plan: 'approved' },
+          },
+          messages: [
+            {
+              role: 'toolResult',
+              content: [],
+              todos: [
+                { content: 'done', status: 'completed' },
+                { content: 'next', status: 'pending' },
+              ],
+            },
+          ],
+          queuedMessages: [
+            { id: 'q1', text: 'continue', images: [image] },
+            { id: 'q2', text: 'keep' },
+          ],
+        },
+      },
+    }));
+    const before = store.getState().conversations.parent;
+    store.getState().withdrawMessage('parent', { kind: 'queue', id: 'q1' });
+    const after = store.getState().conversations.parent;
+    expect(after.queuedMessages).toEqual([{ id: 'q2', text: 'keep' }]);
+    expect(after).toMatchObject({
+      draftText: 'existing\n\ncontinue',
+      draftImages: [image, image],
+      draftAppend: true,
+    });
+    expect(after.messages).toBe(before.messages);
+    expect(after.planState).toBe(before.planState);
+    expect(agentRewind).not.toHaveBeenCalled();
+    expect(agentPrompt).not.toHaveBeenCalled();
+    store.getState().withdrawMessage('parent', { kind: 'queue', id: 'q1' });
+    expect(store.getState().conversations.parent).toBe(after);
+    store.getState().clearDraft('parent');
+    expect(store.getState().conversations.parent.draftAppend).toBeUndefined();
+  });
+
+  it.each(['rejected', 'pending', 'persisted'])(
+    '只撤回明确拒收的精确投递，不靠失败状态推测（%s）',
+    (delivery) => {
+      const store = sessionsModule.useSessionsStore;
+      const echo = {
+        role: 'user' as const,
+        content: [{ type: 'text' as const, text: 'continue' }],
+        optimistic: true,
+        deliveryId: 'd1',
+        deliveryRejected: delivery !== 'pending',
+        ...(delivery === 'persisted' ? { entryId: 'entry' } : {}),
+      };
+      store.setState((state) => ({
+        conversations: {
+          ...state.conversations,
+          parent: {
+            ...state.conversations.parent,
+            status: 'failed',
+            messages: [echo, { ...echo, deliveryId: 'd2' }],
+          },
+        },
+      }));
+      const before = store.getState().conversations.parent;
+      store.getState().withdrawMessage('parent', { kind: 'delivery', id: 'd1' });
+      const after = store.getState().conversations.parent;
+      if (delivery === 'rejected') {
+        expect(after.messages).toEqual([before.messages[1]]);
+        expect(after.draftText).toBe('continue');
+        expect(after.draftAppend).toBe(true);
+      } else expect(after).toBe(before);
+      expect(agentRewind).not.toHaveBeenCalled();
+    }
+  );
+});
+
 const rewindMessages = () =>
   ['one', 'two'].map((text) => ({
     role: 'user' as const,

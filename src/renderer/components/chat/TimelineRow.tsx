@@ -60,6 +60,7 @@ import {
   resolveRewindConfirm,
   userIndexFromEndForTurnKey,
 } from '@/stores/sessions/conversationRewind';
+import { canWithdrawMessage } from '@/stores/sessions/reducer';
 import { formatDuration, formatTokens } from '@/stores/sessions/stats';
 import {
   exploreStepsKey,
@@ -887,6 +888,42 @@ function ForkButton({ messageIndex }: { messageIndex: number }) {
   );
 }
 
+function WithdrawButton({ messageIndex }: { messageIndex: number }) {
+  const { t } = useI18n();
+  const host = useChatHost();
+  const conversationId = useSessionsStore((state) => displayedConversation(state)?.id);
+  const deliveryId = useSessionsStore((state) => {
+    const conversation = conversationId ? state.conversations[conversationId] : undefined;
+    if (
+      host ||
+      !conversation ||
+      conversation.historyOnly ||
+      conversation.rewinding ||
+      conversation.restoringFiles ||
+      conversation.workspaceMigrating
+    )
+      return undefined;
+    const message = conversation.messages[messageIndex - (conversation.historyBaseIndex ?? 0)];
+    return canWithdrawMessage(message) ? message.deliveryId : undefined;
+  });
+  if (!conversationId || !deliveryId) return null;
+  return (
+    <button
+      type="button"
+      title={t('Withdraw message')}
+      onClick={() =>
+        useSessionsStore
+          .getState()
+          .withdrawMessage(conversationId, { kind: 'delivery', id: deliveryId })
+      }
+      className="inline-flex items-center gap-1 hover:text-foreground"
+    >
+      <Undo2 className="h-3 w-3" />
+      {t('Withdraw message')}
+    </button>
+  );
+}
+
 /** 回退入口：已 spawn 非 spawning，或可 resume 的历史主会话。未恢复 coworker / remote / historyOnly 不显示；活 child 保持。 */
 function RewindButton({ messageIndex }: { messageIndex: number }) {
   const { t } = useI18n();
@@ -1046,6 +1083,7 @@ function UserMeta({
   return (
     <div className="flex items-center gap-2 text-[11px] text-muted-foreground/75 select-none">
       <RewindButton messageIndex={messageIndex} />
+      <WithdrawButton messageIndex={messageIndex} />
       {autoCollapseTurns && canCollapse && onToggleTurn && (
         <button
           type="button"

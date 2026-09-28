@@ -124,7 +124,10 @@ function session(options: Record<string, unknown>) {
     emit(event: { type: string; [key: string]: unknown }) {
       for (const listener of listeners) listener(event);
     },
-    prompt: vi.fn(async () => undefined),
+    prompt: vi.fn(
+      async (_text?: string, _options?: { preflightResult?: (accepted: boolean) => void }) =>
+        undefined
+    ),
     steer: vi.fn(async () => undefined),
     abort: vi.fn(async () => undefined),
     waitForIdle: vi.fn(async () => undefined),
@@ -925,6 +928,31 @@ describe('SessionSupervisor deterministic child lifecycle', () => {
         events.flatMap((event) => (event.type === 'delivery-settled' ? [event.deliveryId] : []));
       return { events, supervisor, piSession, userMessage, settled };
     }
+
+    it.each([false, true, undefined])(
+      '仅 preflight 明确拒收才允许撤回（accepted=%s）',
+      async (accepted) => {
+        const { events, supervisor, piSession, userMessage } = await spawned();
+        piSession.prompt.mockImplementationOnce(async (_text, options) => {
+          if (accepted !== undefined) options?.preflightResult?.(accepted);
+          if (accepted) userMessage('hi');
+          throw new Error('send failed');
+        });
+        supervisor.handleCommand({
+          type: 'prompt',
+          identity: parent,
+          text: 'hi',
+          deliveryId: 'd1',
+        });
+        await settle();
+        expect(events.filter((event) => event.type === 'delivery-rejected')).toEqual(
+          accepted === false
+            ? [expect.objectContaining({ identity: parent, deliveryId: 'd1' })]
+            : []
+        );
+        await supervisor.shutdown();
+      }
+    );
 
     it('prompt 的 user 消息上屏后回执 deliveryId，且排在该 upsert 之后', async () => {
       const { events, supervisor, userMessage } = await spawned();
