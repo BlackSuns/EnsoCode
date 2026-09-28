@@ -129,6 +129,7 @@ function itemEqual(prev: TimelineRowProps, next: TimelineRowProps): boolean {
         a.text !== b.text ||
         a.images.length !== b.images.length ||
         a.timestamp !== b.timestamp ||
+        a.deliveryState !== b.deliveryState ||
         a.turnDurationMs !== b.turnDurationMs ||
         a.collapsed !== b.collapsed ||
         a.canCollapse !== b.canCollapse
@@ -670,6 +671,7 @@ export const TimelineRow = memo(function TimelineRow({
               turnKey={item.key}
               messageIndex={Number(item.key)}
               timestamp={item.timestamp}
+              deliveryState={item.deliveryState}
               canCollapse={item.canCollapse}
               onToggleTurn={onToggleTurn}
             />
@@ -1070,12 +1072,14 @@ function UserMeta({
   messageIndex,
   timestamp,
   canCollapse,
+  deliveryState,
   onToggleTurn,
 }: {
   turnKey: string;
   messageIndex: number;
   timestamp?: number;
   canCollapse?: boolean;
+  deliveryState?: 'pending' | 'rejected';
   onToggleTurn?: (key: string, collapsed: boolean) => void;
 }) {
   const { t } = useI18n();
@@ -1084,6 +1088,9 @@ function UserMeta({
     <div className="flex items-center gap-2 text-[11px] text-muted-foreground/75 select-none">
       <RewindButton messageIndex={messageIndex} />
       <WithdrawButton messageIndex={messageIndex} />
+      {deliveryState && (
+        <span>{t(deliveryState === 'rejected' ? 'Not sent' : 'Delivery unconfirmed')}</span>
+      )}
       {autoCollapseTurns && canCollapse && onToggleTurn && (
         <button
           type="button"

@@ -18,6 +18,8 @@ Renderer 的消息列表包含乐观回显，worker 的当前分支只包含实�
 
 已拒收的气泡不能被另一条同文消息的 upsert/snapshot 匹配吞掉，也不参与下一次 undelivered 的 FIFO 回流。结果不明、仍在发送或已进入 worker 队列的消息不开放本地撤回。
 
+乐观气泡也不能充当运行态或新的权威轮次：否则 idle/failed 会话会一直显示「生成中」却没有停止按钮，后发消息确认上屏后还会被旧乐观尾巴排到前面。`chatTimelineActivity` 只以 running 判断生成中；`buildTimeline` 单独标注未确认/拒收气泡，仅在展示层按发送时间插到较晚用户轮次前，保留消息绝对 key 和 reducer 的「权威前缀 + 乐观尾巴」。流式、工具状态、计时和轮次折叠均须忽略本地气泡的轮次边界；不要为修展示顺序直接排序 messages。
+
 ## 回归防线
 
 - `conversationRewind.test.ts`：未确认消息、确认框目标消失、分页位移。
