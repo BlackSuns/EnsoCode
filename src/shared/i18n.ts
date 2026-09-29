@@ -1847,6 +1847,13 @@ export const zhTranslations: Record<string, string> = {
   'Export password is too short.': '导出密码太短。',
   'Configuration package is too large.': '配置包过大。',
   'Unable to export configuration.': '无法导出配置。',
+  'A preset uses a system prompt that is missing or empty.': '有预设引用的系统提示词不存在或为空。',
+  'Could not write the export file. Check that the folder is writable.':
+    '无法写入导出文件，请确认所选文件夹可写。',
+  'The selected file is a symbolic link. Choose a different location.':
+    '所选文件是符号链接，请换一个位置保存。',
+  'These instructions were skipped because their source files are missing or unreadable:':
+    '以下指令的源文件已丢失或无法读取，未包含在配置包中：',
   'Skill, instruction, and system prompt contents require an encrypted export.':
     '技能、指令和系统提示词正文需要使用加密导出。',
   'Invalid import request.': '导入请求无效。',
