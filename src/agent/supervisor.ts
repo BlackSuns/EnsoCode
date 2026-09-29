@@ -1136,9 +1136,11 @@ export class SessionSupervisor {
         if (agent.state.messages.at(-1)?.role === 'assistant') return;
         ensureAssistantUsage(agent.state.messages as unknown[]);
         managed.currentTurnId = randomUUID();
-        void agent.continue().catch((error) => {
-          this.failTurn(managed, toErrorMessage(error));
-        });
+        // 裸 agent.continue 绕过 pi 的 _runAgentPrompt，不会发 agent_settled，需自行补发收口
+        void agent.continue().then(
+          () => this.onSessionEvent(managed, { type: 'agent_settled' }),
+          (error) => this.failTurn(managed, toErrorMessage(error))
+        );
         return;
       }
       case 'agent-control-result': {
