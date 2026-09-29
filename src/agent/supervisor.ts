@@ -67,7 +67,7 @@ import type {
   SubagentModelOption,
   ThinkingLevel,
 } from '@shared/types/agent';
-import { parseAgentSessionCustomEntry } from '@shared/types/agent';
+import { parseAgentSessionCustomEntry, STALE_SESSION_ERROR } from '@shared/types/agent';
 import { type EditMode, resolveEditMode } from '@shared/types/editMode';
 import { providerIdOfAccountKey } from '@shared/types/oauthProviders';
 import type { WindowsLocalShell } from '@shared/windowsLocalShell';
@@ -3589,7 +3589,7 @@ export class SessionSupervisor {
   private must(identity: SessionIdentity): ManagedSession {
     const managed = this.sessions.get(identity.sessionId);
     if (!managed || !isSameGeneration(managed.identity, identity)) {
-      throw new Error(`unknown or stale session generation: ${identity.sessionId}`);
+      throw new Error(`${STALE_SESSION_ERROR}: ${identity.sessionId}`);
     }
     return managed;
   }

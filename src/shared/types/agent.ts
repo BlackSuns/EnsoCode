@@ -1304,6 +1304,9 @@ export interface AgentActionResult {
   error?: string;
 }
 
+/** worker 不持有该会话（闲置回收 / worker 重启 / 换代）时拒绝 prompt/steer 的原因前缀 */
+export const STALE_SESSION_ERROR = 'unknown or stale session generation';
+
 export type ParentLifecycleEvent =
   | {
       type: 'parent-ready';

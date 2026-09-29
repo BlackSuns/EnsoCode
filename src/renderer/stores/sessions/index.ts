@@ -30,6 +30,7 @@ import type {
   TitleSummaryInput,
   TurnDigest,
 } from '@shared/types/agent';
+import { STALE_SESSION_ERROR } from '@shared/types/agent';
 import type { AgentDispatchResult, AgentDispatchTask } from '@shared/types/mentions';
 import type { PairCreatedSession } from '@shared/types/pair';
 import type {
@@ -148,6 +149,9 @@ let evictTimer: ReturnType<typeof setTimeout> | null = null;
 /** 正文脱节时向 worker 补要 snapshot 的去抖：同一会话一轮重叠的 upsert 不重复要 */
 const snapshotResyncAt: Record<string, number> = {};
 const SNAPSHOT_RESYNC_DEBOUNCE_MS = 2_000;
+/** worker 丢会话后的自动恢复节流：窗口期内再次被同因拒绝即放弃自愈，避免 spawn/拒绝循环 */
+const staleRecoveredAt = new Map<string, number>();
+const STALE_RECOVERY_WINDOW_MS = 60_000;
 /** 冷会话不落正文，只按此节流续 lastOutputAt：每个流式增量都 set 会逐条触发 persist */
 const COLD_HEARTBEAT_INTERVAL_MS = 5_000;
 function resyncSnapshot(sessionId: string): void {
@@ -1698,6 +1702,9 @@ export const useSessionsStore = create<SessionsState>()(
               : {}),
           });
         });
+        if (event.type === 'parent-rejected' && event.reason.startsWith(STALE_SESSION_ERROR)) {
+          void recoverStaleSession(id, event.reason);
+        }
         if (event.type === 'turn-completed' || event.type === 'turn-failed') {
           // 用户中断的轮次不自动续跑：清掉一次性标记后直接收口
           if (get().conversations[id]?.abortRequested) {
@@ -1717,6 +1724,52 @@ export const useSessionsStore = create<SessionsState>()(
           continueGoal(id);
         }
       });
+
+      /**
+       * worker 已不持有会话（闲置回收 / worker 重启）而 renderer 仍以为 started 时，prompt/steer
+       * 被拒。自动 resume 并按原序重投被拒消息，不让用户手动点「重新恢复」再重发。
+       * 同一会话窗口期内只自愈一次，异常时退回原有的 failed + 手动恢复。
+       */
+      async function recoverStaleSession(id: string, reason: string): Promise<void> {
+        const conversation = get().conversations[id];
+        if (
+          !conversation ||
+          conversation.started ||
+          conversation.parentId ||
+          conversation.btwParentId ||
+          !conversation.sessionFile
+        )
+          return;
+        const now = Date.now();
+        if (now - (staleRecoveredAt.get(id) ?? -Infinity) < STALE_RECOVERY_WINDOW_MS) return;
+        staleRecoveredAt.set(id, now);
+        set((state) => {
+          const current = state.conversations[id];
+          if (!current) return state;
+          const undelivered = current.messages.filter(
+            (message) => message.optimistic && !message.deliveryRejected && message.role === 'user'
+          );
+          return patch(state, id, {
+            status: 'idle',
+            error: undefined,
+            messages: current.messages.filter((message) => !undelivered.includes(message)),
+            queuedMessages: [
+              ...undelivered.map(toQueuedMessage),
+              ...(current.queuedMessages ?? []),
+            ],
+          });
+        });
+        await get().resumeConversation(id);
+        const resumed = get().conversations[id];
+        if (!resumed) return;
+        if (resumed.started) {
+          flushQueue(id);
+          return;
+        }
+        if (resumed.status !== 'failed') {
+          set((state) => patch(state, id, { status: 'failed', error: reason }));
+        }
+      }
 
       /**
        * prompt/steer 统一投递：静默失败就是「发了没反应只能重启」。失败时收回乐观回显、

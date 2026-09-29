@@ -471,6 +471,73 @@ describe('typed Agent child projection', () => {
     expect(conversation.generation).toBeUndefined();
   });
 
+  it('worker 已不持有会话时拒绝的消息自动 resume 后重投，不要求手动重新恢复', async () => {
+    enableRewindResumeModel();
+    agentSpawn.mockResolvedValue({ ok: true });
+    sessionsModule.useSessionsStore.setState((state) => ({
+      conversations: {
+        ...state.conversations,
+        parent: {
+          ...state.conversations.parent,
+          started: true,
+          spawning: false,
+          status: 'idle' as const,
+          generation: 'pg1',
+          sessionFile: '/tmp/evicted.jsonl',
+          lastProviderId: 'p1',
+          lastModelId: 'm1',
+          messages: [
+            {
+              role: 'user' as const,
+              content: [{ type: 'text' as const, text: 'hello again' }],
+              optimistic: true,
+              deliveryId: 'd1',
+            },
+          ],
+        },
+      },
+    }));
+    onAgentEvent?.({
+      type: 'parent-rejected',
+      identity: { sessionId: 'parent', generation: 'pg1' },
+      seq: 0,
+      reason: 'unknown or stale session generation: parent',
+    });
+    await vi.waitFor(() =>
+      expect(agentPrompt).toHaveBeenCalledWith(
+        'parent',
+        'hello again',
+        undefined,
+        expect.any(String)
+      )
+    );
+    expect(agentSpawn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'parent', resumeFile: '/tmp/evicted.jsonl' })
+    );
+    const conversation = sessionsModule.useSessionsStore.getState().conversations.parent;
+    expect(conversation.started).toBe(true);
+    expect(conversation.error).toBeUndefined();
+    expect(conversation.queuedMessages ?? []).toEqual([]);
+    expect(
+      conversation.messages.filter((message) => message.role === 'user').map((m) => m.content)
+    ).toEqual([[{ type: 'text', text: 'hello again' }]]);
+
+    // 恢复后仍被同因拒绝：不再无限重试，落 failed 交给手动恢复
+    agentSpawn.mockClear();
+    onAgentEvent?.({
+      type: 'parent-rejected',
+      identity: { sessionId: 'parent', generation: 'pg1' },
+      seq: 0,
+      reason: 'unknown or stale session generation: parent',
+    });
+    await Promise.resolve();
+    const after = sessionsModule.useSessionsStore.getState().conversations.parent;
+    expect(agentSpawn).not.toHaveBeenCalled();
+    expect(after.started).toBe(false);
+    expect(after.status).toBe('failed');
+    expect(after.error).toBe('unknown or stale session generation: parent');
+  });
+
   it('partialize never persists started and resets stale running status to idle', () => {
     sessionsModule.useSessionsStore.setState((state) => ({
       conversations: {
