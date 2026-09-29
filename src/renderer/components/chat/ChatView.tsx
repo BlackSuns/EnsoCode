@@ -38,6 +38,7 @@ import { ModelPicker } from './ModelPicker';
 import { PlanBar } from './PlanBar';
 import { PlanModeToggle } from './PlanModeToggle';
 import { PresetPicker } from './PresetPicker';
+import { ProjectCodeTrustBar } from './ProjectCodeTrustBar';
 import { RetryBar } from './RetryBar';
 import { StatsLine } from './StatsLine';
 import { dedupeSlashCommands } from './skillCompletion';
@@ -328,6 +329,9 @@ export function ChatView() {
 
       <div className="@container pt-1">
         <div className={CHAT_COL}>
+          {project && project.kind !== 'ssh' && !chrome.displayedParentId && (
+            <ProjectCodeTrustBar projectId={project.id} conversationId={chrome.id} />
+          )}
           {chrome.retry && (
             <RetryBar
               retry={chrome.retry}

@@ -227,6 +227,7 @@ export const IPC_CHANNELS = {
   PROJECTS_GET_RECENT: 'projects:get-recent',
   /** 在系统文件管理器或指定 appId 的应用里打开项目根目录或会话 worktree（仅本地项目） */
   PROJECTS_REVEAL: 'projects:reveal',
+  PROJECTS_CODE_SOURCES: 'projects:code-sources',
   /** 列出本机已安装、可打开项目目录的编辑器 / 终端 */
   PROJECTS_OPEN_IN_APPS: 'projects:open-in-apps',
 

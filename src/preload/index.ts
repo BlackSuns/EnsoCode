@@ -502,6 +502,9 @@ const electronAPI = {
     }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROJECTS_REVEAL, request),
     openInApps: (): Promise<OpenInApp[]> => ipcRenderer.invoke(IPC_CHANNELS.PROJECTS_OPEN_IN_APPS),
+    /** 项目（或会话 worktree）里会被当作代码加载的 pi 扩展/包来源 */
+    codeSources: (request: { projectId: string; conversationId?: string }): Promise<string[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.PROJECTS_CODE_SOURCES, request),
   },
 
   git: {

@@ -293,6 +293,9 @@ export const SETTINGS_ACTION_COVERAGE = {
   setProjectDefaultModel: surfaces('projects.list'),
   setProjectDisabledBuiltinTools: surfaces('projects.list'),
   setProjectSubagentAllowedModes: surfaces('projects.list'),
+  setProjectTrustedCode: excluded(
+    'Trusting project pi extensions is a desktop-only security review.'
+  ),
   removeProject: surfaces('projects.remove'),
   setUsageModelPricing: excluded(
     'Local usage cost override for Settings → Usage; desktop-only estimate, not an Enso capability.'
@@ -510,6 +513,9 @@ export const IPC_PRODUCT_COVERAGE = {
   PROJECTS_GET_RECENT: surfaces('projects.recent'),
   PROJECTS_REVEAL: surfaces('projects.list'),
   PROJECTS_OPEN_IN_APPS: surfaces('projects.list'),
+  PROJECTS_CODE_SOURCES: excluded(
+    'Desktop-only review of project pi extensions before trusting them.'
+  ),
   FILES_SEARCH: surfaces('conversations.file-mention.attach'),
   FILES_READ: excluded('Internal bounded file reader used by reviewed UI flows.'),
   GIT_DIFF_HEAD: excluded('Internal git working-tree reader for the Changes panel.'),

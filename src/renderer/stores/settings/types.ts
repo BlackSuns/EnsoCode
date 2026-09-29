@@ -489,6 +489,8 @@ export interface SettingsState {
   setProjectDisabledBuiltinTools: (projectId: string, disabled: string[] | null) => void;
   /** null = 跟随全局；数组是项目级显式权限掩码。 */
   setProjectSubagentAllowedModes: (projectId: string, modes: AgentMode[] | null) => void;
+  /** 记下用户确认过的项目代码来源；null = 撤销信任 */
+  setProjectTrustedCode: (projectId: string, sources: string[] | null) => void;
 
   /** 非法条目不写入，返回 false */
   setUsageModelPricing: (modelId: string, pricing: ModelPricing) => boolean;

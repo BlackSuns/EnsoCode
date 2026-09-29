@@ -531,6 +531,15 @@ describe('parent/child commands', () => {
     expect(parseAgentCommand({ ...base, rolePrompt: 1 })).toBeNull();
   });
 
+  it('spawn-parent 携 trustedProjectCode:字符串数组通过,脏值拒绝', () => {
+    const base = { type: 'spawn-parent', identity: parent, cwd: '/repo', model };
+    const trusted = { ...base, trustedProjectCode: ['.pi/extensions/a.ts', 'package:npm:x'] };
+    expect(parseAgentCommand(trusted)).toEqual(trusted);
+    expect(parseAgentCommand({ ...base, trustedProjectCode: 'x' })).toBeNull();
+    expect(parseAgentCommand({ ...base, trustedProjectCode: [1] })).toBeNull();
+    expect(parseAgentCommand({ ...base, trustedProjectCode: ['x'.repeat(2000)] })).toBeNull();
+  });
+
   it('tool-background 必须 exact identity + 合法 toolCallId', () => {
     const command = { type: 'tool-background', identity: parent, toolCallId: 'call_1|fc_2' };
     expect(parseAgentCommand(command)).toEqual(command);

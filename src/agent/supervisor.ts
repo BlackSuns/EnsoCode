@@ -138,6 +138,7 @@ import { createMessageMainTool } from './messageMain';
 import { ParentNotifier } from './notify';
 import { withOpenAIResponsesRouting } from './openaiResponsesRouting';
 import { createSubmitPlanTool, PlanController, withPlanGate } from './planMode';
+import { createProjectSettingsManager } from './projectCode';
 import { projectMessage } from './projection';
 import { applyWorkerProxyEnv } from './proxyEnv';
 import { withReadTruncationMeta } from './readTruncation';
@@ -362,6 +363,8 @@ function createSessionResourceLoader(options: {
   remoteSsh?: { host: string };
   /** 加载项目内 .claude/.codex/.cursor 的 skills 与规则文件；远程会话不适用（cwd 不在本机） */
   loadHarnessAssets?: boolean;
+  /** 用户已信任的项目代码来源；未全部信任时不加载项目扩展与包 */
+  trustedProjectCode?: readonly string[];
   exploreFold?: ReturnType<typeof createExploreFoldState>;
   /** 仅父会话：互斥压缩策略。 */
   compactStrategy?: CompactStrategy;
@@ -378,6 +381,11 @@ function createSessionResourceLoader(options: {
   return new DefaultResourceLoader({
     cwd: options.cwd,
     agentDir: options.agentDir,
+    settingsManager: createProjectSettingsManager(
+      options.cwd,
+      options.agentDir,
+      options.trustedProjectCode ?? []
+    ).settingsManager,
     noSkills: options.noSkills,
     ...(options.noExtensions ? { noExtensions: true } : {}),
     ...(skillPaths.length > 0 ? { additionalSkillPaths: skillPaths } : {}),
@@ -481,6 +489,8 @@ function createEnsoResourceLoader(
   return new DefaultResourceLoader({
     cwd,
     agentDir,
+    // noExtensions 挡不住项目包解析（缺包会自动安装），同样用未信任的 settings
+    settingsManager: createProjectSettingsManager(cwd, agentDir, []).settingsManager,
     noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
@@ -1006,7 +1016,8 @@ export class SessionSupervisor {
           command.rolePrompt,
           command.systemPrompt,
           command.rtkEnabled,
-          command.planMode
+          command.planMode,
+          command.trustedProjectCode
         );
         return;
       case 'spawn-child':
@@ -1463,7 +1474,8 @@ export class SessionSupervisor {
     rolePrompt?: string,
     systemPrompt?: string,
     rtkEnabled = true,
-    planMode?: boolean
+    planMode?: boolean,
+    trustedProjectCode: readonly string[] = []
   ): Promise<void> {
     const sessionId = identity.sessionId;
     const sessionEditMode = resolveEditMode(requestedEditMode, hashlineEditEnabled);
@@ -1530,6 +1542,7 @@ export class SessionSupervisor {
       remoteAgentsFiles,
       ...(remote ? { remoteSsh: { host: remote.host } } : {}),
       loadHarnessAssets,
+      trustedProjectCode,
       exploreFold,
       persona: systemPrompt,
       ...(compactStrategy !== 'standard'
@@ -1905,6 +1918,7 @@ export class SessionSupervisor {
               ...(remote ? { remoteSsh: { host: remote.host } } : {}),
               // 类型化子代理与项目资源隔离（同 noSkills/noExtensions），不追加 harness 资源
               loadHarnessAssets: resolved || agentType ? false : loadHarnessAssets,
+              trustedProjectCode,
               ...(childExploreFold ? { exploreFold: childExploreFold } : {}),
             });
         await subLoader.reload();

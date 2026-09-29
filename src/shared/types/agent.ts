@@ -930,6 +930,8 @@ export type AgentCommand =
       loadLocalSkills?: boolean;
       /** 同时加载项目内 .claude/.codex/.cursor 的 skills 与规则文件（.cursorrules、.cursor/rules） */
       loadHarnessAssets?: boolean;
+      /** 用户已信任的项目代码来源（.pi/extensions、项目包等）；有未在此列的来源时整个项目的代码都不加载 */
+      trustedProjectCode?: string[];
       /** 探后折叠工具 + context 折叠 */
       exploreFoldEnabled?: boolean;
       /** 文件编辑工具模式；缺省 apply_patch */
@@ -2536,6 +2538,7 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
           'thinkingLevel',
           'loadLocalSkills',
           'loadHarnessAssets',
+          'trustedProjectCode',
           'exploreFoldEnabled',
           'editMode',
           'hashlineEditEnabled',
@@ -2564,6 +2567,14 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
         !parseSpawnModelConfig(value.model) ||
         (value.resumeFile !== undefined && !isNonEmptyString(value.resumeFile)) ||
         (value.loadHarnessAssets !== undefined && typeof value.loadHarnessAssets !== 'boolean') ||
+        (value.trustedProjectCode !== undefined &&
+          !(
+            Array.isArray(value.trustedProjectCode) &&
+            value.trustedProjectCode.length <= 500 &&
+            value.trustedProjectCode.every(
+              (entry) => typeof entry === 'string' && entry.length > 0 && entry.length <= 1024
+            )
+          )) ||
         (value.rtkEnabled !== undefined && typeof value.rtkEnabled !== 'boolean') ||
         (value.planMode !== undefined && typeof value.planMode !== 'boolean') ||
         (value.windowsLocalShell !== undefined &&

@@ -30,6 +30,7 @@ import { proxyEnvPatchFromEnv } from '@shared/proxy';
 import { parseSmartCompactMode } from '@shared/smartCompactMode';
 import {
   projectDisabledBuiltinTools,
+  projectTrustedCode,
   resolveDisabledBuiltinTools,
   resolveEditMode,
 } from '@shared/types';
@@ -581,6 +582,7 @@ export function spawnSession(
     if (!disabledTools.includes(id)) disabledTools.push(id);
   }
   const loadHarnessAssets = state?.loadHarnessAssets === true;
+  const trustedProjectCode = projectTrustedCode(state?.projects, projectId);
   const windowsLocalShell = parseWindowsLocalShell(state?.windowsLocalShell);
   const exploreFoldEnabled = state?.exploreFoldEnabled === true;
   const editMode = resolveEditMode(state?.editMode, state?.hashlineEditEnabled);
@@ -616,6 +618,7 @@ export function spawnSession(
     ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {}),
     ...(preset || request.loadLocalSkills === false ? { loadLocalSkills: false } : {}),
     ...(loadHarnessAssets ? { loadHarnessAssets: true } : {}),
+    ...(trustedProjectCode.length > 0 ? { trustedProjectCode } : {}),
     ...(windowsLocalShell !== 'auto' ? { windowsLocalShell } : {}),
     rtkEnabled: state?.rtkEnabled !== false,
     ...(exploreFoldEnabled ? { exploreFoldEnabled: true } : {}),

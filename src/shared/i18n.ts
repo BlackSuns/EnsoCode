@@ -1313,6 +1313,15 @@ export const zhTranslations: Record<string, string> = {
     '内嵌浏览器:在 Enso 自带 Chromium 里打开页面,读快照,按 ref 点击与输入',
   "Web search and fetch: search with the session model's built-in search (falls back to a keyless service) and read public pages as markdown":
     '联网搜索与抓取:优先用会话模型自带的搜索(不支持时降级到免 key 服务),并把公开网页读成 markdown',
+  'This project ships pi extension code that runs with your permissions. It was not loaded. Trust it only if you trust this repository.':
+    '此项目带有 pi 扩展代码，会以你的权限运行，已阻止加载。只有信任这个仓库时才加载。',
+  'Trust and load': '信任并加载',
+  'Project extensions trusted. They load in new sessions and after this one restarts.':
+    '已信任项目扩展，新会话和本会话重新启动后加载。',
+  'Trusted project extensions': '已信任的项目扩展',
+  'Revoke trust': '撤销信任',
+  'No longer loaded after saving, starting with the next session.':
+    '保存后不再加载，从下一个会话开始生效。',
   'Web search': '联网搜索',
   'Web fetch': '网页抓取',
   'QuickJS sandbox: write JavaScript that calls session tools (including edits) in one cell':

@@ -888,6 +888,19 @@ export const useSettingsStore = create<SettingsState>()(
         }));
       },
 
+      setProjectTrustedCode: (projectId, sources) => {
+        set((state) => ({
+          projects: state.projects.map((project) => {
+            if (project.id !== projectId) return project;
+            if (!sources) {
+              const { trustedProjectCode: _removed, ...rest } = project;
+              return rest;
+            }
+            return { ...project, trustedProjectCode: [...new Set(sources)].sort() };
+          }),
+        }));
+      },
+
       removeProject: async (id) => {
         const projection = await window.electronAPI.sourceAuthority.read();
         const project = projection.projects.find(
