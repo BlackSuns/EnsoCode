@@ -1311,6 +1311,10 @@ export const zhTranslations: Record<string, string> = {
     '后台 shell 任务:长命令挂后台跑,完成时通知',
   "Built-in browser: open pages in Enso's own Chromium, read snapshots, click and type by ref":
     '内嵌浏览器:在 Enso 自带 Chromium 里打开页面,读快照,按 ref 点击与输入',
+  "Web search and fetch: search with the session model's built-in search (falls back to a keyless service) and read public pages as markdown":
+    '联网搜索与抓取:优先用会话模型自带的搜索(不支持时降级到免 key 服务),并把公开网页读成 markdown',
+  'Web search': '联网搜索',
+  'Web fetch': '网页抓取',
   'QuickJS sandbox: write JavaScript that calls session tools (including edits) in one cell':
     'QuickJS 沙箱:用 JavaScript 在一个 cell 里调用会话工具(含编辑)',
   '(log unavailable)': '(日志不可用)',

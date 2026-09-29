@@ -33,6 +33,12 @@ export const BUILTIN_TOOLS: BuiltinToolInfo[] = [
       "Built-in browser: open pages in Enso's own Chromium, read snapshots, click and type by ref",
   },
   {
+    id: 'web',
+    name: 'Web search',
+    description:
+      "Web search and fetch: search with the session model's built-in search (falls back to a keyless service) and read public pages as markdown",
+  },
+  {
     id: 'background_tasks',
     name: 'Background tasks',
     description:

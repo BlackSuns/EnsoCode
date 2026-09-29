@@ -488,6 +488,11 @@ export const PRODUCT_SURFACE_INVENTORY = {
     kind: 'action',
     label: 'Use built-in browser',
   },
+  'coding-tools.web': {
+    domain: 'coding-tools',
+    kind: 'action',
+    label: 'Search and fetch the web',
+  },
   'coding-tools.isolated-sandbox': {
     domain: 'coding-tools',
     kind: 'action',

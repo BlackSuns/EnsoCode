@@ -8,6 +8,7 @@ import { createUnifiedSubagentTool } from './subagent';
 import { createTodoTool } from './todo';
 import { BrowserInvoker, createBrowserTools } from './tools/browser';
 import { createMemoryTools, MemoryInvoker } from './tools/memory';
+import { createWebTools } from './tools/web';
 
 function fields(tool: { name: string; description?: string; parameters?: unknown }): OccupancyTool {
   return {
@@ -53,6 +54,7 @@ export function snapshotBuiltinOccupancyTools(input?: {
     todo: [fields(createTodoTool())],
     ask_user: [fields(createAskTool(ask))],
     browser: createBrowserTools(browser).map(fields),
+    web: createWebTools().map(fields),
     memory: createMemoryTools(new MemoryInvoker(noopIdentity, () => {})).map(fields),
     background_tasks: createTaskTools({
       read: async () => undefined,

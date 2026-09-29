@@ -1233,6 +1233,13 @@ export const CAPABILITY_CATALOG = {
     reason: 'Enso never receives browsing or page-interaction tools.',
     suggestedAction: 'Ask the coding agent to use the built-in browser.',
   }),
+  'coding-tools.web': unavailable('coding-tools.web', {
+    description: 'Search the public web and fetch pages.',
+    risk: 'read',
+    targetContext: 'origin-project',
+    reason: 'Enso never receives the coding-session web tools.',
+    suggestedAction: 'Ask the coding agent to search or fetch the page.',
+  }),
   'coding-tools.isolated-sandbox': unavailable('coding-tools.isolated-sandbox', {
     description: 'Run JavaScript that calls coding-session tools, including edits.',
     risk: 'dangerous',
