@@ -169,6 +169,8 @@ export const IPC_CHANNELS = {
   /** renderer → main：上报当前正在查看的会话，供系统通知抑制判断 */
   NOTIFICATION_ACTIVE_SESSION: 'notification:active-session',
   AGENT_TASK_STOP: 'agent:task-stop',
+  /** 把运行中的前台命令移交为后台任务 */
+  AGENT_TOOL_BACKGROUND: 'agent:tool-background',
   AGENT_SUBAGENT_STOP: 'agent:subagent-stop',
   AGENT_WORKFLOW_STOP: 'agent:workflow-stop',
   AGENT_REWIND: 'agent:rewind',

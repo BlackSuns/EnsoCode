@@ -449,6 +449,9 @@ export const IPC_PRODUCT_COVERAGE = {
     'Renderer reports the currently viewed conversation id so Main can suppress redundant system notifications; no execution rights.'
   ),
   AGENT_TASK_STOP: surfaces('conversations.background-task.stop'),
+  AGENT_TOOL_BACKGROUND: excluded(
+    'Desktop tool-row control that moves a running foreground shell command into a background task; renderer-only, not an Enso capability.'
+  ),
   AGENT_WORKFLOW_STOP: excluded('Side panel control to stop a running workflow run.'),
   AGENT_SUBAGENT_STOP: excluded(
     'Desktop TaskBar control to abort a stuck or running subagent; renderer-only, not an Enso capability.'

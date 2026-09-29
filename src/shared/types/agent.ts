@@ -1072,6 +1072,7 @@ export type AgentCommand =
       error?: string;
     }
   | { type: 'task-stop'; identity: SessionIdentity; taskId: string }
+  | { type: 'tool-background'; identity: SessionIdentity; toolCallId: string }
   | { type: 'workflow-stop'; identity: SessionIdentity; runId: string }
   | { type: 'subagent-stop'; identity: SessionIdentity; agentId: string }
   | {
@@ -1197,6 +1198,8 @@ export interface ProjectedMessage {
   /** Persisted user entry identity, absent on unconfirmed messages. */
   entryId?: string;
   rtk?: RtkToolStats;
+  /** 前台命令被移交为后台任务时的任务 id */
+  backgroundTaskId?: string;
   role: string;
   content: ProjectedPart[];
   /** toolResult 消息附带 */
@@ -1718,8 +1721,16 @@ function parseProjectedApplyPatchOutcome(value: unknown): ProjectedApplyPatchOut
   return value as unknown as ProjectedApplyPatchOutcome;
 }
 
+/** 后台任务 id 形如 task-<n>-<base36>，渲染层只拿它做展示 */
+export function isBackgroundTaskId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 128;
+}
+
 function hasValidProjectedMetadata(value: Record<string, unknown>): boolean {
   if (value.rtk !== undefined && !parseRtkToolStats(value.rtk)) return false;
+  if (value.backgroundTaskId !== undefined && !isBackgroundTaskId(value.backgroundTaskId)) {
+    return false;
+  }
   const fileChanges =
     value.fileChanges === undefined ? undefined : parseProjectedFileChanges(value.fileChanges);
   if (fileChanges === null) return false;
@@ -2813,6 +2824,13 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
       return hasExactKeys(value, ['type', 'identity', 'taskId']) &&
         parseAnySessionIdentity(value.identity) &&
         isNonEmptyString(value.taskId)
+        ? (value as unknown as AgentCommand)
+        : null;
+    case 'tool-background':
+      return hasExactKeys(value, ['type', 'identity', 'toolCallId']) &&
+        parseAnySessionIdentity(value.identity) &&
+        isNonEmptyString(value.toolCallId) &&
+        value.toolCallId.length <= 512
         ? (value as unknown as AgentCommand)
         : null;
     case 'subagent-stop':

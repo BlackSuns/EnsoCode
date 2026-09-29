@@ -1096,6 +1096,7 @@ export class SessionSupervisor {
         }
         if (managed.status === 'running') {
           await this.steerTracked(managed, command.text, images, command.deliveryId);
+          this.bgTasks.backgroundAllForeground(managed.identity.sessionId, 'steer');
           return;
         }
         // 投影已 idle 但 pi 仍忙：压缩中（pi 拒收 prompt）不限时等压完；仍 streaming 要么
@@ -1123,6 +1124,8 @@ export class SessionSupervisor {
           return;
         }
         await this.steerTracked(managed, command.text, images, command.deliveryId);
+        // 用户插话时长命令不阻塞投递：前台命令转后台（不杀），让 pi 在工具返回后读到插话
+        this.bgTasks.backgroundAllForeground(managed.identity.sessionId, 'steer');
         return;
       }
       case 'abort-retry':
@@ -1258,6 +1261,10 @@ export class SessionSupervisor {
       case 'task-stop':
         this.must(command.identity);
         this.bgTasks.stop(command.taskId);
+        return;
+      case 'tool-background':
+        this.must(command.identity);
+        this.bgTasks.backgroundForeground(command.identity.sessionId, command.toolCallId, 'user');
         return;
       // 旧子代理状态链路已无来源，命令仍在共享协议里，worker 侧不再有可停的对象
       case 'subagent-stop':

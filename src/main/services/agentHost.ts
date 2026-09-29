@@ -1065,6 +1065,13 @@ export function stopBackgroundTask(
   return sendAgentCommand({ type: 'task-stop', identity, taskId });
 }
 
+export function backgroundForegroundTool(
+  identity: SessionIdentity,
+  toolCallId: string
+): { ok: boolean; error?: string } {
+  return sendAgentCommand({ type: 'tool-background', identity, toolCallId });
+}
+
 export function stopWorkflow(
   identity: SessionIdentity,
   runId: string
