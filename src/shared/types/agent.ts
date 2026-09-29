@@ -1437,6 +1437,8 @@ export type AgentWorkerEvent =
       output: string;
       /** 该工具真正开始执行的 wall clock；后续增量覆盖不改 */
       startedAt?: number;
+      /** 前台命令的超时截止 wall clock：无输出巡检在此之前不把静默当卡死 */
+      deadlineAt?: number;
     }
   | { type: 'messages-truncated'; identity: SessionIdentity; seq: number; length: number }
   | {
@@ -3219,7 +3221,8 @@ export function parseAgentWorkerEvent(value: unknown): AgentWorkerEvent | null {
     case 'tool-output':
       return isNonEmptyString(value.toolCallId) &&
         typeof value.output === 'string' &&
-        (value.startedAt === undefined || typeof value.startedAt === 'number')
+        (value.startedAt === undefined || typeof value.startedAt === 'number') &&
+        (value.deadlineAt === undefined || Number.isFinite(value.deadlineAt))
         ? (value as unknown as AgentWorkerEvent)
         : null;
     case 'task-started':

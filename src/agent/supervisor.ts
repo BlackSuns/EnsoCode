@@ -90,7 +90,12 @@ import {
 } from './approvalReview';
 import { AskManager, createAskTool } from './ask';
 import { ensureAssistantUsage } from './assistantUsage';
-import { BackgroundTaskManager, createTaskTools, withBackground } from './backgroundTasks';
+import {
+  BackgroundTaskManager,
+  createTaskTools,
+  foregroundCommandTimeoutMs,
+  withBackground,
+} from './backgroundTasks';
 import { CheckpointManager, withCheckpoint } from './checkpoint/manager';
 import { createRemoteCheckpointHost } from './checkpoint/remoteHost';
 import {
@@ -2865,6 +2870,7 @@ export class SessionSupervisor {
         if (!managed.toolStartAt.has(event.toolCallId)) {
           const startedAt = Date.now();
           managed.toolStartAt.set(event.toolCallId, startedAt);
+          const timeoutMs = foregroundCommandTimeoutMs(event.toolName, event.args);
           this.options.emit({
             type: 'tool-output',
             identity: managed.identity,
@@ -2872,6 +2878,7 @@ export class SessionSupervisor {
             toolCallId: event.toolCallId,
             output: '',
             startedAt,
+            ...(timeoutMs === undefined ? {} : { deadlineAt: startedAt + timeoutMs }),
           });
         }
         return;

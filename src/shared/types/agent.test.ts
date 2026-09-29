@@ -1802,6 +1802,15 @@ describe('tool-output 事件跨进程边界', () => {
     expect(parseAgentWorkerEvent({ ...event, startedAt: 'now' })).toBeNull();
   });
 
+  it('可选 deadlineAt 随事件通过，脏数字拒绝', () => {
+    expect(parseAgentWorkerEvent({ ...event, deadlineAt: 2_000 })).toEqual({
+      ...event,
+      deadlineAt: 2_000,
+    });
+    expect(parseAgentWorkerEvent({ ...event, deadlineAt: 'later' })).toBeNull();
+    expect(parseAgentWorkerEvent({ ...event, deadlineAt: Number.NaN })).toBeNull();
+  });
+
   it('脏输入拒绝', () => {
     expect(parseAgentWorkerEvent({ ...event, toolCallId: '' })).toBeNull();
     expect(parseAgentWorkerEvent({ ...event, output: 42 })).toBeNull();

@@ -1103,6 +1103,37 @@ describe('applyAgentEvent tool-output', () => {
     expect(done.toolOutputs).toEqual({ t2: 'other' });
     expect(done.toolStartedAt).toEqual({});
   });
+
+  it('deadlineAt 随工具起止记录与清除，轮次收口清空', () => {
+    const started = applyAgentEvent(base, 's1', {
+      ...toolOutput(1, '', 1_000),
+      deadlineAt: 601_000,
+    } as RendererAgentEvent);
+    expect(started.toolDeadlineAt).toEqual({ t1: 601_000 });
+    expect(applyAgentEvent(started, 's1', toolOutput(2, 'line')).toolDeadlineAt).toEqual({
+      t1: 601_000,
+    });
+    const settled = applyAgentEvent(started, 's1', {
+      type: 'message-upsert',
+      identity: identity(),
+      seq: 3,
+      index: 0,
+      message: {
+        role: 'toolResult',
+        toolCallId: 't1',
+        toolName: 'bash',
+        content: [{ type: 'text', text: 'done' }],
+      },
+    });
+    expect(settled.toolDeadlineAt).toEqual({});
+    const done = applyAgentEvent(started, 's1', {
+      type: 'turn-completed',
+      identity: identity(),
+      seq: 3,
+      turnId: 'turn-1',
+    });
+    expect(done.toolDeadlineAt).toEqual({});
+  });
 });
 
 describe('lastOutputAt stall heartbeat', () => {

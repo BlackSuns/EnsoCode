@@ -251,6 +251,8 @@ export interface SessionProjection {
   toolOutputs: Record<string, string>;
   /** 工具真正开始执行的 wall clock；轮次收口即清空，不持久化 */
   toolStartedAt?: Record<string, number>;
+  /** 运行中前台命令的超时截止 wall clock；工具收口 / 轮次收口即清空，不持久化 */
+  toolDeadlineAt?: Record<string, number>;
   /** 当前权威消息对应的 worker 绝对起点；全量快照缺省 */
   historyBaseIndex?: number;
   /** 上滑翻页在途；不持久化 */
@@ -378,6 +380,7 @@ export function applyAgentEvent(
       // 同轮补快照不能抹掉正在显示的工具输出与去重基准；已经收口的工具不保留旧尾巴。
       toolOutputs: continuingRun ? omitKeys(state.toolOutputs, completedTools) : {},
       toolStartedAt: continuingRun ? omitKeys(state.toolStartedAt ?? {}, completedTools) : {},
+      toolDeadlineAt: continuingRun ? omitKeys(state.toolDeadlineAt ?? {}, completedTools) : {},
       historyBaseIndex: keepPrefix ? localBase : snapBase > 0 ? snapBase : undefined,
       ...(snapshot.planState ? { planState: snapshot.planState } : {}),
     };
@@ -532,6 +535,10 @@ export function applyAgentEvent(
       const settledId = event.message.role === 'toolResult' ? event.message.toolCallId : undefined;
       const settledTool =
         settledId && settledId in current.toolOutputs ? new Set([settledId]) : undefined;
+      const settledDeadline =
+        settledId && current.toolDeadlineAt && settledId in current.toolDeadlineAt
+          ? omitKeys(current.toolDeadlineAt, new Set([settledId]))
+          : undefined;
       return {
         ...current,
         messages: [...authoritative, ...tail],
@@ -541,6 +548,7 @@ export function applyAgentEvent(
               toolStartedAt: omitKeys(current.toolStartedAt ?? {}, settledTool),
             }
           : {}),
+        ...(settledDeadline ? { toolDeadlineAt: settledDeadline } : {}),
         lastOutputAt: hasOutput ? now : current.lastOutputAt,
         lastSeq: event.seq,
       };
@@ -633,6 +641,11 @@ export function applyAgentEvent(
           startedAt === undefined
             ? current.toolStartedAt
             : { ...current.toolStartedAt, [event.toolCallId]: startedAt },
+        ...(event.deadlineAt === undefined
+          ? {}
+          : {
+              toolDeadlineAt: { ...current.toolDeadlineAt, [event.toolCallId]: event.deadlineAt },
+            }),
         lastOutputAt:
           event.output.trim() && event.output !== current.toolOutputs[event.toolCallId]
             ? now
@@ -646,6 +659,7 @@ export function applyAgentEvent(
         retry: undefined,
         toolOutputs: {},
         toolStartedAt: {},
+        toolDeadlineAt: {},
         lastSeq: event.seq,
       };
     case 'messages-truncated': {
@@ -681,6 +695,7 @@ export function applyAgentEvent(
         retry: undefined,
         toolOutputs: {},
         toolStartedAt: {},
+        toolDeadlineAt: {},
         lastSeq: event.seq,
       };
     case 'session-custom-entry':
