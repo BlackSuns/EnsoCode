@@ -14,6 +14,7 @@ import type {
   InstructionEntry,
   McpServerEntry,
   ModelProvider,
+  PluginEntry,
   Preset,
   Project,
   ProjectGroup,
@@ -260,6 +261,8 @@ export interface SettingsState {
 
   // Skills / MCP servers（按引用登记，内容留在源应用目录）
   skills: SkillEntry[];
+  /** 从 Claude Code 导入的插件；组件在 spawn 时由 Main 按 key 现读 */
+  plugins: PluginEntry[];
   mcpServers: McpServerEntry[];
   instructions: InstructionEntry[];
 
@@ -404,6 +407,9 @@ export interface SettingsState {
   /** 一次写入筛选结果的 enabled，避免逐条 persist */
   setSkillsEnabled: (ids: string[], enabled: boolean) => void;
   removeSkill: (id: string) => void;
+  addPlugins: (plugins: PluginEntry[]) => number;
+  setPluginEnabled: (id: string, enabled: boolean) => void;
+  removePlugin: (id: string) => void;
 
   // MCP actions
   /** 按启动命令或 URL 去重，返回实际新增数量 */

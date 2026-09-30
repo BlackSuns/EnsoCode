@@ -50,6 +50,12 @@ import {
   type ModelThinkingLevelOverride,
 } from './llm';
 import { type AgentDispatchTask, parseAgentDispatchTask } from './mentions';
+import {
+  type PluginCommandSpawn,
+  type PluginHookSpawn,
+  parsePluginCommands,
+  parsePluginHooks,
+} from './plugins';
 import { isWorkflowPresetId, parseWorkflowRunSnapshot, type WorkflowRunSnapshot } from './workflow';
 
 export type { ChildSessionIdentity, SessionIdentity } from '../builtinAgents';
@@ -633,6 +639,8 @@ export interface McpServerSpawnConfig {
   args?: string[];
   env?: Record<string, string>;
   url?: string;
+  /** http/sse 请求头（Claude 插件 .mcp.json 用它传 key） */
+  headers?: Record<string, string>;
   /** 已授权的 OAuth 凭据（http/sse 远程 server） */
   oauth?: McpOAuthTokens;
   /** 连接 + listTools；缺省 10s */
@@ -950,6 +958,10 @@ export type AgentCommand =
       memoryLanguage?: string;
       skillPaths?: string[];
       mcpServers?: McpServerSpawnConfig[];
+      /** 已启用 Claude 插件的命令（作为 `/plugin:command` 提示词模板） */
+      pluginCommands?: PluginCommandSpawn[];
+      /** 已启用 Claude 插件的 command hooks；远程会话不下发 */
+      pluginHooks?: PluginHookSpawn[];
       instruction?: { path: string; content: string };
       approvalMode?: ApprovalMode;
       /** 助手代审模型；仅 approvalMode=assistant 时有意义 */
@@ -2549,6 +2561,8 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
           'memoryLanguage',
           'skillPaths',
           'mcpServers',
+          'pluginCommands',
+          'pluginHooks',
           'instruction',
           'approvalMode',
           'approvalReviewer',
@@ -2575,6 +2589,9 @@ export function parseAgentCommand(value: unknown): AgentCommand | null {
               (entry) => typeof entry === 'string' && entry.length > 0 && entry.length <= 1024
             )
           )) ||
+        (value.pluginCommands !== undefined &&
+          parsePluginCommands(value.pluginCommands) === null) ||
+        (value.pluginHooks !== undefined && parsePluginHooks(value.pluginHooks) === null) ||
         (value.rtkEnabled !== undefined && typeof value.rtkEnabled !== 'boolean') ||
         (value.planMode !== undefined && typeof value.planMode !== 'boolean') ||
         (value.windowsLocalShell !== undefined &&

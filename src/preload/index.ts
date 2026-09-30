@@ -75,6 +75,7 @@ import type {
   FilesWatchResult,
   FilesWriteResult,
   GitDiffResult,
+  InstalledPluginInfo,
   ListModelsResult,
   LocalAssetScanResult,
   LocalProviderScanResult,
@@ -425,6 +426,8 @@ const electronAPI = {
   assets: {
     scanLocal: (): Promise<LocalAssetScanResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.ASSETS_SCAN_LOCAL),
+    listInstalledPlugins: (): Promise<InstalledPluginInfo[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.PLUGINS_LIST_INSTALLED),
     collectImport: (scanId: string, candidateIds: string[]): Promise<CollectedAsset[]> =>
       ipcRenderer.invoke(IPC_CHANNELS.ASSETS_COLLECT_IMPORT, scanId, candidateIds),
     listProjectSkills: (cwd: string): Promise<{ name: string; description: string }[]> =>

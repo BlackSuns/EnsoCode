@@ -108,6 +108,7 @@ export const SETTINGS_DATA_COVERAGE = {
   approvalReviewer: excluded('Assistant approval reviewer model; desktop settings only.'),
   lastApprovalMode: excluded('Last used approval mode is a desktop session preference.'),
   skills: surfaces('skills.list'),
+  plugins: excluded('Desktop-only Claude Code plugin import; plugin code runs on this device.'),
   mcpServers: surfaces('mcp.list'),
   instructions: surfaces('instructions.list'),
   presets: surfaces('presets.list'),
@@ -258,6 +259,11 @@ export const SETTINGS_ACTION_COVERAGE = {
   updateSkill: surfaces('skills.toggle'),
   setSkillsEnabled: surfaces('skills.toggle'),
   removeSkill: surfaces('skills.remove'),
+  addPlugins: excluded('Desktop-only Claude Code plugin import; plugin code runs on this device.'),
+  setPluginEnabled: excluded(
+    'Desktop-only Claude Code plugin toggle; plugin hooks and MCP servers run on this device.'
+  ),
+  removePlugin: excluded('Desktop-only Claude Code plugin removal.'),
   addMcpServers: surfaces('mcp.import-local'),
   updateMcpServer: surfaces('mcp.edit', 'mcp.toggle'),
   setMcpServersEnabled: surfaces('mcp.toggle'),
@@ -392,6 +398,9 @@ export const IPC_PRODUCT_COVERAGE = {
   ),
   OAUTH_CREDENTIALS_CHANGED: excluded(
     'Cross-window OAuth credential invalidation transport; refresh resolves the product state.'
+  ),
+  PLUGINS_LIST_INSTALLED: excluded(
+    'Desktop-only review of Claude Code plugins before importing them.'
   ),
   ASSETS_SCAN_LOCAL: surfaces(
     'skills.import-local',

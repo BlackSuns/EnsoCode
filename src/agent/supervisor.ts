@@ -9,10 +9,13 @@ import {
   createGrepToolDefinition,
   createLsToolDefinition,
   createReadToolDefinition,
+  createSyntheticSourceInfo,
   createWriteToolDefinition,
   DefaultResourceLoader,
   type InlineExtension,
   ModelRuntime,
+  type PromptTemplate,
+  type ResourceDiagnostic,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import {
@@ -70,6 +73,7 @@ import type {
 import { parseAgentSessionCustomEntry, STALE_SESSION_ERROR } from '@shared/types/agent';
 import { type EditMode, resolveEditMode } from '@shared/types/editMode';
 import { providerIdOfAccountKey } from '@shared/types/oauthProviders';
+import type { PluginCommandSpawn, PluginHookSpawn } from '@shared/types/plugins';
 import type { WindowsLocalShell } from '@shared/windowsLocalShell';
 import { version } from '../../package.json';
 import { AgentControlInvoker } from './agentControl';
@@ -103,6 +107,7 @@ import {
   pickChildReasoningOverride,
   resolveChildReasoning,
 } from './childReasoning';
+import { createClaudeHooksExtension } from './claudeHooks';
 import {
   collectContextOccupancy,
   estimateConversationTokens,
@@ -365,6 +370,14 @@ function createSessionResourceLoader(options: {
   loadHarnessAssets?: boolean;
   /** 用户已信任的项目代码来源；未全部信任时不加载项目扩展与包 */
   trustedProjectCode?: readonly string[];
+  /** Claude 插件命令：作为 `/plugin:command` 提示词模板加入 */
+  pluginCommands?: readonly PluginCommandSpawn[];
+  /** Claude 插件 hooks 及其运行角色 */
+  pluginHooks?: {
+    hooks: readonly PluginHookSpawn[];
+    role: Parameters<typeof createClaudeHooksExtension>[0]['role'];
+    resumed?: boolean;
+  };
   exploreFold?: ReturnType<typeof createExploreFoldState>;
   /** 仅父会话：互斥压缩策略。 */
   compactStrategy?: CompactStrategy;
@@ -378,6 +391,8 @@ function createSessionResourceLoader(options: {
     ? [...options.skillPaths, ...resolveHarnessSkillRoots(options.cwd)]
     : options.skillPaths;
   const persona = options.persona;
+  const pluginCommands = options.pluginCommands ?? [];
+  const pluginHooks = options.pluginHooks;
   return new DefaultResourceLoader({
     cwd: options.cwd,
     agentDir: options.agentDir,
@@ -389,6 +404,9 @@ function createSessionResourceLoader(options: {
     noSkills: options.noSkills,
     ...(options.noExtensions ? { noExtensions: true } : {}),
     ...(skillPaths.length > 0 ? { additionalSkillPaths: skillPaths } : {}),
+    ...(pluginCommands.length > 0
+      ? { promptsOverride: (base) => withPluginPrompts(base, pluginCommands) }
+      : {}),
     // noExtensions 只挡磁盘上的项目/全局扩展；inline factory 不受影响，图片修剪对所有会话生效
     extensionFactories: [
       ...(persona
@@ -464,6 +482,17 @@ function createSessionResourceLoader(options: {
               }),
             ]
           : []),
+      ...(pluginHooks && pluginHooks.hooks.length > 0
+        ? [
+            createClaudeHooksExtension({
+              hooks: pluginHooks.hooks,
+              cwd: options.cwd,
+              role: pluginHooks.role,
+              resumed: pluginHooks.resumed,
+              onNotice: (text) => console.warn(`[claude-hooks] ${text}`),
+            }),
+          ]
+        : []),
       options.silentTurnRecovery,
     ],
     agentsFilesOverride: options.remoteAgentsFiles
@@ -477,6 +506,37 @@ function createSessionResourceLoader(options: {
           ...(harness ? readHarnessRuleFiles(options.cwd) : []),
         ]),
   });
+}
+
+/** Enso 不走 pi 的会话切换流程，session_shutdown 要自己发（Claude 插件的 SessionEnd hook 靠它） */
+async function emitSessionShutdown(session: AgentSession): Promise<void> {
+  try {
+    const runner = session.extensionRunner;
+    if (runner.hasHandlers('session_shutdown')) {
+      await runner.emit({ type: 'session_shutdown', reason: 'quit' });
+    }
+  } catch {}
+}
+
+/** 插件命令追加为提示词模板；与已有模板同名时让位 */
+function withPluginPrompts(
+  base: { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] },
+  commands: readonly PluginCommandSpawn[]
+): { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] } {
+  const names = new Set(base.prompts.map((prompt) => prompt.name));
+  const extra = commands
+    .filter((command) => !names.has(command.name))
+    .map(
+      (command): PromptTemplate => ({
+        name: command.name,
+        description: command.description,
+        ...(command.argumentHint ? { argumentHint: command.argumentHint } : {}),
+        content: command.content,
+        filePath: command.filePath,
+        sourceInfo: createSyntheticSourceInfo(command.filePath, { source: 'claude-plugin' }),
+      })
+    );
+  return { prompts: [...base.prompts, ...extra], diagnostics: base.diagnostics };
 }
 
 /** Enso 不发现任何宿主或项目资源；cwd 只供 pi 的会话文件元数据使用。 */
@@ -780,6 +840,7 @@ export class SessionSupervisor {
     try {
       await managed.session.abort();
     } catch {}
+    await emitSessionShutdown(managed.session);
     managed.unsubscribe();
     try {
       managed.session.dispose();
@@ -1017,7 +1078,9 @@ export class SessionSupervisor {
           command.systemPrompt,
           command.rtkEnabled,
           command.planMode,
-          command.trustedProjectCode
+          command.trustedProjectCode,
+          command.pluginCommands,
+          command.pluginHooks
         );
         return;
       case 'spawn-child':
@@ -1475,7 +1538,9 @@ export class SessionSupervisor {
     systemPrompt?: string,
     rtkEnabled = true,
     planMode?: boolean,
-    trustedProjectCode: readonly string[] = []
+    trustedProjectCode: readonly string[] = [],
+    pluginCommands: readonly PluginCommandSpawn[] = [],
+    pluginHooks: readonly PluginHookSpawn[] = []
   ): Promise<void> {
     const sessionId = identity.sessionId;
     const sessionEditMode = resolveEditMode(requestedEditMode, hashlineEditEnabled);
@@ -1543,6 +1608,8 @@ export class SessionSupervisor {
       ...(remote ? { remoteSsh: { host: remote.host } } : {}),
       loadHarnessAssets,
       trustedProjectCode,
+      pluginCommands,
+      pluginHooks: { hooks: pluginHooks, role: { kind: 'parent' }, resumed: Boolean(resumeFile) },
       exploreFold,
       persona: systemPrompt,
       ...(compactStrategy !== 'standard'
@@ -1919,6 +1986,14 @@ export class SessionSupervisor {
               // 类型化子代理与项目资源隔离（同 noSkills/noExtensions），不追加 harness 资源
               loadHarnessAssets: resolved || agentType ? false : loadHarnessAssets,
               trustedProjectCode,
+              pluginHooks: {
+                hooks: pluginHooks,
+                role: {
+                  kind: 'subagent',
+                  agentType: resolved?.displayName ?? agentType?.name ?? 'general',
+                },
+                resumed: Boolean(childResume),
+              },
               ...(childExploreFold ? { exploreFold: childExploreFold } : {}),
             });
         await subLoader.reload();
