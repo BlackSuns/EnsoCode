@@ -336,6 +336,7 @@ export const BUILTIN_TOOL_COVERAGE: Readonly<Record<string, CoverageDisposition>
   web: surfaces('coding-tools.web'),
   isolated_sandbox: surfaces('coding-tools.isolated-sandbox'),
   memory: surfaces('coding-tools.memory'),
+  plan: surfaces('coding-tools.plan'),
 };
 
 export const BUILTIN_AGENT_TYPE_COVERAGE: Readonly<Record<string, CoverageDisposition>> = {

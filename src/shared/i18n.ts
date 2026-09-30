@@ -1228,6 +1228,8 @@ export const zhTranslations: Record<string, string> = {
     '此操作不可撤销。归档可以让它不再出现在检索里,同时保留内容。',
   'Long-term memory: the agent can search, capture and consolidate durable decisions, preferences and lessons across sessions':
     '长期记忆:agent 可跨会话检索、记录与归纳持久的决策、偏好与经验',
+  'Plan mode: research read-only, submit a plan for approval, then carry it out after approval':
+    'Plan 模式：只读调研并提交计划，审批通过后再执行',
   'Run JavaScript in an isolated sandbox that can call session tools. Intermediate reads and edits stay out of the chat; only the returned value is added to the conversation.':
     '在隔离沙箱里跑 JavaScript，并可调用会话工具。中间的读取和修改不会进对话，只有返回值会留下。',
   Workflow: '工作流',
